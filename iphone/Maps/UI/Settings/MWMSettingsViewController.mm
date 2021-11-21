@@ -30,8 +30,8 @@ using namespace power_management;
 @property(weak, nonatomic) IBOutlet SettingsTableViewLinkCell *voiceInstructionsCell;
 @property(weak, nonatomic) IBOutlet SettingsTableViewLinkCell *drivingOptionsCell;
 
-@property(weak, nonatomic) IBOutlet SettingsTableViewLinkCell *helpCell;
-@property(weak, nonatomic) IBOutlet SettingsTableViewLinkCell *aboutCell;
+//@property(weak, nonatomic) IBOutlet SettingsTableViewLinkCell *helpCell;
+//@property(weak, nonatomic) IBOutlet SettingsTableViewLinkCell *aboutCell;
 
 @end
 
@@ -51,7 +51,7 @@ using namespace power_management;
   [self configProfileSection];
   [self configCommonSection];
   [self configNavigationSection];
-  [self configInfoSection];
+//  [self configInfoSection];
 }
 
 - (void)configProfileSection {
@@ -184,10 +184,10 @@ using namespace power_management;
   [self.drivingOptionsCell configWithTitle:L(@"driving_options_title") info:@""];
 }
 
-- (void)configInfoSection {
-  [self.helpCell configWithTitle:L(@"help") info:nil];
-  [self.aboutCell configWithTitle:L(@"about_menu_title") info:nil];
-}
+//- (void)configInfoSection {
+//  [self.helpCell configWithTitle:L(@"help") info:nil];
+//  [self.aboutCell configWithTitle:L(@"about_menu_title") info:nil];
+//}
 
 #pragma mark - SettingsTableViewSwitchCellDelegate
 
@@ -243,10 +243,10 @@ using namespace power_management;
     [self performSegueWithIdentifier:@"SettingsToTTSSegue" sender:nil];
   } else if (cell == self.drivingOptionsCell) {
     [self performSegueWithIdentifier:@"settingsToDrivingOptionsSegue" sender:nil];
-  } else if (cell == self.helpCell) {
-    [self performSegueWithIdentifier:@"SettingsToHelp" sender:nil];
-  } else if (cell == self.aboutCell) {
-    [self performSegueWithIdentifier:@"SettingsToAbout" sender:nil];
+//  } else if (cell == self.helpCell) {
+//    [self performSegueWithIdentifier:@"SettingsToHelp" sender:nil];
+//  } else if (cell == self.aboutCell) {
+//    [self performSegueWithIdentifier:@"SettingsToAbout" sender:nil];
   }
 }
 
