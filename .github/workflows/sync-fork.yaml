@@ -17,3 +17,5 @@ jobs:
           owner: untimished
           base: master
           head: master
+          retries: 1
+          retryAfter: 10
