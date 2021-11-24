@@ -18,4 +18,4 @@ jobs:
           base: master
           head: master
           retries: 1
-          retryAfter: 10
+          retry_after: 10
