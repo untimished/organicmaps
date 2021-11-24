@@ -1,0 +1,103 @@
+name: GTFS Android Check
+on:
+  workflow_dispatch: # Manual trigger
+  pull_request:
+    paths-ignore:
+      - .gitignore
+      - .github/**
+      - '**/*_tests/**'
+      - CONTRIBUTORS
+      - LICENSE
+      - NOTICE
+      - README.md
+      - iphone/**
+      - xcode/**
+      - docs/**
+      - generator/**
+      - packaging/**
+      - pyhelpers/**
+      - qt*/**
+      - skin_generator/**
+      - track_generator/**
+
+jobs:
+  android-check:
+    name: Build Android Debug
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install build tools and dependencies
+        shell: bash
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ninja-build
+
+      - name: Set up JDK 11
+        uses: actions/setup-java@v1
+        with:
+          java-version: 11
+
+      - name: Checkout sources
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 100 # enough to get all commits for the current day
+
+      - name: Parallel submodules checkout
+        shell: bash
+        run: git submodule update --init --recursive --jobs=$(($(nproc) * 2))
+        
+      # https://github.com/organicmaps/organicmaps/blob/master/docs/EXPERIMENTAL_PUBLIC_TRANSPORT_SUPPORT.md
+      - name: GTFS download data
+        shell: bash
+        working-directory: tools/python/transit/gtfs/
+        # run: python3 ./download_gtfs.py --path=dir_for_storing_feeds --mode=fullrun --source=all --omd_api_key=YOUR_KEY_FOR_OPEN_MOBILITY_DATA_API
+        run: python3 ./download_gtfs.py --path=dir_for_storing_feeds --mode=fullrun --source=transitland
+        
+      - name: GTFS build converter
+        shell: bash
+        working-directory: transit/world_feed/gtfs_converter/
+        run: |
+          cmake
+          ninja
+        
+      - name: GTFS run converter
+        shell: bash
+        working-directory: transit/world_feed/gtfs_converter/
+        # run: ./gtfs_converter --path_mapping=mapping.txt --path_mapping_edges=mapping_edges.txt --path_gtfs_feeds=dir_for_storing_feeds --path_subway_json=subway_latest.json --path_json=result_json_dir --path_resources=omim/data
+        run: ./gtfs_converter --path_mapping=mapping.txt --path_mapping_edges=mapping_edges.txt --path_gtfs_feeds=dir_for_storing_feeds --path_json=result_json_dir --path_resources=omim/data
+        
+        # tools/python/maps_generator/var/etc/map_generator.ini.default ???
+        # in map_generator.ini
+        # uncomment SUBWAY_URL parameter and set TRANSIT_URL parameter to the directory created on the previous step. Example: TRANSIT_URL: file:///home/result_json_dir
+
+      - name: Configure in Open Source mode
+        shell: bash
+        run: ./configure.sh
+
+      - name: Set up SDK
+        shell: bash
+        run: (cd tools/android; ./set_up_android.py --sdk $ANDROID_SDK_ROOT)
+
+      - name: Compile
+        shell: bash
+        working-directory: android
+        run: |
+          cmake --version
+          ninja --version
+          ./gradlew -Parm64 assembleWebDebug
+
+      - name: Upload arm64-v8a debug apk
+        uses: actions/upload-artifact@v2
+        with:
+          name: android-web-arm64-v8a-debug
+          path: android/build/outputs/apk/web/debug/OrganicMaps-*-web-debug.apk
+          if-no-files-found: error
+
+  android-check-metadata:
+    name: Check app metadata
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Check metadata
+        run: ./tools/python/check_store_metadata.py android
