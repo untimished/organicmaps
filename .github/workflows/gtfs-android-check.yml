@@ -55,7 +55,7 @@ jobs:
         # run: python3 ./download_gtfs.py --path=dir_for_storing_feeds --mode=fullrun --source=all --omd_api_key=YOUR_KEY_FOR_OPEN_MOBILITY_DATA_API
         run: |
           mkdir ./gtfs_feeds
-          GTFS_FEEDS_PATH=$(pwd)gtfs_feeds
+          GTFS_FEEDS_PATH=$(pwd)/gtfs_feeds
           cd tools/python/transit/gtfs/
           python3 ./download_gtfs.py --path=$GTFS_FEEDS_PATH --mode=fullrun --source=transitland --transitland_api_key="$SECRET_TRANSITLAND_API"
         
@@ -71,7 +71,7 @@ jobs:
         # working-directory: transit/world_feed/gtfs_converter/
         # run: ./gtfs_converter --path_mapping=mapping.txt --path_mapping_edges=mapping_edges.txt --path_gtfs_feeds=dir_for_storing_feeds --path_subway_json=subway_latest.json --path_json=result_json_dir --path_resources=omim/data
         run: |
-          GTFS_FEEDS_PATH=$(pwd)gtfs_feeds
+          GTFS_FEEDS_PATH=$(pwd)/gtfs_feeds
           cd transit/world_feed/gtfs_converter/
           ./gtfs_converter --path_mapping=mapping.txt --path_mapping_edges=mapping_edges.txt --path_gtfs_feeds=$GTFS_FEEDS_PATH --path_json=result_json_dir --path_resources=omim/data
         
