@@ -49,8 +49,12 @@ jobs:
       - name: GTFS download data
         shell: bash
         working-directory: tools/python/transit/gtfs/
+        env:
+          SECRET_TRANSITLAND_API: ${{ secrets.SECRET_TRANSITLAND_API }}
+          # SECRET_OMD_API: ${{ secrets.SECRET_OMD_API }}
         # run: python3 ./download_gtfs.py --path=dir_for_storing_feeds --mode=fullrun --source=all --omd_api_key=YOUR_KEY_FOR_OPEN_MOBILITY_DATA_API
-        run: python3 ./download_gtfs.py --path=dir_for_storing_feeds --mode=fullrun --source=transitland
+        run: |
+          python3 ./download_gtfs.py --path=dir_for_storing_feeds --mode=fullrun --source=transitland --transitland_api_key="$SECRET_TRANSITLAND_API"
         
       - name: GTFS build converter
         shell: bash
