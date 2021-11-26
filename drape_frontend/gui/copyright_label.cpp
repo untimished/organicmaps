@@ -77,7 +77,7 @@ drape_ptr<ShapeRenderer> CopyrightLabel::Draw(ref_ptr<dp::GraphicsContext> conte
                                               ref_ptr<dp::TextureManager> tex) const
 {
   StaticLabel::LabelResult result;
-  StaticLabel::CacheStaticText("Map data © OpenStreetMap", "", m_position.m_anchor,
+  StaticLabel::CacheStaticText("Map data © OpenStreetMap & GTFS data from Transitland https://www.transit.land/terms", "", m_position.m_anchor,
                                DrapeGui::GetGuiTextFont(), tex, result);
 
   dp::AttributeProvider provider(1 /*stream count*/, static_cast<uint32_t>(result.m_buffer.size()));
