@@ -45,6 +45,10 @@ jobs:
         shell: bash
         run: git submodule update --init --recursive --jobs=$(($(nproc) * 2))
         
+      - name: Configure in Open Source mode
+        shell: bash
+        run: ./configure.sh
+        
       # https://github.com/organicmaps/organicmaps/blob/master/docs/EXPERIMENTAL_PUBLIC_TRANSPORT_SUPPORT.md
       - name: GTFS download data
         shell: bash
@@ -80,10 +84,6 @@ jobs:
         # tools/python/maps_generator/var/etc/map_generator.ini.default ???
         # in map_generator.ini
         # uncomment SUBWAY_URL parameter and set TRANSIT_URL parameter to the directory created on the previous step. Example: TRANSIT_URL: file:///home/result_json_dir
-
-      - name: Configure in Open Source mode
-        shell: bash
-        run: ./configure.sh
 
       - name: Set up SDK
         shell: bash
