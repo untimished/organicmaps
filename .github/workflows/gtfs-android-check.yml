@@ -60,7 +60,7 @@ jobs:
           path: ../omim-build-release/
           # key: omim-build-${{ git rev-list HEAD -1 ./transit/world_feed/ }}
           # key: omim-build-${{ hashFiles(format('{0}{1}', github.workspace, '/transit/world_feed/')) }}
-          key: omim-build-${{ hashFiles(transit/world_feed/**) }}
+          key: omim-build-${{ hashFiles('transit/world_feed/**') }}
         
       - name: GTFS build converter
         if: steps.build-cache.outputs.cache-hit != 'true'
