@@ -98,7 +98,8 @@ jobs:
           # cd ../organicmaps
           # cd ../omim-build-release/transit/world_feed/gtfs_converter/
           # cd ../omim-build-release/transit/world_feed/gtfs_converter/
-          ../omim-build-release/transit/world_feed/gtfs_converter/gtfs_converter --path_mapping=mapping.txt --path_mapping_edges=mapping_edges.txt --path_gtfs_feeds=$GTFS_FEEDS_PATH --path_json=result_json_dir --path_resources=omim/data
+          du -a ../omim-build-release/
+          ../omim-build-release/transit/world_feed/gtfs_converter --path_mapping=mapping.txt --path_mapping_edges=mapping_edges.txt --path_gtfs_feeds=$GTFS_FEEDS_PATH --path_json=result_json_dir --path_resources=omim/data
         
         # tools/python/maps_generator/var/etc/map_generator.ini.default ???
         # in map_generator.ini
