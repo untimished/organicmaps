@@ -50,7 +50,18 @@ jobs:
         shell: bash
         run: ./configure.sh
         
+      # ls -lAgGR --block-size=1 --time-style=+%s ./path | sha1sum
+      # git rev-list HEAD -1 ./path
+
+      - name: Cache Build Files
+        id: build-cache
+        uses: actions/cache@v2
+        with:
+          path: ../omim-build-release/
+          key: omim-build-${{ git rev-list HEAD -1 ./transit/world_feed/ }}
+        
       - name: GTFS build converter
+        if: steps.build-cache.outputs.cache-hit != 'true'
         shell: bash
         # working-directory: transit/world_feed/gtfs_converter/
         run: |
@@ -79,11 +90,11 @@ jobs:
         # run: ./gtfs_converter --path_mapping=mapping.txt --path_mapping_edges=mapping_edges.txt --path_gtfs_feeds=dir_for_storing_feeds --path_subway_json=subway_latest.json --path_json=result_json_dir --path_resources=omim/data
         run: |
           GTFS_FEEDS_PATH=$(pwd)/gtfs_feeds
-          cd ../omim-build-release/
-          ls .
-          du -a .
+          # cd ../omim-build-release/
+          # ls .
+          # du -a .
+          # cd ../organicmaps
           # cd ../omim-build-release/transit/world_feed/gtfs_converter/
-          cd organicmaps
           # cd ../omim-build-release/transit/world_feed/gtfs_converter/
           ../omim-build-release/transit/world_feed/gtfs_converter/gtfs_converter --path_mapping=mapping.txt --path_mapping_edges=mapping_edges.txt --path_gtfs_feeds=$GTFS_FEEDS_PATH --path_json=result_json_dir --path_resources=omim/data
         
