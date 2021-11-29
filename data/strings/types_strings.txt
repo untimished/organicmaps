@@ -11238,7 +11238,7 @@
     pl = Skrzyżowanie
     pt = Cruzamento
     pt-BR = Cruzamento
-    ru = Перекрёсткок
+    ru = Перекрёсток
     zh-Hans = 交叉口
 
   [type.junction.roundabout]
@@ -12086,7 +12086,7 @@
     ja = マリーナ
     pt = Marina
     pt-BR = Marina
-    ru = Причал для яхт
+    ru = Причал
     zh-Hans = 游艇码头
 
   [type.leisure.nature_reserve]
@@ -12636,7 +12636,7 @@
     ja = トラック
     pt = Pista para desportos não motorizados
     pt-BR = Pista para esportes não motorizados
-    ru = Дорожка
+    ru = Беговая дорожка
     zh-Hans = 賽道
 
   [type.leisure.water_park]
@@ -13151,6 +13151,18 @@
     zh-Hans = 海滩
     zh-Hant = 海灘
 
+  [type.natural.beach.sand]
+    en = Sandy Beach
+    be = Пяшчаны пляж
+    ru = Песчаный пляж
+    uk = Піщаний пляж
+
+  [type.natural.beach.gravel]
+    en = Gravel Beach
+    be = Галечны пляж
+    ru = Галечный пляж
+    uk = Гальковий пляж
+
   [type.natural.cape]
     en = Cape
     ar = رأس
@@ -13395,31 +13407,117 @@
     zh-Hans = 湖
     zh-Hant = 湖泊
 
+  [type.natural.water.pond]
+    en = Pond
+    ar = بركة
+    be = Сажалка
+    cs = Rybník
+    da = Dam
+    de = Teich
+    el = Δεξαμενή
+    es = Estanque
+    fa = تالاب
+    fi = Lampi
+    fr = Étang
+    hu = Tavacska
+    id = Kolam
+    it = Stagno
+    ja = 池
+    ko = 연못이
+    nb = Dam
+    nl = Plas
+    pl = Staw
+    pt = Lagoa
+    pt-BR = Lagoa
+    ro = Heleșteu
+    ru = Пруд
+    sk = Rybník
+    sv = Damm
+    th = บ่อ
+    tr = Gölet
+    uk = Ставок
+    vi = Ao
+    zh-Hans = 池塘
+    zh-Hant = 潭
+
+  [type.natural.water.reservoir]
+    en = Reservoir
+    be = Вадасховішча
+    de = Reservoir
+    es = Embalse
+    ru = Водохранилище
+    uk = Водосховище
+
+  [type.natural.water.basin]
+    en = Basin
+    be = Рэзервуар
+    ru = Резервуар
+    uk = Резервуар
+
+  [type.natural.water.river]
+    en = River
+    be = Рака
+    ar = نهر
+    cs = Řeka
+    da = Flod
+    de = Fluss
+    el = Ποταμός
+    es = Río
+    fa = رودخانه
+    fi = Joki
+    fr = Rivière
+    hu = Folyó
+    id = Sungai
+    it = Fiume
+    ja = 河川
+    ko = 강
+    nb = Elv
+    nl = Rivier
+    pl = Rzeka
+    pt = Rio
+    pt-BR = Rio
+    ro = Râu
+    ru = Река
+    sk = Rieka
+    sv = Flod
+    th = แม่น้ำ
+    tr = Nehir
+    uk = Річка
+    vi = Sông
+    zh-Hans = 河流
+    zh-Hant = 河流
+
   [type.natural.land]
     en = Land
+    be = Суша
     ja = 陸地
     nl = Land
     pt = Campo
     pt-BR = Campo
-    ru = Земля
+    ru = Суша
+    uk = Суша
 
   [type.natural.meadow]
     en = Meadow
+    be = Луг
     ja = 牧草地
     nl = Weiland
     pl = Łąka
     pt = Pradaria
     pt-BR = Pradaria
     ru = Луг
+    uk = Луг
 
   [type.natural.orchard]
     en = Orchard
+    be = Сад
     ja = 果樹園
     nl = Boomgaard
     pl = Sad
     pt = Pomar
     pt-BR = Pomar
-    ru = Фруктовый сад
+    ru = Сад
+    uk = Сад
 
   [type.natural.peak]
     en = Peak
@@ -13460,38 +13558,6 @@
     it = Sella
     ru = Седловина
     uk = Сідловина
-
-  [type.natural.water.pond]
-    en = Pond
-    ar = بركة
-    cs = Rybník
-    da = Dam
-    de = Teich
-    el = Δεξαμενή
-    es = Estanque
-    fa = تالاب
-    fi = Lampi
-    fr = Étang
-    hu = Tavacska
-    id = Kolam
-    it = Stagno
-    ja = 池
-    ko = 연못이
-    nb = Dam
-    nl = Plas
-    pl = Staw
-    pt = Lagoa
-    pt-BR = Lagoa
-    ro = Heleșteu
-    ru = Пруд
-    sk = Rybník
-    sv = Damm
-    th = บ่อ
-    tr = Gölet
-    uk = Ставок
-    vi = Ao
-    zh-Hans = 池塘
-    zh-Hant = 潭
 
   [type.natural.rock]
     en = Rock
@@ -20144,6 +20210,7 @@
 
   [type.waterway.river]
     en = River
+    be = Рака
     ar = نهر
     cs = Řeka
     da = Flod
@@ -20176,6 +20243,7 @@
 
   [type.waterway.river.tunnel]
     en = River
+    be = Рака
     ar = نهر
     cs = Řeka
     da = Flod
@@ -20208,6 +20276,7 @@
 
   [type.waterway.riverbank]
     en = River
+    be = Рака
     ar = نهر
     cs = Řeka
     da = Flod
@@ -20240,6 +20309,7 @@
 
   [type.waterway.stream]
     en = River
+    be = Рака
     ar = نهر
     cs = Řeka
     da = Flod
@@ -20272,6 +20342,7 @@
 
   [type.waterway.stream.ephemeral]
     en = River
+    be = Рака
     ar = نهر
     cs = Řeka
     da = Flod
@@ -20304,6 +20375,7 @@
 
   [type.waterway.stream.intermittent]
     en = River
+    be = Рака
     ar = نهر
     cs = Řeka
     da = Flod
@@ -20336,6 +20408,7 @@
 
   [type.waterway.stream.tunnel]
     en = River
+    be = Рака
     ar = نهر
     cs = Řeka
     da = Flod
