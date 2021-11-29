@@ -79,9 +79,10 @@ jobs:
         # run: ./gtfs_converter --path_mapping=mapping.txt --path_mapping_edges=mapping_edges.txt --path_gtfs_feeds=dir_for_storing_feeds --path_subway_json=subway_latest.json --path_json=result_json_dir --path_resources=omim/data
         run: |
           GTFS_FEEDS_PATH=$(pwd)/gtfs_feeds
-          ls .
-          du -a .
+          # ls .
+          # du -a .
           # cd omim-build-release/transit/world_feed/gtfs_converter/
+          cd omim-build-release/
           ./gtfs_converter --path_mapping=mapping.txt --path_mapping_edges=mapping_edges.txt --path_gtfs_feeds=$GTFS_FEEDS_PATH --path_json=result_json_dir --path_resources=omim/data
         
         # tools/python/maps_generator/var/etc/map_generator.ini.default ???
