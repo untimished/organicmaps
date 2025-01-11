@@ -4,89 +4,59 @@
 #include "map/user_mark_id_storage.hpp"
 
 #include "geometry/mercator.hpp"
+#include "geometry/rect_intersect.hpp"
 
 #include <utility>
 
 namespace
 {
-bool GetTrackPoint(std::vector<geometry::PointWithAltitude> const & points,
-                   std::vector<double> const & lengths, double distanceInMeters, m2::PointD & pt)
-{
-  CHECK_GREATER_OR_EQUAL(distanceInMeters, 0.0, ());
-  CHECK_EQUAL(points.size(), lengths.size(), ());
-
-  double const kEpsMeters = 1e-2;
-  if (base::AlmostEqualAbs(distanceInMeters, lengths.front(), kEpsMeters))
-  {
-    pt = points.front().GetPoint();
-    return true;
-  }
-
-  if (base::AlmostEqualAbs(distanceInMeters, lengths.back(), kEpsMeters))
-  {
-    pt = points.back().GetPoint();
-    return true;
-  }
-
-  auto const it = std::lower_bound(lengths.begin(), lengths.end(), distanceInMeters);
-  if (it == lengths.end())
-    return false;
-
-  auto const pointIndex = std::distance(lengths.begin(), it);
-  auto const length = *it;
-
-  auto const segmentLength = length - lengths[pointIndex - 1];
-  auto const k = (segmentLength - (length - distanceInMeters)) / segmentLength;
-
-  auto const & pt1 = points[pointIndex - 1].GetPoint();
-  auto const & pt2 = points[pointIndex].GetPoint();
-  pt = pt1 + (pt2 - pt1) * k;
-
-  return true;
-}
-
-double GetLengthInMeters(std::vector<geometry::PointWithAltitude> const & points, size_t pointIndex)
+double GetLengthInMeters(kml::MultiGeometry::LineT const & points, size_t pointIndex)
 {
   CHECK_LESS(pointIndex, points.size(), (pointIndex, points.size()));
 
   double length = 0.0;
   for (size_t i = 1; i <= pointIndex; ++i)
   {
-  auto const & pt1 = points[i - 1].GetPoint();
-  auto const & pt2 = points[i].GetPoint();
-  auto const segmentLength = mercator::DistanceOnEarth(pt1, pt2);
-  length += segmentLength;
+    auto const & pt1 = points[i - 1].GetPoint();
+    auto const & pt2 = points[i].GetPoint();
+    auto const segmentLength = mercator::DistanceOnEarth(pt1, pt2);
+    length += segmentLength;
   }
   return length;
 }
 }  // namespace
 
-Track::Track(kml::TrackData && data, bool interactive)
+Track::Track(kml::TrackData && data)
   : Base(data.m_id == kml::kInvalidTrackId ? UserMarkIdStorage::Instance().GetNextTrackId() : data.m_id)
   , m_data(std::move(data))
 {
   m_data.m_id = GetId();
-  CHECK_GREATER(m_data.m_pointsWithAltitudes.size(), 1, ());
-  if (interactive && HasAltitudes())
-    CacheDataForInteraction();
+  CHECK(m_data.m_geometry.IsValid(), ());
 }
 
-void Track::CacheDataForInteraction()
+void Track::CacheDataForInteraction() const
 {
   m_interactionData = InteractionData();
   m_interactionData->m_lengths = GetLengthsImpl();
   m_interactionData->m_limitRect = GetLimitRectImpl();
 }
 
-std::vector<double> Track::GetLengthsImpl() const
+std::vector<Track::Lengths> Track::GetLengthsImpl() const
 {
-  std::vector<double> lengths(m_data.m_pointsWithAltitudes.size(), 0.0);
-  for (size_t i = 1; i < m_data.m_pointsWithAltitudes.size(); ++i)
+  double distance = 0;
+  std::vector<Lengths> lengths;
+  for (auto const & line : m_data.m_geometry.m_lines)
   {
-    auto const & pt1 = m_data.m_pointsWithAltitudes[i - 1].GetPoint();
-    auto const & pt2 = m_data.m_pointsWithAltitudes[i].GetPoint();
-    auto const segmentLength = mercator::DistanceOnEarth(pt1, pt2);
-    lengths[i] = lengths[i - 1] + segmentLength;
+    Lengths lineLengths;
+    lineLengths.emplace_back(distance);
+    for (size_t j = 1; j < line.size(); ++j)
+    {
+      auto const & pt1 = line[j - 1].GetPoint();
+      auto const & pt2 = line[j].GetPoint();
+      distance += mercator::DistanceOnEarth(pt1, pt2);
+      lineLengths.emplace_back(distance);
+    }
+    lengths.emplace_back(std::move(lineLengths));
   }
   return lengths;
 }
@@ -94,20 +64,27 @@ std::vector<double> Track::GetLengthsImpl() const
 m2::RectD Track::GetLimitRectImpl() const
 {
   m2::RectD limitRect;
-  for (auto const & pt : m_data.m_pointsWithAltitudes)
-    limitRect.Add(pt.GetPoint());
+  for (auto const & line : m_data.m_geometry.m_lines)
+  {
+    for (auto const & pt : line)
+      limitRect.Add(pt.GetPoint());
+  }
   return limitRect;
 }
 
 bool Track::HasAltitudes() const
 {
   bool hasNonDefaultAltitude = false;
-  for (auto const & pt : m_data.m_pointsWithAltitudes)
+
+  for (auto const & line : m_data.m_geometry.m_lines)
   {
-    if (pt.GetAltitude() == geometry::kInvalidAltitude)
-      return false;
-    if (!hasNonDefaultAltitude && pt.GetAltitude() != geometry::kDefaultAltitudeMeters)
-      hasNonDefaultAltitude = true;
+    for (auto const & pt : line)
+    {
+      if (pt.GetAltitude() == geometry::kInvalidAltitude)
+        return false;
+      if (!hasNonDefaultAltitude && pt.GetAltitude() != geometry::kDefaultAltitudeMeters)
+        hasNonDefaultAltitude = true;
+    }
   }
 
   return hasNonDefaultAltitude;
@@ -123,6 +100,17 @@ void Track::SetName(std::string const & name)
     kml::SetDefaultStr(m_data.m_name, name);
 }
 
+std::string Track::GetDescription() const
+{
+  return GetPreferredBookmarkStr(m_data.m_description);
+}
+
+void Track::setData(kml::TrackData const & data)
+{
+  m_isDirty = true;
+  m_data = data;
+}
+
 m2::RectD Track::GetLimitRect() const
 {
   if (m_interactionData)
@@ -133,25 +121,51 @@ m2::RectD Track::GetLimitRect() const
 double Track::GetLengthMeters() const
 {
   if (m_interactionData)
-    return m_interactionData->m_lengths.back();
+    return m_interactionData->m_lengths.back().back();
 
-  return GetLengthInMeters(m_data.m_pointsWithAltitudes, m_data.m_pointsWithAltitudes.size() - 1);
+  double len = 0;
+  for (auto const & line : m_data.m_geometry.m_lines)
+    len += GetLengthInMeters(line, line.size() - 1);
+  return len;
 }
 
-double Track::GetLengthMeters(size_t pointIndex) const
+double Track::GetLengthMetersImpl(size_t lineIndex, size_t ptIndex) const
 {
-  if (m_interactionData)
+  if (!m_interactionData)
+    CacheDataForInteraction();
+  auto const & lineLengths = m_interactionData->m_lengths[lineIndex];
+  return lineLengths[ptIndex];
+}
+
+void Track::UpdateSelectionInfo(m2::RectD const & touchRect, TrackSelectionInfo & info) const
+{
+  if (m_interactionData && !m_interactionData->m_limitRect.IsIntersect(touchRect))
+    return;
+
+  for (size_t lineIndex = 0; lineIndex < m_data.m_geometry.m_lines.size(); ++lineIndex)
   {
-    CHECK_LESS(pointIndex, m_interactionData->m_lengths.size(), ());
-    return m_interactionData->m_lengths[pointIndex];
+    auto const & line = m_data.m_geometry.m_lines[lineIndex];
+    for (size_t ptIndex = 0; ptIndex + 1 < line.size(); ++ptIndex)
+    {
+      auto pt1 = line[ptIndex].GetPoint();
+      auto pt2 = line[ptIndex + 1].GetPoint();
+      if (!m2::Intersect(touchRect, pt1, pt2))
+        continue;
+
+      m2::ParametrizedSegment<m2::PointD> seg(pt1, pt2);
+      auto const closestPoint = seg.ClosestPointTo(touchRect.Center());
+      auto const squaredDist = closestPoint.SquaredLength(touchRect.Center());
+      if (squaredDist >= info.m_squareDist)
+        continue;
+
+      info.m_squareDist = squaredDist;
+      info.m_trackId = m_data.m_id;
+      info.m_trackPoint = closestPoint;
+
+      auto const segDistInMeters = mercator::DistanceOnEarth(line[ptIndex].GetPoint(), closestPoint);
+      info.m_distFromBegM = segDistInMeters + GetLengthMetersImpl(lineIndex, ptIndex);
+    }
   }
-
-  return GetLengthInMeters(m_data.m_pointsWithAltitudes, pointIndex);
-}
-
-bool Track::IsInteractive() const
-{
-  return m_interactionData.has_value();
 }
 
 df::DepthLayer Track::GetDepthLayer() const
@@ -170,6 +184,12 @@ dp::Color Track::GetColor(size_t layerIndex) const
   return dp::Color(m_data.m_layers[layerIndex].m_color.m_rgba);
 }
 
+void Track::SetColor(dp::Color color)
+{
+  m_isDirty = true;
+  m_data.m_layers[0].m_color.m_rgba = color.GetRGBA();
+}
+
 float Track::GetWidth(size_t layerIndex) const
 {
   CHECK_LESS(layerIndex, m_data.m_layers.size(), ());
@@ -181,19 +201,17 @@ float Track::GetDepth(size_t layerIndex) const
   return layerIndex * 10;
 }
 
-std::vector<m2::PointD> Track::GetPoints() const
+void Track::ForEachGeometry(GeometryFnT && fn) const
 {
-  std::vector<m2::PointD> result;
-  result.reserve(m_data.m_pointsWithAltitudes.size());
-  for (auto const & pt : m_data.m_pointsWithAltitudes)
-    result.push_back(pt.GetPoint());
+  for (auto const & line : m_data.m_geometry.m_lines)
+  {
+    std::vector<m2::PointD> points;
+    points.reserve(line.size());
+    for (auto const & pt : line)
+      points.push_back(pt.GetPoint());
 
-  return result;
-}
-
-std::vector<geometry::PointWithAltitude> const & Track::GetPointsWithAltitudes() const
-{
-  return m_data.m_pointsWithAltitudes;
+    fn(std::move(points));
+  }
 }
 
 void Track::Attach(kml::MarkGroupId groupId)
@@ -207,14 +225,36 @@ void Track::Detach()
   m_groupID = kml::kInvalidMarkGroupId;
 }
 
-bool Track::GetPoint(double distanceInMeters, m2::PointD & pt) const
+kml::MultiGeometry::LineT Track::GetGeometry() const
 {
-  if (m_interactionData)
+  kml::MultiGeometry::LineT geometry;
+  for (auto const & line : m_data.m_geometry.m_lines)
   {
-    return GetTrackPoint(m_data.m_pointsWithAltitudes, m_interactionData->m_lengths,
-                         distanceInMeters, pt);
+    for (size_t i = 0; i < line.size(); ++i)
+      geometry.emplace_back(line[i]);
   }
+  return geometry;
+}
 
-  auto const lengths = GetLengthsImpl();
-  return GetTrackPoint(m_data.m_pointsWithAltitudes, lengths, distanceInMeters, pt);
+std::optional<ElevationInfo> Track::GetElevationInfo() const
+{
+  if (!HasAltitudes())
+    return std::nullopt;
+  if (!m_elevationInfo)
+    m_elevationInfo = ElevationInfo(GetData().m_geometry);
+  return m_elevationInfo;
+}
+
+double Track::GetDurationInSeconds() const
+{
+  double duration = 0.0;
+  if (!m_data.m_geometry.HasTimestamps())
+    return duration;
+  for (size_t i = 0; i < m_data.m_geometry.m_timestamps.size(); ++i)
+  {
+    ASSERT(m_data.m_geometry.HasTimestampsFor(i), ());
+    auto const & timestamps = m_data.m_geometry.m_timestamps[i];
+    duration += timestamps.back() - timestamps.front();
+  }
+  return duration;
 }

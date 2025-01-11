@@ -21,31 +21,18 @@
 #include "platform/local_country_file.hpp"
 #include "platform/local_country_file_utils.hpp"
 #include "platform/platform.hpp"
-#include "platform/preferred_languages.hpp"
 
 #include "geometry/distance_on_sphere.hpp"
-#include "geometry/latlon.hpp"
 
 #include "base/math.hpp"
 #include "base/stl_helpers.hpp"
 
-#include "private.h"
 
-#include <functional>
-#include <limits>
-#include <map>
-#include <memory>
-#include <set>
-#include <tuple>
-#include <utility>
-
+namespace integration
+{
 using namespace routing;
 using namespace routing_test;
 using namespace std;
-
-using TRouterFactory =
-    function<unique_ptr<IRouter>(DataSource & dataSource, TCountryFileFn const & countryFileFn,
-                                 shared_ptr<NumMwmIds> numMwmIds)>;
 
 namespace
 {
@@ -53,8 +40,6 @@ double constexpr kErrorMeters = 1.0;
 double constexpr kErrorSeconds = 1.0;
 }  // namespace
 
-namespace integration
-{
 shared_ptr<FeaturesFetcher> CreateFeaturesFetcher(vector<LocalCountryFile> const & localFiles)
 {
   size_t const maxOpenFileNumber = 4096;
@@ -118,25 +103,30 @@ unique_ptr<IndexRouter> CreateVehicleRouter(DataSource & dataSource,
 
 void GetAllLocalFiles(vector<LocalCountryFile> & localFiles)
 {
-  // Setting stored paths from testingmain.cpp
-  Platform & pl = GetPlatform();
-  CommandLineOptions const & options = GetTestingOptions();
-  if (options.m_dataPath)
-    pl.SetWritableDirForTests(options.m_dataPath);
-  if (options.m_resourcePath)
-    pl.SetResourceDir(options.m_resourcePath);
+  platform::FindAllLocalMapsAndCleanup(numeric_limits<int64_t>::max() /* latestVersion */, localFiles);
 
-  platform::FindAllLocalMapsAndCleanup(numeric_limits<int64_t>::max() /* latestVersion */,
-                                       localFiles);
+  // Leave only real country files for routing test.
+  localFiles.erase(std::remove_if(localFiles.begin(), localFiles.end(), [](LocalCountryFile const & file)
+  {
+    auto const & name = file.GetCountryName();
+    return name == WORLD_FILE_NAME || name == WORLD_COASTS_FILE_NAME;
+  }), localFiles.end());
+
   for (auto & file : localFiles)
     file.SyncWithDisk();
 }
 
-shared_ptr<VehicleRouterComponents> CreateAllMapsComponents(VehicleType vehicleType)
+shared_ptr<VehicleRouterComponents>
+CreateAllMapsComponents(VehicleType vehicleType, std::set<std::string> const & skipMaps)
 {
   vector<LocalCountryFile> localFiles;
   GetAllLocalFiles(localFiles);
-  ASSERT(!localFiles.empty(), ());
+  base::EraseIf(localFiles, [&skipMaps](LocalCountryFile const & cf)
+  {
+    return skipMaps.count(cf.GetCountryName()) > 0;
+  });
+  TEST(!localFiles.empty(), ());
+
   return make_shared<VehicleRouterComponents>(localFiles, vehicleType);
 }
 
@@ -146,7 +136,7 @@ IRouterComponents & GetVehicleComponents(VehicleType vehicleType)
 
   auto it = kVehicleComponents.find(vehicleType);
   if (it == kVehicleComponents.end())
-    tie(it, ignore) = kVehicleComponents.emplace(vehicleType, CreateAllMapsComponents(vehicleType));
+    tie(it, ignore) = kVehicleComponents.emplace(vehicleType, CreateAllMapsComponents(vehicleType, {}));
 
   CHECK(it->second, ());
   return *(it->second);
@@ -170,7 +160,7 @@ TRouteResult CalculateRoute(IRouterComponents const & routerComponents,
 {
   RouterDelegate delegate;
   shared_ptr<Route> route = make_shared<Route>("mapsme", 0 /* route id */);
-  routerComponents.GetRouter().SetGuides(move(guides));
+  routerComponents.GetRouter().SetGuides(std::move(guides));
   RouterResultCode result = routerComponents.GetRouter().CalculateRoute(
       checkpoints, m2::PointD::Zero() /* startDirection */, false /* adjust */, delegate, *route);
   ASSERT(route, ());
@@ -186,21 +176,28 @@ void TestTurnCount(routing::Route const & route, uint32_t expectedTurnCount)
   TEST_EQUAL(turns.size() - 1, expectedTurnCount, ());
 }
 
-void TestCurrentStreetName(routing::Route const & route, string const & expectedStreetName)
+void TestTurns(Route const & route, vector<CarDirection> const & expectedTurns)
 {
-  string streetName;
-  route.GetCurrentStreetName(streetName);
-  TEST_EQUAL(streetName, expectedStreetName, ());
+  vector<turns::TurnItem> turns;
+  route.GetTurnsForTesting(turns);
+  TEST_EQUAL(turns.size() - 1, expectedTurns.size(), ());
+
+  for (size_t i = 0; i < expectedTurns.size(); ++i)
+    TEST_EQUAL(turns[i].m_turn, expectedTurns[i], ());
 }
 
-void TestNextStreetName(routing::Route const & route, string const & expectedStreetName)
+void TestCurrentStreetName(Route const & route, string const & expectedStreetName)
 {
-  string streetName;
-  double distance;
-  turns::TurnItem turn;
-  route.GetCurrentTurn(distance, turn);
-  route.GetStreetNameAfterIdx(turn.m_index, streetName);
-  TEST_EQUAL(streetName, expectedStreetName, ());
+  RouteSegment::RoadNameInfo roadNameInfo;
+  route.GetCurrentStreetName(roadNameInfo);
+  TEST_EQUAL(roadNameInfo.m_name, expectedStreetName, ());
+}
+
+void TestNextStreetName(Route const & route, string const & expectedStreetName)
+{
+  RouteSegment::RoadNameInfo roadNameInfo;
+  route.GetNextTurnStreetName(roadNameInfo);
+  TEST_EQUAL(roadNameInfo.m_name, expectedStreetName, ());
 }
 
 void TestRouteLength(Route const & route, double expectedRouteMeters, double relativeError)
@@ -235,7 +232,7 @@ void CalculateRouteAndTestRouteLength(IRouterComponents const & routerComponents
                                       m2::PointD const & startPoint,
                                       m2::PointD const & startDirection,
                                       m2::PointD const & finalPoint, double expectedRouteMeters,
-                                      double relativeError /* = 0.07 */)
+                                      double relativeError /* = 0.02 */)
 {
   TRouteResult routeResult =
       CalculateRoute(routerComponents, startPoint, startDirection, finalPoint);
@@ -302,7 +299,10 @@ TestTurn GetNthTurn(routing::Route const & route, uint32_t turnNumber)
   vector<turns::TurnItem> turns;
   route.GetTurnsForTesting(turns);
   if (turnNumber >= turns.size())
+  {
+    ASSERT(false, ());
     return TestTurn();
+  }
 
   TurnItem const & turn = turns[turnNumber];
   return TestTurn(route.GetPoly().GetPoint(turn.m_index), turn.m_turn, turn.m_exitNum);

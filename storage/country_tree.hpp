@@ -3,6 +3,8 @@
 #include "storage/country.hpp"
 #include "storage/storage_defines.hpp"
 
+#include "base/buffer_vector.hpp"
+
 #include <functional>
 #include <map>
 #include <memory>
@@ -29,7 +31,7 @@ public:
   public:
     using NodeCallback = std::function<void(Node const &)>;
 
-    Node(Country const & value, Node * parent) : m_value(value), m_parent(parent) {}
+    Node(Country && value, Node * parent) : m_value(std::move(value)), m_parent(parent) {}
 
     Country const & Value() const { return m_value; }
     Country & Value() { return m_value; }
@@ -43,7 +45,7 @@ public:
     /// \param value is a value of node which will be added.
     /// \note This method does not let to add a node to an arbitrary place in the tree.
     /// It's posible to add children only from "right side".
-    Node * AddAtDepth(size_t level, Country const & value);
+    Node * AddAtDepth(size_t level, Country && value);
 
     bool HasParent() const { return m_parent != nullptr; }
 
@@ -74,7 +76,7 @@ public:
     void ForEachAncestorExceptForTheRoot(NodeCallback const & f) const;
 
   private:
-    Node * Add(Country const & value);
+    Node * Add(Country && value);
 
     Country m_value;
 
@@ -91,24 +93,25 @@ public:
 
   Node & GetRoot();
 
-  Country & AddAtDepth(size_t level, Country const & value);
+  Country & AddAtDepth(size_t level, Country && value);
 
   /// Deletes all children and makes tree empty
   void Clear();
 
+  using NodesBufferT = buffer_vector<Node const *, 4>;
   /// \brief Checks all nodes in tree to find an equal one. If there're several equal nodes
   /// returns the first found.
   /// \returns a poiter item in the tree if found and nullptr otherwise.
-  void Find(CountryId const & key, std::vector<Node const *> & found) const;
+  void Find(CountryId const & key, NodesBufferT & found) const;
 
-  Node const * const FindFirst(CountryId const & key) const;
+  Node const * FindFirst(CountryId const & key) const;
 
   /// \brief Find only leaves.
   /// \note It's a termprary fucntion for compatablity with old countries.txt.
   /// When new countries.txt with unique ids will be added FindLeaf will be removed
   /// and Find will be used intead.
   /// @TODO(bykoianko) Remove this method on countries.txt update.
-  Node const * const FindFirstLeaf(CountryId const & key) const;
+  Node const * FindFirstLeaf(CountryId const & key) const;
 
 private:
   std::unique_ptr<Node> m_countryTree;

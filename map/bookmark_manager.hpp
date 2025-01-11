@@ -4,8 +4,9 @@
 #include "map/bookmark_helpers.hpp"
 #include "map/elevation_info.hpp"
 #include "map/track.hpp"
-#include "map/track_mark.hpp"
 #include "map/user_mark_layer.hpp"
+
+#include "search/region_address_getter.hpp"
 
 #include "drape_frontend/drape_engine_safe_ptr.hpp"
 
@@ -25,14 +26,9 @@
 #include <map>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include <string>
 #include <vector>
 
-namespace search
-{
-class RegionAddressGetter;
-}  // namespace search
 
 namespace storage
 {
@@ -136,7 +132,7 @@ public:
     template <typename UserMarkT, typename F>
     void DeleteUserMarks(UserMark::Type type, F && deletePredicate)
     {
-      return m_bmManager.DeleteUserMarks<UserMarkT>(type, std::move(deletePredicate));
+      return m_bmManager.DeleteUserMarks<UserMarkT>(type, std::forward<F>(deletePredicate));
     }
 
     void DeleteUserMark(kml::MarkId markId);
@@ -152,12 +148,14 @@ public:
 
     void AttachBookmark(kml::MarkId bmId, kml::MarkGroupId groupId);
     void DetachBookmark(kml::MarkId bmId, kml::MarkGroupId groupId);
-      
+
     Track * GetTrackForEdit(kml::TrackId trackId);
 
     void MoveTrack(kml::TrackId trackID, kml::MarkGroupId curGroupID, kml::MarkGroupId newGroupID);
     void AttachTrack(kml::TrackId trackId, kml::MarkGroupId groupId);
     void DetachTrack(kml::TrackId trackId, kml::MarkGroupId groupId);
+    void ChangeTrackColor(kml::TrackId trackId, dp::Color color);
+    void UpdateTrack(kml::TrackId trackId, kml::TrackData const & trackData);
 
     void SetCategoryName(kml::MarkGroupId categoryId, std::string const & name);
     void SetCategoryDescription(kml::MarkGroupId categoryId, std::string const & desc);
@@ -165,15 +163,17 @@ public:
     void SetCategoryAccessRules(kml::MarkGroupId categoryId, kml::AccessRules accessRules);
     void SetCategoryCustomProperty(kml::MarkGroupId categoryId, std::string const & key,
                                    std::string const & value);
-    bool DeleteBmCategory(kml::MarkGroupId groupId);
-
+    
+    /// Removes the category from the list of categories and deletes the related file.
+    /// @param permanently If true, the file will be removed from the disk. If false, the file will be marked as deleted and moved into a trash.
+    bool DeleteBmCategory(kml::MarkGroupId groupId, bool permanently);
     void NotifyChanges();
 
   private:
     BookmarkManager & m_bmManager;
   };
 
-  BookmarkManager(Callbacks && callbacks);
+  explicit BookmarkManager(Callbacks && callbacks);
 
   void SetDrapeEngine(ref_ptr<df::DrapeEngine> engine);
 
@@ -226,7 +226,8 @@ public:
   {
     ByType,
     ByDistance,
-    ByTime
+    ByTime,
+    ByName
   };
 
   struct SortedBlock
@@ -264,25 +265,30 @@ public:
   void SetLastSortingType(kml::MarkGroupId groupId, SortingType sortingType);
   void ResetLastSortingType(kml::MarkGroupId groupId);
 
-  bool IsSearchAllowed(kml::MarkGroupId groupId) const;
   void PrepareForSearch(kml::MarkGroupId groupId);
 
   bool IsVisible(kml::MarkGroupId groupId) const;
 
   kml::MarkGroupId CreateBookmarkCategory(kml::CategoryData && data, bool autoSave = true);
   kml::MarkGroupId CreateBookmarkCategory(std::string const & name, bool autoSave = true);
+  void UpdateBookmarkCategory(kml::MarkGroupId & groupId, kml::CategoryData && data, bool autoSave);
 
   BookmarkCategory * CreateBookmarkCompilation(kml::CategoryData && data);
 
   std::string GetCategoryName(kml::MarkGroupId categoryId) const;
   std::string GetCategoryFileName(kml::MarkGroupId categoryId) const;
+  kml::MarkGroupId GetCategoryByFileName(std::string const & fileName) const;
   m2::RectD GetCategoryRect(kml::MarkGroupId categoryId, bool addIconsSize) const;
   kml::CategoryData const & GetCategoryData(kml::MarkGroupId categoryId) const;
 
   kml::MarkGroupId GetCategoryId(std::string const & name) const;
 
-  kml::GroupIdCollection const & GetBmGroupsIdList() const { return m_bmGroupsIdList; }
+  kml::GroupIdCollection const & GetUnsortedBmGroupsIdList() const { return m_unsortedBmGroupsIdList; }
+  kml::GroupIdCollection GetSortedBmGroupIdList() const;
+  size_t GetBmGroupsCount() const { return m_unsortedBmGroupsIdList.size(); };
   bool HasBmCategory(kml::MarkGroupId groupId) const;
+  bool HasBookmark(kml::MarkId markId) const;
+  bool HasTrack(kml::TrackId trackId) const;
   kml::MarkGroupId LastEditedBMCategory();
   kml::PredefinedColor LastEditedBMColor() const;
 
@@ -300,6 +306,7 @@ public:
   /// Scans and loads all kml files with bookmarks.
   void LoadBookmarks();
   void LoadBookmark(std::string const & filePath, bool isTemporaryFile);
+  void ReloadBookmark(std::string const & filePath);
 
   /// Uses the same file name from which was loaded, or
   /// creates unique file name on first save and uses it every time.
@@ -321,32 +328,36 @@ public:
       FileError
     };
 
-    SharingResult(kml::MarkGroupId categoryId, std::string const & sharingPath)
-      : m_categoryId(categoryId)
+    SharingResult(kml::GroupIdCollection && categoriesIds, std::string && sharingPath, const std::string & mimeType)
+      : m_categoriesIds(categoriesIds)
       , m_code(Code::Success)
-      , m_sharingPath(sharingPath)
+      , m_sharingPath(std::move(sharingPath))
+      , m_mimeType(mimeType)
     {}
 
-    SharingResult(kml::MarkGroupId categoryId, Code code)
-      : m_categoryId(categoryId)
+    SharingResult(kml::GroupIdCollection && categoriesIds, Code code)
+      : m_categoriesIds(std::move(categoriesIds))
       , m_code(code)
     {}
 
-    SharingResult(kml::MarkGroupId categoryId, Code code, std::string const & errorString)
-      : m_categoryId(categoryId)
+    SharingResult(kml::GroupIdCollection && categoriesIds, Code code, std::string && errorString)
+      : m_categoriesIds(std::move(categoriesIds))
       , m_code(code)
-      , m_errorString(errorString)
+      , m_errorString(std::move(errorString))
     {}
 
-    kml::MarkGroupId m_categoryId;
+    kml::MarkIdCollection m_categoriesIds;
     Code m_code;
     std::string m_sharingPath;
+    std::string m_mimeType;
     std::string m_errorString;
   };
 
   using SharingHandler = platform::SafeCallback<void(SharingResult const & result)>;
-  void PrepareFileForSharing(kml::MarkGroupId categoryId, SharingHandler && handler);
+  void PrepareFileForSharing(kml::GroupIdCollection && categoriesIds, SharingHandler && handler, KmlFileType kmlFileType);
+  void PrepareAllFilesForSharing(SharingHandler && handler);
 
+  bool AreAllCategoriesEmpty() const;
   bool IsCategoryEmpty(kml::MarkGroupId categoryId) const;
 
   bool IsUsedCategoryName(std::string const & name) const;
@@ -364,16 +375,25 @@ public:
   void FilterInvalidBookmarks(kml::MarkIdCollection & bookmarks) const;
   void FilterInvalidTracks(kml::TrackIdCollection & tracks) const;
 
-  /// These functions are public for unit tests only. You shouldn't call them from client code.
   void EnableTestMode(bool enable);
   bool SaveBookmarkCategory(kml::MarkGroupId groupId);
   bool SaveBookmarkCategory(kml::MarkGroupId groupId, Writer & writer, KmlFileType fileType) const;
-  void CreateCategories(KMLDataCollection && dataCollection, bool autoSave = true);
-  static std::string RemoveInvalidSymbols(std::string const & name, std::string const & defaultName);
-  static std::string GenerateUniqueFileName(std::string const & path, std::string name, std::string const & fileExt);
-  static std::string GenerateValidAndUniqueFilePathForKML(std::string const & fileName);
-  static std::string GetActualBookmarksDirectory();
+
+  bool HasRecentlyDeletedBookmark() const { return m_recentlyDeletedBookmark.operator bool(); };
+  void ResetRecentlyDeletedBookmark();
+  
+  size_t GetRecentlyDeletedCategoriesCount() const;
+  BookmarkManager::KMLDataCollectionPtr GetRecentlyDeletedCategories();
+  bool IsRecentlyDeletedCategory(std::string const & filePath) const;
+
+  void RecoverRecentlyDeletedCategoriesAtPaths(std::vector<std::string> const & filePaths);
+  void DeleteRecentlyDeletedCategoriesAtPaths(std::vector<std::string> const & filePaths);
+
+  // Used for LoadBookmarks() and unit tests only. Does *not* update last modified time.
+  void CreateCategories(KMLDataCollection && dataCollection, bool autoSave = false);
+
   static std::string GetTracksSortedBlockName();
+  static std::string GetBookmarksSortedBlockName();
   static std::string GetOthersSortedBlockName();
   static std::string GetNearMeSortedBlockName();
   enum class SortedByTimeBlockType : uint32_t
@@ -387,9 +407,7 @@ public:
   static std::string GetSortedByTimeBlockName(SortedByTimeBlockType blockType);
   std::string GetLocalizedRegionAddress(m2::PointD const & pt);
 
-  ElevationInfo MakeElevationInfo(kml::TrackId trackId) const;
-
-  void SetElevationActivePoint(kml::TrackId const & trackId, double distanceInMeters);
+  void SetElevationActivePoint(kml::TrackId const & trackId, m2::PointD pt, double distanceInMeters);
   // Returns distance from the start of the track to active point in meters.
   double GetElevationActivePoint(kml::TrackId const & trackId) const;
 
@@ -401,27 +419,12 @@ public:
   void SetElevationActivePointChangedCallback(ElevationActivePointChangedCallback const & cb);
   void SetElevationMyPositionChangedCallback(ElevationMyPositionChangedCallback const & cb);
 
-  struct TrackSelectionInfo
-  {
-    TrackSelectionInfo() = default;
-    TrackSelectionInfo(kml::TrackId trackId, m2::PointD const & trackPoint, double distanceInMeters)
-      : m_trackId(trackId)
-      , m_trackPoint(trackPoint)
-      , m_distanceInMeters(distanceInMeters)
-    {}
-
-    kml::TrackId m_trackId = kml::kInvalidTrackId;
-    m2::PointD m_trackPoint = m2::PointD::Zero();
-    double m_distanceInMeters = 0.0;
-  };
-
   using TracksFilter = std::function<bool(Track const * track)>;
-  TrackSelectionInfo FindNearestTrack(m2::RectD const & touchRect,
-                                      TracksFilter const & tracksFilter = nullptr) const;
-  TrackSelectionInfo GetTrackSelectionInfo(kml::TrackId const & trackId) const;
+  Track::TrackSelectionInfo FindNearestTrack(
+      m2::RectD const & touchRect, TracksFilter const & tracksFilter = nullptr) const;
+  Track::TrackSelectionInfo GetTrackSelectionInfo(kml::TrackId const & trackId) const;
 
-  void SetTrackSelectionInfo(TrackSelectionInfo const & trackSelectionInfo, bool notifyListeners);
-  void SetDefaultTrackSelection(kml::TrackId trackId, bool showInfoSign);
+  void SetTrackSelectionInfo(Track::TrackSelectionInfo const & trackSelectionInfo, bool notifyListeners);
   void OnTrackSelected(kml::TrackId trackId);
   void OnTrackDeselected();
 
@@ -430,6 +433,10 @@ public:
 
   bool IsCompilation(kml::MarkGroupId id) const;
   kml::CompilationType GetCompilationType(kml::MarkGroupId id) const;
+
+  void SaveTrackRecording(std::string trackName);
+  std::string GenerateTrackRecordingName() const;
+  dp::Color GenerateTrackRecordingColor() const;
 
 private:
   class MarksChangesTracker : public df::UserMarksProvider
@@ -447,6 +454,7 @@ private:
 
     void OnAddLine(kml::TrackId lineId);
     void OnDeleteLine(kml::TrackId lineId);
+    void OnUpdateLine(kml::TrackId lineId);
 
     void OnAddGroup(kml::MarkGroupId groupId);
     void OnDeleteGroup(kml::MarkGroupId groupId);
@@ -474,6 +482,7 @@ private:
     kml::MarkIdSet const & GetUpdatedMarkIds() const override { return m_updatedMarks; }
     kml::TrackIdSet const & GetCreatedLineIds() const override { return m_createdLines; }
     kml::TrackIdSet const & GetRemovedLineIds() const override { return m_removedLines; }
+    kml::TrackIdSet const & GetUpdatedLineIds() const override { return m_updatedLines; }
     kml::GroupIdSet const & GetBecameVisibleGroupIds() const override { return m_becameVisibleGroups; }
     kml::GroupIdSet const & GetBecameInvisibleGroupIds() const override { return m_becameInvisibleGroups; }
     bool IsGroupVisible(kml::MarkGroupId groupId) const override;
@@ -487,9 +496,9 @@ private:
     void OnBecomeVisibleGroup(kml::MarkGroupId groupId);
     void OnBecomeInvisibleGroup(kml::MarkGroupId groupId);
 
-    void InsertBookmark(kml::MarkId markId, kml::MarkGroupId catId,
-                        GroupMarkIdSet & setToInsert, GroupMarkIdSet & setToErase);
-    bool HasBookmarkCategories(kml::GroupIdSet const & groupIds) const;
+    static void InsertBookmark(kml::MarkId markId, kml::MarkGroupId catId,
+                               GroupMarkIdSet & setToInsert, GroupMarkIdSet & setToErase);
+    static bool HasBookmarkCategories(kml::GroupIdSet const & groupIds);
 
     void InferVisibility(BookmarkCategory * const group);
 
@@ -501,6 +510,7 @@ private:
 
     kml::TrackIdSet m_createdLines;
     kml::TrackIdSet m_removedLines;
+    kml::TrackIdSet m_updatedLines;
 
     kml::GroupIdSet m_createdGroups;
     kml::GroupIdSet m_removedGroups;
@@ -574,6 +584,8 @@ private:
   void DetachTrack(kml::TrackId trackId, kml::MarkGroupId groupId);
   void DeleteTrack(kml::TrackId trackId);
   void MoveTrack(kml::TrackId trackID, kml::MarkGroupId curGroupID, kml::MarkGroupId newGroupID);
+  void ChangeTrackColor(kml::TrackId trackId, dp::Color color);
+  void UpdateTrack(kml::TrackId trackId, kml::TrackData const & trackData);
 
   void ClearGroup(kml::MarkGroupId groupId);
   void SetIsVisible(kml::MarkGroupId groupId, bool visible);
@@ -582,9 +594,8 @@ private:
   void SetCategoryDescription(kml::MarkGroupId categoryId, std::string const & desc);
   void SetCategoryTags(kml::MarkGroupId categoryId, std::vector<std::string> const & tags);
   void SetCategoryAccessRules(kml::MarkGroupId categoryId, kml::AccessRules accessRules);
-  void SetCategoryCustomProperty(kml::MarkGroupId categoryId, std::string const & key,
-                                 std::string const & value);
-  bool DeleteBmCategory(kml::MarkGroupId groupId);
+  void SetCategoryCustomProperty(kml::MarkGroupId categoryId, std::string const & key, std::string const & value);
+  bool DeleteBmCategory(kml::MarkGroupId groupId, bool permanently);
   void ClearCategories();
 
   void MoveBookmark(kml::MarkId bmID, kml::MarkGroupId curGroupID, kml::MarkGroupId newGroupID);
@@ -592,17 +603,21 @@ private:
 
   UserMark const * GetMark(kml::MarkId markId) const;
 
-  UserMarkLayer const * GetGroup(kml::MarkGroupId groupId) const;
-  UserMarkLayer * GetGroup(kml::MarkGroupId groupId);
-  BookmarkCategory const * GetBmCategory(kml::MarkGroupId categoryId) const;
-  BookmarkCategory * GetBmCategory(kml::MarkGroupId categoryId);
+  UserMarkLayer * GetGroup(kml::MarkGroupId groupId) const;
+  BookmarkCategory * GetBmCategorySafe(kml::MarkGroupId categoryId) const;
+  BookmarkCategory * GetBmCategory(kml::MarkGroupId categoryId) const
+  {
+    auto * res = GetBmCategorySafe(categoryId);
+    CHECK(res, (categoryId));
+    return res;
+  }
 
   Bookmark * AddBookmark(std::unique_ptr<Bookmark> && bookmark);
   Track * AddTrack(std::unique_ptr<Track> && track);
 
   void OnEditSessionOpened();
   void OnEditSessionClosed();
-  void NotifyChanges();
+  void NotifyChanges(bool saveChangesOnDisk);
 
   void SaveState() const;
   void LoadState();
@@ -614,12 +629,12 @@ private:
 
   void NotifyAboutStartAsyncLoading();
   void NotifyAboutFinishAsyncLoading(KMLDataCollectionPtr && collection);
-  std::optional<std::string> GetKMLPath(std::string const & filePath);
   void NotifyAboutFile(bool success, std::string const & filePath, bool isTemporaryFile);
   void LoadBookmarkRoutine(std::string const & filePath, bool isTemporaryFile);
+  void ReloadBookmarkRoutine(std::string const & filePath);
 
   using BookmarksChecker = std::function<bool(kml::FileData const &)>;
-  KMLDataCollectionPtr LoadBookmarks(std::string const & dir, std::string const & ext,
+  KMLDataCollectionPtr LoadBookmarks(std::string const & dir, std::string_view ext,
                                      KmlFileType fileType, BookmarksChecker const & checker);
 
   void GetDirtyGroups(kml::GroupIdSet & dirtyGroups) const;
@@ -629,16 +644,15 @@ private:
   void NotifyCategoriesChanged();
 
   void SendBookmarksChanges(MarksChangesTracker const & changesTracker);
-  void GetBookmarksInfo(kml::MarkIdSet const & marks, std::vector<BookmarkInfo> & bookmarks);
-  void GetBookmarkGroupsInfo(MarksChangesTracker::GroupMarkIdSet const & groups,
-                             std::vector<BookmarkGroupInfo> & groupsInfo);
+  void GetBookmarksInfo(kml::MarkIdSet const & marks, std::vector<BookmarkInfo> & bookmarks) const;
+  static void GetBookmarkGroupsInfo(MarksChangesTracker::GroupMarkIdSet const & groups,
+                                    std::vector<BookmarkGroupInfo> & groupsInfo);
 
   kml::MarkGroupId CheckAndCreateDefaultCategory();
   void CheckAndResetLastIds();
 
   std::unique_ptr<kml::FileData> CollectBmGroupKMLData(BookmarkCategory const * group) const;
   KMLDataCollectionPtr PrepareToSaveBookmarks(kml::GroupIdCollection const & groupIdCollection);
-  bool SaveKmlFileByExt(kml::FileData & kmlData, std::string const & file);
 
   bool HasDuplicatedIds(kml::FileData const & fileData) const;
   template <typename UniquityChecker>
@@ -648,10 +662,9 @@ private:
 
   struct SortBookmarkData
   {
-    SortBookmarkData() = default;
-    SortBookmarkData(kml::BookmarkData const & bmData,
-                     search::ReverseGeocoder::RegionAddress const & address)
+    SortBookmarkData(kml::BookmarkData const & bmData, search::ReverseGeocoder::RegionAddress const & address)
       : m_id(bmData.m_id)
+      , m_name(GetPreferredBookmarkName(bmData))
       , m_point(bmData.m_point)
       , m_type(GetBookmarkBaseType(bmData.m_featureTypes))
       , m_timestamp(bmData.m_timestamp)
@@ -659,6 +672,7 @@ private:
     {}
 
     kml::MarkId m_id;
+    std::string m_name;
     m2::PointD m_point;
     BookmarkBaseType m_type;
     kml::Timestamp m_timestamp;
@@ -667,13 +681,14 @@ private:
 
   struct SortTrackData
   {
-    SortTrackData() = default;
-    SortTrackData(kml::TrackData const & trackData)
+    explicit SortTrackData(kml::TrackData const & trackData)
       : m_id(trackData.m_id)
+      , m_name(GetPreferredBookmarkStr(trackData.m_name))
       , m_timestamp(trackData.m_timestamp)
     {}
 
     kml::TrackId m_id;
+    std::string m_name;
     kml::Timestamp m_timestamp;
   };
 
@@ -685,20 +700,23 @@ private:
   void SortByDistance(std::vector<SortBookmarkData> const & bookmarksForSort,
                       std::vector<SortTrackData> const & tracksForSort,
                       m2::PointD const & myPosition, SortedBlocksCollection & sortedBlocks);
-  void SortByTime(std::vector<SortBookmarkData> const & bookmarksForSort,
-                  std::vector<SortTrackData> const & tracksForSort,
-                  SortedBlocksCollection & sortedBlocks) const;
-  void SortByType(std::vector<SortBookmarkData> const & bookmarksForSort,
-                  std::vector<SortTrackData> const & tracksForSort,
-                  SortedBlocksCollection & sortedBlocks) const;
+  static void SortByTime(std::vector<SortBookmarkData> const & bookmarksForSort,
+                         std::vector<SortTrackData> const & tracksForSort,
+                         SortedBlocksCollection & sortedBlocks);
+  static void SortByType(std::vector<SortBookmarkData> const & bookmarksForSort,
+                         std::vector<SortTrackData> const & tracksForSort,
+                         SortedBlocksCollection & sortedBlocks);
+  static void SortByName(std::vector<SortBookmarkData> const & bookmarksForSort,
+                         std::vector<SortTrackData> const & tracksForSort,
+                         SortedBlocksCollection & sortedBlocks);
 
   using AddressesCollection = std::vector<std::pair<kml::MarkId, search::ReverseGeocoder::RegionAddress>>;
   void PrepareBookmarksAddresses(std::vector<SortBookmarkData> & bookmarksForSort, AddressesCollection & newAddresses);
   void FilterInvalidData(SortedBlocksCollection & sortedBlocks, AddressesCollection & newAddresses) const;
   void SetBookmarksAddresses(AddressesCollection const & addresses);
-  void AddTracksSortedBlock(std::vector<SortTrackData> const & sortedTracks,
-                            SortedBlocksCollection & sortedBlocks) const;
-  void SortTracksByTime(std::vector<SortTrackData> & tracks) const;
+  static void AddTracksSortedBlock(std::vector<SortTrackData> const & sortedTracks, SortedBlocksCollection & sortedBlocks);
+  static void SortTracksByTime(std::vector<SortTrackData> & tracks);
+  static void SortTracksByName(std::vector<SortTrackData> & tracks);
 
   kml::MarkId GetTrackSelectionMarkId(kml::TrackId trackId) const;
   int GetTrackSelectionMarkMinZoom(kml::TrackId trackId) const;
@@ -711,8 +729,7 @@ private:
   void UpdateTrackMarksVisibility(kml::MarkGroupId groupId);
   void RequestSymbolSizes();
 
-  kml::GroupIdCollection GetCompilationOfType(kml::MarkGroupId parentId,
-                                              kml::CompilationType type) const;
+  kml::GroupIdCollection GetCompilationOfType(kml::MarkGroupId parentId, kml::CompilationType type) const;
 
   ThreadChecker m_threadChecker;
 
@@ -737,6 +754,7 @@ private:
   AsyncLoadingCallbacks m_asyncLoadingCallbacks;
   std::atomic<bool> m_needTeardown;
   size_t m_openedEditSessionsCount = 0;
+  bool m_loadBookmarksCalled = false;
   bool m_loadBookmarksFinished = false;
   bool m_firstDrapeNotification = false;
   bool m_notificationsEnabled = true;
@@ -744,7 +762,7 @@ private:
   ScreenBase m_viewport;
 
   CategoriesCollection m_categories;
-  kml::GroupIdCollection m_bmGroupsIdList;
+  kml::GroupIdCollection m_unsortedBmGroupsIdList;
 
   std::string m_lastCategoryUrl;
   kml::MarkGroupId m_lastEditedGroupId = kml::kInvalidMarkGroupId;
@@ -762,16 +780,18 @@ private:
   kml::TrackId m_selectedTrackId = kml::kInvalidTrackId;
   m2::PointF m_maxBookmarkSymbolSize;
 
+  std::unique_ptr<Bookmark> m_recentlyDeletedBookmark;
+
   bool m_asyncLoadingInProgress = false;
   struct BookmarkLoaderInfo
   {
-    BookmarkLoaderInfo() = default;
-    BookmarkLoaderInfo(std::string const & filename, bool isTemporaryFile)
-      : m_filename(filename), m_isTemporaryFile(isTemporaryFile)
+    BookmarkLoaderInfo(std::string const & filename, bool isTemporaryFile, bool isReloading)
+      : m_filename(filename), m_isTemporaryFile(isTemporaryFile), m_isReloading(isReloading)
     {}
 
     std::string m_filename;
     bool m_isTemporaryFile = false;
+    bool m_isReloading = false;
   };
   std::list<BookmarkLoaderInfo> m_bookmarkLoadingQueue;
 

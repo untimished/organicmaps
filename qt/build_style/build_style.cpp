@@ -1,12 +1,9 @@
 #include "build_style.h"
 #include "build_common.h"
-
-#include "build_skins.h"
 #include "build_drules.h"
+#include "build_skins.h"
 
 #include "platform/platform.hpp"
-
-#include "base/logging.hpp"
 
 #include <exception>
 #include <future>
@@ -55,7 +52,7 @@ void BuildAndApply(QString const & mapcssFile)
   bool const hasSymbols = QDir(styleDir + "symbols/").exists();
   if (hasSymbols)
   {
-    auto future = std::async(BuildSkins, styleDir, outputDir);
+    auto future = std::async(std::launch::async, BuildSkins, styleDir, outputDir);
     BuildDrawingRules(mapcssFile, outputDir);
     future.get(); // may rethrow exception from the BuildSkin
 
@@ -110,26 +107,14 @@ void RunRecalculationGeometryScript(QString const & mapcssFile)
   CopyFromResources("classificator.txt", geometryToolResourceDir);
   CopyFromResources("types.txt", geometryToolResourceDir);
 
-  QStringList params;
-  params << "python" <<
-            '"' + GetRecalculateGeometryScriptPath() + '"' <<
-            '"' + resourceDir + '"' <<
-            '"' + writableDir + '"' <<
-            '"' + generatorToolPath + '"' <<
-            '"' + appPath + '"' <<
-            '"' + mapcssFile + '"';
-  QString const cmd = params.join(' ');
-
-  auto const res = ExecProcess(cmd);
-
-  // If script returns non zero then it is error
-  if (res.first != 0)
-  {
-    QString msg = QString("System error ") + std::to_string(res.first).c_str();
-    if (!res.second.isEmpty())
-      msg = msg + "\n" + res.second;
-    throw std::runtime_error(to_string(msg));
-  }
+  (void)ExecProcess("python", {
+      GetRecalculateGeometryScriptPath(),
+      resourceDir,
+      writableDir,
+      generatorToolPath,
+      appPath,
+      mapcssFile,
+  });
 }
 
 bool NeedRecalculate = false;

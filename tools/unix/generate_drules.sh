@@ -15,9 +15,10 @@ function BuildDrawingRules() {
   # Cleanup
   rm "$DATA_PATH"/drules_proto$suffix.{bin,txt} || true
   # Run script to build style
-  python "$OMIM_PATH/tools/kothic/src/libkomwm.py" --txt \
-    -s "$DATA_PATH/styles/$styleType/style-$styleName/style.mapcss" \
-    -o "$DATA_PATH/drules_proto$suffix"
+  python3 "$OMIM_PATH/tools/kothic/src/libkomwm.py" --txt \
+    -s "$DATA_PATH/styles/$styleType/$styleName/style.mapcss" \
+    -o "$DATA_PATH/drules_proto$suffix" \
+    -p "$DATA_PATH/styles/$styleType/include/"
 }
 
 # Cleanup
@@ -28,19 +29,27 @@ do
 done
 
 # Building drawing rules
-BuildDrawingRules clear  clear _clear
-BuildDrawingRules clear  night _dark
-BuildDrawingRules vehicle  clear _vehicle_clear
-BuildDrawingRules vehicle  night _vehicle_dark
+BuildDrawingRules default  light _default_light
+BuildDrawingRules default  dark _default_dark
+BuildDrawingRules outdoors  light _outdoors_light
+BuildDrawingRules outdoors  dark _outdoors_dark
+# Keep vehicle style last to produce same visibility.txt & classificator.txt
+BuildDrawingRules vehicle  light _vehicle_light
+BuildDrawingRules vehicle  dark _vehicle_dark
 
 # In designer mode we use drules_proto_design file instead of standard ones
-cp $OMIM_PATH/data/drules_proto_clear.bin $OMIM_PATH/data/drules_proto_design.bin
+cp $OMIM_PATH/data/drules_proto_default_light.bin $OMIM_PATH/data/drules_proto_default_design.bin
 
-echo "Exporting transit colors"
-python "$OMIM_PATH/tools/python/transit/transit_colors_export.py" \
+echo "Exporting transit colors..."
+python3 "$OMIM_PATH/tools/python/transit/transit_colors_export.py" \
   "$DATA_PATH/colors.txt" > /dev/null
 
-echo "Merging default and vehicle styles"
-python "$OMIM_PATH/tools/python/stylesheet/drules_merge.py" \
-  "$DATA_PATH/drules_proto_clear.bin" "$DATA_PATH/drules_proto_vehicle_clear.bin" \
+echo "Merging default and vehicle styles..."
+python3 "$OMIM_PATH/tools/python/stylesheet/drules_merge.py" \
+  "$DATA_PATH/drules_proto_default_light.bin" "$DATA_PATH/drules_proto_vehicle_light.bin" \
+  "$DATA_PATH/drules_proto.bin.tmp" > /dev/null
+echo "Merging in outdoors style..."
+python3 "$OMIM_PATH/tools/python/stylesheet/drules_merge.py" \
+  "$DATA_PATH/drules_proto.bin.tmp" "$DATA_PATH/drules_proto_outdoors_light.bin" \
   "$DATA_PATH/drules_proto.bin" "$DATA_PATH/drules_proto.txt" > /dev/null
+rm "$DATA_PATH/drules_proto.bin.tmp" || true

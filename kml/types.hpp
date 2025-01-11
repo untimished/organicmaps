@@ -4,20 +4,20 @@
 
 #include "coding/point_coding.hpp"
 
+#include "base/assert.hpp"
+#include "base/internal/message.hpp"  // DebugPrint(Timestamp)
 #include "base/visitor.hpp"
 
-#include <cmath>
-#include <ios>
-#include <memory>
-#include <sstream>
+#include "drape/color.hpp"
+
 #include <string>
 #include <vector>
 
 namespace kml
 {
+/// @note Important! Should be synced with android/app/src/main/java/app/organicmaps/bookmarks/data/Icon.java
 enum class PredefinedColor : uint8_t
 {
-  // Do not change the order because of binary serialization.
   None = 0,
   Red,
   Blue,
@@ -45,27 +45,57 @@ inline std::string DebugPrint(PredefinedColor color)
 {
   switch (color)
   {
-  case PredefinedColor::None: return "None";
-  case PredefinedColor::Red: return "Red";
-  case PredefinedColor::Blue: return "Blue";
-  case PredefinedColor::Purple: return "Purple";
-  case PredefinedColor::Yellow: return "Yellow";
-  case PredefinedColor::Pink: return "Pink";
-  case PredefinedColor::Brown: return "Brown";
-  case PredefinedColor::Green: return "Green";
-  case PredefinedColor::Orange: return "Orange";
-  case PredefinedColor::DeepPurple: return "DeepPurple";
-  case PredefinedColor::LightBlue: return "LightBlue";
-  case PredefinedColor::Cyan: return "Cyan";
-  case PredefinedColor::Teal: return "Teal";
-  case PredefinedColor::Lime: return "Lime";
-  case PredefinedColor::DeepOrange: return "DeepOrange";
-  case PredefinedColor::Gray: return "Gray";
-  case PredefinedColor::BlueGray: return "BlueGray";
-  case PredefinedColor::Count: return {};
+  using enum kml::PredefinedColor;
+  case None: return "None";
+  case Red: return "Red";
+  case Blue: return "Blue";
+  case Purple: return "Purple";
+  case Yellow: return "Yellow";
+  case Pink: return "Pink";
+  case Brown: return "Brown";
+  case Green: return "Green";
+  case Orange: return "Orange";
+  case DeepPurple: return "DeepPurple";
+  case LightBlue: return "LightBlue";
+  case Cyan: return "Cyan";
+  case Teal: return "Teal";
+  case Lime: return "Lime";
+  case DeepOrange: return "DeepOrange";
+  case Gray: return "Gray";
+  case BlueGray: return "BlueGray";
+  case Count: return {};
   }
   UNREACHABLE();
 }
+
+inline dp::Color ColorFromPredefinedColor(PredefinedColor color)
+{
+  switch (color)
+  {
+  using enum kml::PredefinedColor;
+  case Red: return dp::Color(229, 27, 35, 255);
+  case Pink: return dp::Color(255, 65, 130, 255);
+  case Purple: return dp::Color(155, 36, 178, 255);
+  case DeepPurple: return dp::Color(102, 57, 191, 255);
+  case Blue: return dp::Color(0, 102, 204, 255);
+  case LightBlue: return dp::Color(36, 156, 242, 255);
+  case Cyan: return dp::Color(20, 190, 205, 255);
+  case Teal: return dp::Color(0, 165, 140, 255);
+  case Green: return dp::Color(60, 140, 60, 255);
+  case Lime: return dp::Color(147, 191, 57, 255);
+  case Yellow: return dp::Color(255, 200, 0, 255);
+  case Orange: return dp::Color(255, 150, 0, 255);
+  case DeepOrange: return dp::Color(240, 100, 50, 255);
+  case Brown: return dp::Color(128, 70, 51, 255);
+  case Gray: return dp::Color(115, 115, 115, 255);
+  case BlueGray: return dp::Color(89, 115, 128, 255);
+  case None:
+  case Count: return ColorFromPredefinedColor(kml::PredefinedColor::Red);
+  }
+  UNREACHABLE();
+}
+
+kml::PredefinedColor GetRandomPredefinedColor();
 
 enum class AccessRules : uint8_t
 {
@@ -84,13 +114,14 @@ inline std::string DebugPrint(AccessRules accessRules)
 {
   switch (accessRules)
   {
-  case AccessRules::Local: return "Local";
-  case AccessRules::Public: return "Public";
-  case AccessRules::DirectLink: return "DirectLink";
-  case AccessRules::P2P: return "P2P";
-  case AccessRules::Paid: return "Paid";
-  case AccessRules::AuthorOnly: return "AuthorOnly";
-  case AccessRules::Count: return {};
+  using enum kml::AccessRules;
+  case Local: return "Local";
+  case Public: return "Public";
+  case DirectLink: return "DirectLink";
+  case P2P: return "P2P";
+  case Paid: return "Paid";
+  case AuthorOnly: return "AuthorOnly";
+  case Count: return {};
   }
   UNREACHABLE();
 }
@@ -101,25 +132,23 @@ enum class CompilationType : uint8_t
   Category = 0,
   Collection,
   Day,
-
-  Count
 };
 
 inline std::string DebugPrint(CompilationType compilationType)
 {
   switch (compilationType)
   {
-  case CompilationType::Category: return "Category";
-  case CompilationType::Collection: return "Collection";
-  case CompilationType::Day: return "Day";
-  case CompilationType::Count: return {};
+  using enum kml::CompilationType;
+  case Category: return "Category";
+  case Collection: return "Collection";
+  case Day: return "Day";
   }
   UNREACHABLE();
 }
 
+/// @note Important! Should be synced with android/app/src/main/java/app/organicmaps/bookmarks/data/Icon.java
 enum class BookmarkIcon : uint16_t
 {
-  // Do not change the order because of binary serialization.
   None = 0,
   Hotel,
   Animals,
@@ -147,8 +176,14 @@ enum class BookmarkIcon : uint16_t
   Transport,
   Viewpoint,
   Sport,
-  Start,
-  Finish,
+  Pub,
+  Art,
+  Bank,
+  Cafe,
+  Pharmacy,
+  Stadium,
+  Theatre,
+  Information,
 
   Count
 };
@@ -157,34 +192,41 @@ inline std::string ToString(BookmarkIcon icon)
 {
   switch (icon)
   {
-  case BookmarkIcon::None: return "None";
-  case BookmarkIcon::Hotel: return "Hotel";
-  case BookmarkIcon::Animals: return "Animals";
-  case BookmarkIcon::Buddhism: return "Buddhism";
-  case BookmarkIcon::Building: return "Building";
-  case BookmarkIcon::Christianity: return "Christianity";
-  case BookmarkIcon::Entertainment: return "Entertainment";
-  case BookmarkIcon::Exchange: return "Exchange";
-  case BookmarkIcon::Food: return "Food";
-  case BookmarkIcon::Gas: return "Gas";
-  case BookmarkIcon::Judaism: return "Judaism";
-  case BookmarkIcon::Medicine: return "Medicine";
-  case BookmarkIcon::Mountain: return "Mountain";
-  case BookmarkIcon::Museum: return "Museum";
-  case BookmarkIcon::Islam: return "Islam";
-  case BookmarkIcon::Park: return "Park";
-  case BookmarkIcon::Parking: return "Parking";
-  case BookmarkIcon::Shop: return "Shop";
-  case BookmarkIcon::Sights: return "Sights";
-  case BookmarkIcon::Swim: return "Swim";
-  case BookmarkIcon::Water: return "Water";
-  case BookmarkIcon::Bar: return "Bar";
-  case BookmarkIcon::Transport: return "Transport";
-  case BookmarkIcon::Viewpoint: return "Viewpoint";
-  case BookmarkIcon::Sport: return "Sport";
-  case BookmarkIcon::Start: return "Start";
-  case BookmarkIcon::Finish: return "Finish";
-  case BookmarkIcon::Count: return {};
+  using enum kml::BookmarkIcon;
+  case None: return "None";
+  case Hotel: return "Hotel";
+  case Animals: return "Animals";
+  case Buddhism: return "Buddhism";
+  case Building: return "Building";
+  case Christianity: return "Christianity";
+  case Entertainment: return "Entertainment";
+  case Exchange: return "Exchange";
+  case Food: return "Food";
+  case Gas: return "Gas";
+  case Judaism: return "Judaism";
+  case Medicine: return "Medicine";
+  case Mountain: return "Mountain";
+  case Museum: return "Museum";
+  case Islam: return "Islam";
+  case Park: return "Park";
+  case Parking: return "Parking";
+  case Shop: return "Shop";
+  case Sights: return "Sights";
+  case Swim: return "Swim";
+  case Water: return "Water";
+  case Bar: return "Bar";
+  case Transport: return "Transport";
+  case Viewpoint: return "Viewpoint";
+  case Sport: return "Sport";
+  case Pub: return "Pub";
+  case Art: return "Art";
+  case Bank: return "Bank";
+  case Cafe: return "Cafe";
+  case Pharmacy: return "Pharmacy";
+  case Stadium: return "Stadium";
+  case Theatre: return "Theatre";
+  case Information: return "Information";
+  case Count: return {};
   }
   UNREACHABLE();
 }
@@ -312,6 +354,44 @@ struct TrackLayer
   ColorData m_color;
 };
 
+struct MultiGeometry
+{
+  using LineT = std::vector<geometry::PointWithAltitude>;
+  using TimeT = std::vector<double>;
+
+  std::vector<LineT> m_lines;
+  std::vector<TimeT> m_timestamps;
+
+  void Clear();
+  bool IsValid() const;
+
+  bool operator==(MultiGeometry const & rhs) const
+  {
+    return IsEqual(m_lines, rhs.m_lines) && m_timestamps == rhs.m_timestamps;
+  }
+
+  friend std::string DebugPrint(MultiGeometry const & geom)
+  {
+    auto str = ::DebugPrint(geom.m_lines);
+    if (geom.HasTimestamps())
+      str.append(" ").append(::DebugPrint(geom.m_timestamps));
+    return str;
+  }
+
+  void FromPoints(std::vector<m2::PointD> const & points);
+
+  /// This method should be used for tests only.
+  void AddLine(std::initializer_list<geometry::PointWithAltitude> lst);
+  /// This method should be used for tests only.
+  void AddTimestamps(std::initializer_list<double> lst);
+
+  bool HasTimestamps() const;
+  bool HasTimestampsFor(size_t lineIndex) const;
+
+  size_t GetNumberOfLinesWithouTimestamps() const;
+  size_t GetNumberOfLinesWithTimestamps() const;
+};
+
 struct TrackData
 {
   DECLARE_VISITOR_AND_DEBUG_PRINT(TrackData, visitor(m_id, "id"),
@@ -320,7 +400,7 @@ struct TrackData
                                   visitor(m_description, "description"),
                                   visitor(m_layers, "layers"),
                                   visitor(m_timestamp, "timestamp"),
-                                  visitor(m_pointsWithAltitudes, "pointsWithAltitudes"),
+                                  visitor(m_geometry, "geometry"),
                                   visitor(m_visible, "visible"),
                                   visitor(m_nearestToponyms, "nearestToponyms"),
                                   visitor(m_properties, "properties"),
@@ -332,14 +412,13 @@ struct TrackData
   {
     return m_id == data.m_id && m_localId == data.m_localId && m_name == data.m_name &&
            m_description == data.m_description && m_layers == data.m_layers &&
-           IsEqual(m_timestamp, data.m_timestamp) &&
-           IsEqual(m_pointsWithAltitudes, data.m_pointsWithAltitudes) &&
+           IsEqual(m_timestamp, data.m_timestamp) && m_geometry == data.m_geometry &&
            m_visible == data.m_visible && m_nearestToponyms == data.m_nearestToponyms &&
            m_properties == data.m_properties;
   }
 
   bool operator!=(TrackData const & data) const { return !operator==(data); }
-  
+
   // Unique id (it will not be serialized in text files).
   TrackId m_id = kInvalidTrackId;
   // Local track id.
@@ -352,8 +431,7 @@ struct TrackData
   std::vector<TrackLayer> m_layers;
   // Creation timestamp.
   Timestamp m_timestamp = {};
-  // Points with altitudes.
-  std::vector<geometry::PointWithAltitude> m_pointsWithAltitudes;
+  MultiGeometry m_geometry;
   // Visibility.
   bool m_visible = true;
   // Nearest toponyms.
@@ -479,9 +557,15 @@ struct FileData
 };
 
 void SetBookmarksMinZoom(FileData & fileData, double countPerTile, int maxZoom);
-  
+
 inline std::string DebugPrint(BookmarkIcon icon)
 {
   return ToString(icon);
 }
+
+inline std::string DebugPrint(TimestampMillis const & ts)
+{
+  return ::DebugPrint(static_cast<Timestamp>(ts));
+}
+
 }  // namespace kml

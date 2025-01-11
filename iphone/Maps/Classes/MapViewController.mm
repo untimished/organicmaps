@@ -2,7 +2,6 @@
 #import <CoreApi/MWMBookmarksManager.h>
 #import "EAGLView.h"
 #import "MWMAuthorizationCommon.h"
-#import "MWMAuthorizationWebViewLoginViewController.h"
 #import "MWMAutoupdateController.h"
 #import "MWMEditorViewController.h"
 #import "MWMFrameworkListener.h"
@@ -38,6 +37,7 @@ NSString *const kDownloaderSegue = @"Map2MapDownloaderSegue";
 NSString *const kEditorSegue = @"Map2EditorSegue";
 NSString *const kUDViralAlertWasShown = @"ViralAlertWasShown";
 NSString *const kPP2BookmarkEditingSegue = @"PP2BookmarkEditing";
+NSString *const kSettingsSegue = @"Map2Settings";
 }  // namespace
 
 @interface NSValueWrapper : NSObject
@@ -68,13 +68,17 @@ NSString *const kPP2BookmarkEditingSegue = @"PP2BookmarkEditing";
 
 @interface MapViewController () <MWMFrameworkDrapeObserver,
                                  MWMKeyboardObserver,
-                                 MWMBookmarksObserver>
+                                 MWMBookmarksObserver,
+                                 UIGestureRecognizerDelegate>
 
 @property(nonatomic, readwrite) MWMMapViewControlsManager *controlsManager;
 
 @property(nonatomic) BOOL disableStandbyOnLocationStateMode;
 
 @property(nonatomic) UserTouchesAction userTouchesAction;
+@property(nonatomic) CGPoint pointerLocation API_AVAILABLE(ios(14.0));
+@property(nonatomic) CGFloat currentScale;
+@property(nonatomic) CGFloat currentRotation;
 
 @property(nonatomic, readwrite) MWMMapDownloadDialog *downloadDialog;
 
@@ -85,14 +89,14 @@ NSString *const kPP2BookmarkEditingSegue = @"PP2BookmarkEditing";
 @property(strong, nonatomic) IBOutlet NSLayoutConstraint *placePageAreaKeyboard;
 @property(strong, nonatomic) IBOutlet NSLayoutConstraint *sideButtonsAreaBottom;
 @property(strong, nonatomic) IBOutlet NSLayoutConstraint *sideButtonsAreaKeyboard;
-@property(strong, nonatomic) IBOutlet UIImageView *carplayPlaceholderLogo;
+@property(strong, nonatomic) IBOutlet UIView *carplayPlaceholderView;
 @property(strong, nonatomic) BookmarksCoordinator * bookmarksCoordinator;
 
 @property(strong, nonatomic) NSHashTable<id<MWMLocationModeListener>> *listeners;
 
 @property(nonatomic) BOOL needDeferFocusNotification;
 @property(nonatomic) BOOL deferredFocusValue;
-@property(nonatomic) UIViewController *placePageVC;
+@property(nonatomic) PlacePageViewController *placePageVC;
 @property(nonatomic) IBOutlet UIView *placePageContainer;
 
 @end
@@ -106,9 +110,19 @@ NSString *const kPP2BookmarkEditingSegue = @"PP2BookmarkEditing";
 
 #pragma mark - Map Navigation
 
-- (void)showRegularPlacePage {
-  self.placePageVC = [PlacePageBuilder build];
+- (void)showOrUpdatePlacePage:(PlacePageData *)data {
+  self.controlsManager.trafficButtonHidden = YES;
+  if (self.placePageVC != nil) {
+    [PlacePageBuilder update:(PlacePageViewController *)self.placePageVC with:data];
+    return;
+  }
+  [self showPlacePageFor:data];
+}
+
+- (void)showPlacePageFor:(PlacePageData *)data {
+  self.placePageVC = [PlacePageBuilder buildFor:data];
   self.placePageContainer.hidden = NO;
+  self.placePageVC.view.translatesAutoresizingMaskIntoConstraints = NO;
   [self.placePageContainer addSubview:self.placePageVC.view];
   [self.view bringSubviewToFront:self.placePageContainer];
   [NSLayoutConstraint activateConstraints:@[
@@ -117,31 +131,23 @@ NSString *const kPP2BookmarkEditingSegue = @"PP2BookmarkEditing";
     [self.placePageVC.view.bottomAnchor constraintEqualToAnchor:self.placePageContainer.bottomAnchor],
     [self.placePageVC.view.rightAnchor constraintEqualToAnchor:self.placePageContainer.rightAnchor]
   ]];
-  self.placePageVC.view.translatesAutoresizingMaskIntoConstraints = NO;
   [self addChildViewController:self.placePageVC];
   [self.placePageVC didMoveToParentViewController:self];
 }
 
-- (void)showPlacePage {
-  if (!PlacePageData.hasData) {
-    return;
-  }
-  
-  self.controlsManager.trafficButtonHidden = YES;
-  [self showRegularPlacePage];
-}
-
 - (void)dismissPlacePage {
-  GetFramework().DeactivateMapSelection(true);
+  GetFramework().DeactivateMapSelection();
 }
 
 - (void)hideRegularPlacePage {
-  [self.placePageVC.view removeFromSuperview];
-  [self.placePageVC willMoveToParentViewController:nil];
-  [self.placePageVC removeFromParentViewController];
-  self.placePageVC = nil;
-  self.placePageContainer.hidden = YES;
-  [self setPlacePageTopBound:0 duration:0];
+  [self.placePageVC closeAnimatedWithCompletion:^{
+    [self.placePageVC.view removeFromSuperview];
+    [self.placePageVC willMoveToParentViewController:nil];
+    [self.placePageVC removeFromParentViewController];
+    self.placePageVC = nil;
+    self.placePageContainer.hidden = YES;
+    [self setPlacePageTopBound:0 duration:0];
+  }];
 }
 
 - (void)hidePlacePage {
@@ -151,34 +157,40 @@ NSString *const kPP2BookmarkEditingSegue = @"PP2BookmarkEditing";
   self.controlsManager.trafficButtonHidden = NO;
 }
 
-- (void)onMapObjectDeselected:(bool)switchFullScreenMode {
+- (void)onMapObjectDeselected {
   [self hidePlacePage];
 
-  BOOL const isSearchResult = [MWMSearchManager manager].state == MWMSearchManagerStateResult;
+  MWMSearchManager * searchManager = MWMSearchManager.manager;
+  BOOL const isSearchResult = searchManager.state == MWMSearchManagerStateResult;
   BOOL const isNavigationDashboardHidden = [MWMNavigationDashboardManager sharedManager].state == MWMNavigationDashboardStateHidden;
   if (isSearchResult) {
     if (isNavigationDashboardHidden) {
-      [MWMSearchManager manager].state = MWMSearchManagerStateMapSearch;
+      searchManager.state = MWMSearchManagerStateMapSearch;
     } else {
-      [MWMSearchManager manager].state = MWMSearchManagerStateHidden;
+      searchManager.state = MWMSearchManagerStateHidden;
     }
   }
+  // Always show the controls during the navigation or planning mode.
+  if (!isNavigationDashboardHidden)
+    self.controlsManager.hidden = NO;
+}
 
-  if (!switchFullScreenMode)
-    return;
-
-  if (DeepLinkHandler.shared.isLaunchedByDeeplink)
-    return;
-
-  BOOL const isSearchHidden = [MWMSearchManager manager].state == MWMSearchManagerStateHidden;
+- (void)onSwitchFullScreen {
+  BOOL const isNavigationDashboardHidden = MWMNavigationDashboardManager.sharedManager.state == MWMNavigationDashboardStateHidden;
+  BOOL const isSearchHidden = MWMSearchManager.manager.state == MWMSearchManagerStateHidden;
   if (isSearchHidden && isNavigationDashboardHidden) {
+    if (!self.controlsManager.hidden)
+      [self dismissPlacePage];
     self.controlsManager.hidden = !self.controlsManager.hidden;
   }
 }
 
 - (void)onMapObjectSelected {
-  [self hidePlacePage];
-  [self showPlacePage];
+  if (!PlacePageData.hasData) {
+    return;
+  }
+  PlacePageData * data = [[PlacePageData alloc] initWithLocalizationProvider:[[OpeinigHoursLocalization alloc] init]];
+  [self showOrUpdatePlacePage:data];
 }
 
 - (void)onMapObjectUpdated {
@@ -308,14 +320,17 @@ NSString *const kPP2BookmarkEditingSegue = @"PP2BookmarkEditing";
 - (void)viewDidLoad {
   [super viewDidLoad];
 
+  if (@available(iOS 14.0, *))
+    [self setupTrackPadGestureRecognizers];
+
+  self.title = L(@"map");
+
   // On iOS 10 (it was reproduced, it may be also on others), mapView can be uninitialized
   // when onGetFocus is called, it can lead to missing of onGetFocus call and a deadlock on the start.
   // As soon as mapView must exist before onGetFocus, so we have to defer onGetFocus call.
   if (self.needDeferFocusNotification)
     [self onGetFocus:self.deferredFocusValue];
 
-  BOOL const isLaunchedByDeeplink = DeepLinkHandler.shared.isLaunchedByDeeplink;
-  [self.mapView setLaunchByDeepLink:isLaunchedByDeeplink];
   [MWMRouter restoreRouteIfNeeded];
 
   self.view.clipsToBounds = YES;
@@ -337,32 +352,72 @@ NSString *const kPP2BookmarkEditingSegue = @"PP2BookmarkEditing";
   if ([MWMNavigationDashboardManager sharedManager].state == MWMNavigationDashboardStateHidden)
     self.controlsManager.menuState = self.controlsManager.menuRestoreState;
 
-  if (isLaunchedByDeeplink)
-    (void)[DeepLinkHandler.shared handleDeepLink];
-  else {
-    // TODO(vng): Uncomment update dialog when we're ready to handle more traffic.
-//  auto const todo = GetFramework().ToDoAfterUpdate();
-//  switch (todo) {
-//    case Framework::DoAfterUpdate::Migrate:
-//    case Framework::DoAfterUpdate::Nothing:
-//      break;
-//    case Framework::DoAfterUpdate::AutoupdateMaps:
-//    case Framework::DoAfterUpdate::AskForUpdateMaps:
-//      [self presentViewController:[MWMAutoupdateController instanceWithPurpose:todo] animated:YES completion:nil];
-//      break;
-//  }
+  // Added in https://github.com/organicmaps/organicmaps/pull/7333
+  // After all users migrate to OAuth2 we can remove next code
+  [self migrateOAuthCredentials];
+
+  /// @todo: Uncomment update dialog when will be ready to handle big traffic bursts.
+  /*
+  if (!DeepLinkHandler.shared.isLaunchedByDeeplink)
+  {
+    auto const todo = GetFramework().ToDoAfterUpdate();
+    switch (todo) {
+      case Framework::DoAfterUpdate::Migrate:
+      case Framework::DoAfterUpdate::Nothing:
+        break;
+      case Framework::DoAfterUpdate::AutoupdateMaps:
+      case Framework::DoAfterUpdate::AskForUpdateMaps:
+        [self presentViewController:[MWMAutoupdateController instanceWithPurpose:todo] animated:YES completion:nil];
+        break;
+    }
   }
+  */
+}
+
+- (void)viewDidAppear:(BOOL)animated {
+  [super viewDidAppear:animated];
+  // Cold start deep links should be handled when the map is initialized.
+  // Otherwise PP container view is nil, or there is no animation/selection of the point.
+  if (DeepLinkHandler.shared.isLaunchedByDeeplink)
+    (void)[DeepLinkHandler.shared handleDeepLinkAndReset];
 }
 
 - (void)viewDidLayoutSubviews {
   [super viewDidLayoutSubviews];
-  if (!self.mapView.drapeEngineCreated)
+  if (!self.mapView.drapeEngineCreated && !MapsAppDelegate.isTestsEnvironment)
     [self.mapView createDrapeEngine];
 }
 
 - (void)applyTheme {
   [super applyTheme];
   [MapsAppDelegate customizeAppearance];
+}
+
+- (void)setupTrackPadGestureRecognizers API_AVAILABLE(ios(14.0)) {
+  if (!NSProcessInfo.processInfo.isiOSAppOnMac)
+    return;
+  // Mouse zoom
+  UIPanGestureRecognizer * panRecognizer = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
+  panRecognizer.allowedScrollTypesMask = UIScrollTypeMaskAll;
+  panRecognizer.allowedTouchTypes = @[@(UITouchTypeIndirect)];
+  [self.view addGestureRecognizer:panRecognizer];
+
+  // Trackpad zoom
+  UIPinchGestureRecognizer * pinchRecognizer = [[UIPinchGestureRecognizer alloc] initWithTarget:self action:@selector(handlePinch:)];
+  pinchRecognizer.allowedTouchTypes = @[@(UITouchTypeIndirect)];
+  pinchRecognizer.delegate = self;
+  [self.view addGestureRecognizer:pinchRecognizer];
+
+  // Trackpad rotation
+  UIRotationGestureRecognizer * rotationRecognizer = [[UIRotationGestureRecognizer alloc] initWithTarget:self action:@selector(handleRotation:)];
+  rotationRecognizer.allowedTouchTypes = @[@(UITouchTypeIndirect | UITouchTypeDirect)];
+  rotationRecognizer.delegate = self;
+  [self.view addGestureRecognizer:rotationRecognizer];
+
+  // Pointer location
+  UIHoverGestureRecognizer * hoverRecognizer = [[UIHoverGestureRecognizer alloc] initWithTarget:self action:@selector(handlePointerHover:)];
+  hoverRecognizer.allowedTouchTypes = @[@(UITouchTypeIndirectPointer)];
+  [self.view addGestureRecognizer:hoverRecognizer];
 }
 
 - (void)showViralAlertIfNeeded {
@@ -381,7 +436,6 @@ NSString *const kPP2BookmarkEditingSegue = @"PP2BookmarkEditing";
   [self.alertController presentEditorViralAlert];
 
   [ud setObject:[NSDate date] forKey:kUDViralAlertWasShown];
-  [ud synchronize];
 }
 
 - (void)viewWillDisappear:(BOOL)animated {
@@ -397,12 +451,24 @@ NSString *const kPP2BookmarkEditingSegue = @"PP2BookmarkEditing";
   return NO;
 }
 - (UIStatusBarStyle)preferredStatusBarStyle {
-  return [self.controlsManager preferredStatusBarStyle];
+  MWMMapViewControlsManager * manager = self.controlsManager;
+  if (manager)
+    return manager.preferredStatusBarStyle;
+  return UIStatusBarStyleDefault;
 }
 
 - (void)updateStatusBarStyle {
   [self setNeedsStatusBarAppearanceUpdate];
 }
+
+- (void)migrateOAuthCredentials {
+  if (osm_auth_ios::AuthorizationHaveOAuth1Credentials())
+  {
+    osm_auth_ios::AuthorizationClearOAuth1Credentials();
+    [self.alertController presentOsmReauthAlert];
+  }
+}
+
 - (id)initWithCoder:(NSCoder *)coder {
   NSLog(@"MapViewController initWithCoder Started");
   self = [super initWithCoder:coder];
@@ -418,8 +484,9 @@ NSString *const kPP2BookmarkEditingSegue = @"PP2BookmarkEditing";
   Framework &f = GetFramework();
   // TODO: Review and improve this code.
   f.SetPlacePageListeners([self]() { [self onMapObjectSelected]; },
-                          [self](bool switchFullScreen) { [self onMapObjectDeselected:switchFullScreen]; },
-                          [self]() { [self onMapObjectUpdated]; });
+                          [self]() { [self onMapObjectDeselected]; },
+                          [self]() { [self onMapObjectUpdated]; },
+                          [self]() { [self onSwitchFullScreen]; });
   // TODO: Review and improve this code.
   f.SetMyPositionModeListener([self](location::EMyPositionMode mode, bool routingActive) {
     // TODO: Two global listeners are subscribed to the same event from the core.
@@ -427,7 +494,6 @@ NSString *const kPP2BookmarkEditingSegue = @"PP2BookmarkEditing";
     // May be better solution would be multiobservers support in the C++ core.
     [self processMyPositionStateModeEvent:location_helpers::mwmMyPositionMode(mode)];
   });
-  f.SetMyPositionPendingTimeoutListener([self] { [self processMyPositionPendingTimeout]; });
 
   self.userTouchesAction = UserTouchesActionNone;
   [[MWMBookmarksManager sharedManager] addObserver:self];
@@ -449,6 +515,13 @@ NSString *const kPP2BookmarkEditingSegue = @"PP2BookmarkEditing";
 }
 
 #pragma mark - Open controllers
+- (void)openMenu {
+  [self.controlsManager.tabBarController onMenuButtonPressed:self];
+}
+
+- (void)openSettings {
+  [self performSegueWithIdentifier:kSettingsSegue sender:nil];
+}
 
 - (void)openMapsDownloader:(MWMMapDownloaderMode)mode {
   [self performSegueWithIdentifier:kDownloaderSegue sender:@(mode)];
@@ -492,6 +565,7 @@ NSString *const kPP2BookmarkEditingSegue = @"PP2BookmarkEditing";
   self.disableStandbyOnLocationStateMode = NO;
   switch (mode) {
     case MWMMyPositionModeNotFollowNoPosition:
+      [MWMLocationManager stop];
       break;
     case MWMMyPositionModePendingPosition:
       [MWMLocationManager start];
@@ -504,20 +578,6 @@ NSString *const kPP2BookmarkEditingSegue = @"PP2BookmarkEditing";
     case MWMMyPositionModeFollowAndRotate:
       self.disableStandbyOnLocationStateMode = YES;
       break;
-  }
-}
-
-- (void)processMyPositionPendingTimeout {
-  [MWMLocationManager stop];
-  NSArray<id<MWMLocationModeListener>> *objects = self.listeners.allObjects;
-  for (id<MWMLocationModeListener> object in objects) {
-    [object processMyPositionPendingTimeout];
-  }
-  BOOL const isMapVisible = (self.navigationController.visibleViewController == self);
-  if (isMapVisible && ![MWMLocationManager isLocationProhibited]) {
-    [self.alertController presentLocationNotFoundAlertWithOkBlock:^{
-      GetFramework().SwitchMyPositionNextMode();
-    }];
   }
 }
 
@@ -547,11 +607,11 @@ NSString *const kPP2BookmarkEditingSegue = @"PP2BookmarkEditing";
   if (self.isViewLoaded) {
     auto searchState = MWMSearchManagerStateHidden;
     [MWMRouter stopRouting];
-    if ([action isEqualToString:@"me.maps.3daction.bookmarks"])
+    if ([action isEqualToString:@"app.organicmaps.3daction.bookmarks"])
       [self.bookmarksCoordinator open];
-    else if ([action isEqualToString:@"me.maps.3daction.search"])
+    else if ([action isEqualToString:@"app.organicmaps.3daction.search"])
       searchState = MWMSearchManagerStateDefault;
-    else if ([action isEqualToString:@"me.maps.3daction.route"])
+    else if ([action isEqualToString:@"app.organicmaps.3daction.route"])
       [self.controlsManager onRoutePrepare];
     [MWMSearchManager manager].state = searchState;
   } else {
@@ -586,12 +646,6 @@ NSString *const kPP2BookmarkEditingSegue = @"PP2BookmarkEditing";
     MWMDownloadMapsViewController *dvc = segue.destinationViewController;
     NSNumber *mode = sender;
     dvc.mode = (MWMMapDownloaderMode)mode.integerValue;
-  } else if ([segue.identifier isEqualToString:kMap2FBLoginSegue]) {
-    MWMAuthorizationWebViewLoginViewController *dvc = segue.destinationViewController;
-    dvc.authType = MWMWebViewAuthorizationTypeFacebook;
-  } else if ([segue.identifier isEqualToString:kMap2GoogleLoginSegue]) {
-    MWMAuthorizationWebViewLoginViewController *dvc = segue.destinationViewController;
-    dvc.authType = MWMWebViewAuthorizationTypeGoogle;
   }
 }
 
@@ -611,8 +665,10 @@ NSString *const kPP2BookmarkEditingSegue = @"PP2BookmarkEditing";
 #pragma mark - Properties
 
 - (MWMMapViewControlsManager *)controlsManager {
-  if (!self.isViewLoaded)
+  if (!self.isViewLoaded) {
+    // TODO: Returns nil when called from MapViewController.preferredStatusBarStyle.
     return nil;
+  }
   if (!_controlsManager)
     _controlsManager = [[MWMMapViewControlsManager alloc] initWithParentController:self];
   return _controlsManager;
@@ -655,7 +711,7 @@ NSString *const kPP2BookmarkEditingSegue = @"PP2BookmarkEditing";
 #pragma mark - CarPlay map append/remove
 
 - (void)disableCarPlayRepresentation {
-  self.carplayPlaceholderLogo.hidden = YES;
+  self.carplayPlaceholderView.hidden = YES;
   self.mapView.frame = self.view.bounds;
   [self.view insertSubview:self.mapView atIndex:0];
   [[self.mapView.topAnchor constraintEqualToAnchor:self.view.topAnchor] setActive:YES];
@@ -677,7 +733,7 @@ NSString *const kPP2BookmarkEditingSegue = @"PP2BookmarkEditing";
   if (!self.controlsView.isHidden) {
     self.controlsView.hidden = YES;
   }
-  self.carplayPlaceholderLogo.hidden = NO;
+  self.carplayPlaceholderView.hidden = NO;
 }
 
 #pragma mark - MWMBookmarksObserver
@@ -694,14 +750,23 @@ NSString *const kPP2BookmarkEditingSegue = @"PP2BookmarkEditing";
 }
 
 - (NSArray *)keyCommands {
-   return @[[UIKeyCommand keyCommandWithInput:UIKeyInputDownArrow modifierFlags:0 action:@selector(zoomOut)], // Alternative, not shown when holding CMD
+  NSArray *commands = @[
+    [UIKeyCommand keyCommandWithInput:UIKeyInputDownArrow modifierFlags:0 action:@selector(zoomOut)], // Alternative, not shown when holding CMD
     [UIKeyCommand keyCommandWithInput:@"-" modifierFlags:UIKeyModifierCommand action:@selector(zoomOut) discoverabilityTitle:@"Zoom Out"],
     [UIKeyCommand keyCommandWithInput:UIKeyInputUpArrow modifierFlags:0 action:@selector(zoomIn)], // Alternative, not shown when holding CMD
     [UIKeyCommand keyCommandWithInput:@"=" modifierFlags:UIKeyModifierCommand action:@selector(zoomIn)], // Alternative, not shown when holding CMD
     [UIKeyCommand keyCommandWithInput:@"+" modifierFlags:UIKeyModifierCommand action:@selector(zoomIn) discoverabilityTitle:@"Zoom In"],
     [UIKeyCommand keyCommandWithInput:UIKeyInputEscape modifierFlags:0 action:@selector(goBack) discoverabilityTitle:@"Go Back"],
     [UIKeyCommand keyCommandWithInput:@"0" modifierFlags:UIKeyModifierCommand action:@selector(switchPositionMode) discoverabilityTitle:@"Switch position mode"]
-   ];
+  ];
+
+  if (@available(iOS 15, *)) {
+    for (UIKeyCommand *command in commands) {
+      command.wantsPriorityOverSystemBehavior = YES;
+    }
+  }
+
+  return commands;
 }
 
 - (void)zoomOut {
@@ -717,11 +782,90 @@ NSString *const kPP2BookmarkEditingSegue = @"PP2BookmarkEditing";
 }
 
 - (void)goBack {
-   NSString *backURL = [DeepLinkHandler.shared getBackUrl];
-   BOOL canOpenURL = [[UIApplication sharedApplication] canOpenURL:[NSURL URLWithString:backURL]];
-   if (canOpenURL){
-     [[UIApplication sharedApplication] openURL:[NSURL URLWithString:backURL] options:@{} completionHandler:nil];
-   }
+  NSString *backURL = [DeepLinkHandler.shared getBackUrl];
+  if (backURL != nil) {
+    [[UIApplication sharedApplication] openURL:[NSURL URLWithString: backURL] options:@{} completionHandler:nil];
+  }
+}
+
+// MARK: - Handle macOS trackpad gestures
+
+- (void)handlePan:(UIPanGestureRecognizer *)recognizer API_AVAILABLE(ios(14.0)) {
+  switch (recognizer.state) {
+    case UIGestureRecognizerStateBegan:
+    case UIGestureRecognizerStateChanged:
+    {
+      CGPoint translation = [recognizer translationInView:self.view];
+      if (translation.x == 0 && CGPointEqualToPoint(translation, CGPointZero))
+        return;
+      self.userTouchesAction = UserTouchesActionScale;
+      static const CGFloat kScaleFactor = 0.9;
+      const CGFloat factor = translation.y > 0 ? 1 / kScaleFactor : kScaleFactor;
+      GetFramework().Scale(factor, [self getZoomPoint], false);
+      [recognizer setTranslation:CGPointZero inView:self.view];
+      break;
+    }
+    case UIGestureRecognizerStateEnded:
+      self.userTouchesAction = UserTouchesActionNone;
+      break;
+    default:
+      break;
+  }
+}
+
+- (void)handlePinch:(UIPinchGestureRecognizer *)recognizer API_AVAILABLE(ios(14.0)) {
+  switch (recognizer.state) {
+    case UIGestureRecognizerStateBegan:
+      self.currentScale = 1.0;
+    case UIGestureRecognizerStateChanged:
+    {
+      const CGFloat scale = [recognizer scale];
+      static const CGFloat kScaleDeltaMultiplier = 4.0; // map trackpad scale to the map scale
+      const CGFloat delta = scale - self.currentScale;
+      const CGFloat scaleFactor = 1 + delta * kScaleDeltaMultiplier;
+      GetFramework().Scale(scaleFactor, [self getZoomPoint], false);
+      self.currentScale = scale;
+      break;
+    }
+    case UIGestureRecognizerStateEnded:
+      self.userTouchesAction = UserTouchesActionNone;
+      break;
+    default:
+      break;
+  }
+}
+
+- (void)handleRotation:(UIRotationGestureRecognizer *)recognizer API_AVAILABLE(ios(14.0)) {
+  switch (recognizer.state) {
+    case UIGestureRecognizerStateBegan:
+    case UIGestureRecognizerStateChanged:
+    {
+      self.userTouchesAction = UserTouchesActionDrag;
+      GetFramework().Rotate(self.currentRotation == 0 ? recognizer.rotation : self.currentRotation + recognizer.rotation, false);
+      break;
+    }
+    case UIGestureRecognizerStateEnded:
+      self.currentRotation += recognizer.rotation;
+      self.userTouchesAction = UserTouchesActionNone;
+      break;
+    default:
+      break;
+  }
+}
+
+- (void)handlePointerHover:(UIHoverGestureRecognizer *)recognizer API_AVAILABLE(ios(14.0)) {
+  self.pointerLocation = [recognizer locationInView:self.view];
+}
+
+- (m2::PointD)getZoomPoint API_AVAILABLE(ios(14.0)) {
+  const CGFloat scale = [UIScreen mainScreen].scale;
+  return m2::PointD(self.pointerLocation.x * scale, self.pointerLocation.y * scale);
+}
+
+// MARK: - UIGestureRecognizerDelegate
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherGestureRecognizer {
+  return YES;
 }
 
 @end

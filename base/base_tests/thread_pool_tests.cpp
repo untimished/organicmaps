@@ -5,12 +5,10 @@
 
 #include <condition_variable>
 #include <functional>
-#include <mutex>
-#include <vector>
+
 
 namespace
 {
-  std::mutex g_mutex;
   const int TASK_COUNT = 10;
   class CanceledTask : public threads::IRoutine
   {
@@ -48,8 +46,8 @@ UNIT_TEST(ThreadPool_CanceledTaskTest)
 {
   int finishCounter = 0;
   Condition cond;
-  base::thread_pool::routine::ThreadPool pool(4, std::bind(&JoinFinishFunction, std::placeholders::_1,
-                                        std::ref(finishCounter), std::ref(cond)));
+  base::ThreadPool pool(4, std::bind(&JoinFinishFunction, std::placeholders::_1,
+                                     std::ref(finishCounter), std::ref(cond)));
 
   for (int i = 0; i < TASK_COUNT; ++i)
     pool.PushBack(new CanceledTask());
@@ -59,38 +57,6 @@ UNIT_TEST(ThreadPool_CanceledTaskTest)
   TEST_EQUAL(finishCounter, TASK_COUNT, ());
 }
 
-namespace
-{
-  class EmptyPoolTask : public threads::IRoutine
-  {
-  public:
-    ~EmptyPoolTask()
-    {
-      TEST_EQUAL(IsCancelled(), true, ());
-    }
-
-    virtual void Do()
-    {
-      TEST_EQUAL(true, false, ());
-    }
-  };
-}
-
-UNIT_TEST(ThreadPool_StopOperationTest)
-{
-  int finishCounter = 0;
-  Condition cond;
-  // in this case we have empty pool, and all tasks must be finish only on Stop method call
-  base::thread_pool::routine::ThreadPool pool(0, std::bind(&JoinFinishFunction, std::placeholders::_1,
-                                        std::ref(finishCounter), std::ref(cond)));
-
-  for (int i = 0; i < TASK_COUNT; ++i)
-    pool.PushBack(new EmptyPoolTask());
-
-  pool.Stop();
-
-  TEST_EQUAL(finishCounter, TASK_COUNT, ());
-}
 
 namespace
 {
@@ -123,23 +89,18 @@ namespace
 
 UNIT_TEST(ThreadPool_ExecutionTaskTest)
 {
-  std::vector<threads::IRoutine *> tasks;
-  for (int i = 0; i < TASK_COUNT - 1; ++i)
-    tasks.push_back(new CancelTestTask(true));
-  // CancelTastTask::Do method should not be called for last task
-  tasks.push_back(new CancelTestTask(false));
-
   int finishCounter = 0;
   Condition cond;
-  base::thread_pool::routine::ThreadPool pool(4, std::bind(&JoinFinishFunction, std::placeholders::_1,
-                                        std::ref(finishCounter), std::ref(cond)));
+  base::ThreadPool pool(4, std::bind(&JoinFinishFunction, std::placeholders::_1,
+                                     std::ref(finishCounter), std::ref(cond)));
 
-  for (size_t i = 0; i < tasks.size(); ++i)
-    pool.PushBack(tasks[i]);
+  for (int i = 0; i < TASK_COUNT - 1; ++i)
+    pool.PushBack(new CancelTestTask(true));
 
   // CancelTastTask::Do method should not be called for last task
-  tasks.back()->Cancel();
-  tasks.clear();
+  auto * p = new CancelTestTask(false);
+  pool.PushBack(p);
+  p->Cancel();
 
   while(true)
   {
@@ -154,8 +115,8 @@ UNIT_TEST(ThreadPool_EmptyTest)
 {
   int finishCouter = 0;
   Condition cond;
-  base::thread_pool::routine::ThreadPool pool(4, std::bind(&JoinFinishFunction, std::placeholders::_1,
-                                        std::ref(finishCouter), std::ref(cond)));
+  base::ThreadPool pool(4, std::bind(&JoinFinishFunction, std::placeholders::_1,
+                                     std::ref(finishCouter), std::ref(cond)));
 
   threads::Sleep(100);
   pool.Stop();

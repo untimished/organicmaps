@@ -1,12 +1,21 @@
 #pragma once
 
+#include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
 namespace downloader
 {
-class HttpRequest;
+// Dynamic configuration from MetaServer.
+struct MetaConfig
+{
+  using ServersList = std::vector<std::string>;
+  ServersList m_serversList;
+  using SettingsMap = std::map<std::string, std::string>;
+  SettingsMap m_settings;
+  std::string m_productsConfig;
+};
 
-void GetServersList(std::string const & src, std::vector<std::string> & urls);
-void GetServersList(HttpRequest const & request, std::vector<std::string> & urls);
+std::optional<MetaConfig> ParseMetaConfig(std::string const & jsonStr);
 }  // namespace downloader

@@ -20,8 +20,12 @@
 
 - (void)updateStatusBarStyle;
 
+- (void)migrateOAuthCredentials;
+
 - (void)performAction:(NSString *_Nonnull)action;
 
+- (void)openMenu;
+- (void)openSettings;
 - (void)openMapsDownloader:(MWMMapDownloaderMode)mode;
 - (void)openEditor;
 - (void)openBookmarkEditor;
@@ -47,5 +51,6 @@
 @property(strong, nonatomic) IBOutlet EAGLView * _Nonnull mapView;
 @property(strong, nonatomic) IBOutlet UIView * _Nonnull controlsView;
 @property(strong, nonatomic) IBOutlet UIView * _Nonnull searchViewContainer;
+@property(strong, nonatomic) IBOutlet NSLayoutConstraint * _Nonnull searchViewContainerLeadingConstraint;
 
 @end

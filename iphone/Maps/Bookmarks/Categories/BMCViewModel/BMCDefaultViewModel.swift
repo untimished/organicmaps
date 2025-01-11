@@ -5,11 +5,6 @@ protocol BMCView: AnyObject {
   func conversionFinished(success: Bool)
 }
 
-enum BMCShareCategoryStatus {
-  case success(URL)
-  case error(title: String, text: String)
-}
-
 final class BMCDefaultViewModel: NSObject {
   private let manager = BookmarksManager.shared()
 
@@ -24,9 +19,6 @@ final class BMCDefaultViewModel: NSObject {
   private var isAuthenticated = false
   private var filesPrepared = false
 
-  typealias OnPreparedToShareHandler = (BMCShareCategoryStatus) -> Void
-  private var onPreparedToShareCategory: OnPreparedToShareHandler?
-
   let minCategoryNameLength: UInt = 0
   let maxCategoryNameLength: UInt = 60
 
@@ -35,70 +27,89 @@ final class BMCDefaultViewModel: NSObject {
     reloadData()
   }
 
-  private func setCategories() {
-    categories = manager.userCategories()
+  private func getCategories() -> [BookmarkGroup] {
+    manager.sortedUserCategories()
   }
 
-  private func setActions() {
-    actions = [.create]
+  private func getActions() -> [BMCAction] {
+    var actions: [BMCAction] = [.create]
+    actions.append(.import)
+    if !manager.areAllCategoriesEmpty() {
+      actions.append(.exportAll)
+    }
+    return actions
   }
 
-  private func setNotifications() {
-    notifications = [.load]
+  private func getNotifications() -> [BMCNotification] {
+    [.load]
   }
 
   func reloadData() {
-    sections = []
+    sections.removeAll()
 
     if manager.areBookmarksLoaded() {
       sections.append(.categories)
-      setCategories()
+      categories = getCategories()
 
       sections.append(.actions)
-      setActions()
+      actions = getActions()
+
+      if manager.recentlyDeletedCategoriesCount() != .zero {
+        sections.append(.recentlyDeleted)
+      }
     } else {
       sections.append(.notifications)
-      setNotifications()
+      notifications = getNotifications()
     }
+
     view?.update(sections: [])
   }
 }
 
 extension BMCDefaultViewModel {
   func numberOfSections() -> Int {
-    return sections.count
+    sections.count
   }
 
   func sectionType(section: Int) -> BMCSection {
-    return sections[section]
+    sections[section]
   }
 
   func sectionIndex(section: BMCSection) -> Int {
-    return sections.firstIndex(of: section)!
+    sections.firstIndex(of: section)!
   }
 
   func numberOfRows(section: Int) -> Int {
-    return numberOfRows(section: sectionType(section: section))
+    numberOfRows(section: sectionType(section: section))
   }
 
   func numberOfRows(section: BMCSection) -> Int {
     switch section {
     case .categories: return categories.count
     case .actions: return actions.count
+    case .recentlyDeleted: return 1
     case .notifications: return notifications.count
     }
   }
 
   func category(at index: Int) -> BookmarkGroup {
-    return categories[index]
+    categories[index]
+  }
+
+  func canDeleteCategory() -> Bool {
+    categories.count > 1
   }
 
   func action(at index: Int) -> BMCAction {
-    return actions[index]
+    actions[index]
+  }
+
+  func recentlyDeletedCategories() -> BMCAction {
+    .recentlyDeleted(Int(manager.recentlyDeletedCategoriesCount()))
   }
 
   func notification(at index: Int) -> BMCNotification {
-    return notifications[index]
+    notifications[index]
   }
 
   func areAllCategoriesHidden() -> Bool {
@@ -117,8 +128,8 @@ extension BMCDefaultViewModel {
       return
     }
 
-    categories.append(manager.category(withId: manager.createCategory(withName: name)))
-    view?.insert(at: [IndexPath(row: categories.count - 1, section: section)])
+    categories.insert(manager.category(withId: manager.createCategory(withName: name)), at: 0)
+    view?.insert(at: [IndexPath(row: 0, section: section)])
   }
 
   func deleteCategory(at index: Int) {
@@ -129,23 +140,30 @@ extension BMCDefaultViewModel {
 
     let category = categories[index]
     categories.remove(at: index)
-    manager.deleteCategory(category.categoryId)
     view?.delete(at: [IndexPath(row: index, section: section)])
+    manager.deleteCategory(category.categoryId)
   }
 
   func checkCategory(name: String) -> Bool {
-    return manager.checkCategoryName(name)
+    manager.checkCategoryName(name)
   }
 
-  func shareCategoryFile(at index: Int, handler: @escaping OnPreparedToShareHandler) {
+  func shareCategoryFile(at index: Int, fileType: KmlFileType, handler: @escaping SharingResultCompletionHandler) {
     let category = categories[index]
-    onPreparedToShareCategory = handler
-    manager.shareCategory(category.categoryId)
+    manager.shareCategory(category.categoryId, fileType: fileType, completion: handler)
+  }
+
+  func shareAllCategories(handler: @escaping SharingResultCompletionHandler) {
+    manager.shareAllCategories(completion: handler)
+  }
+
+  func importCategories(from urls: [URL]) {
+    // TODO: Refactor this call when the multiple files parsing support will be added to the bookmark_manager.
+    urls.forEach(manager.loadBookmarkFile(_:))
   }
 
   func finishShareCategory() {
     manager.finishShareCategory()
-    onPreparedToShareCategory = nil
   }
 
   func addToObserverList() {
@@ -161,29 +179,20 @@ extension BMCDefaultViewModel {
   }
 
   func areNotificationsEnabled() -> Bool {
-    return manager.areNotificationsEnabled()
+    manager.areNotificationsEnabled()
   }
 }
 
 extension BMCDefaultViewModel: BookmarksObserver {
-
   func onBookmarksLoadFinished() {
+    reloadData()
+  }
+
+  func onBookmarksCategoryDeleted(_ groupId: MWMMarkGroupID) {
     reloadData()
   }
 
   func onBookmarkDeleted(_: MWMMarkID) {
     reloadData()
-  }
-
-  func onBookmarksCategoryFilePrepared(_ status: BookmarksShareStatus) {
-    switch status {
-    case .success:
-      onPreparedToShareCategory?(.success(manager.shareCategoryURL()))
-    case .emptyCategory:
-      onPreparedToShareCategory?(.error(title: L("bookmarks_error_title_share_empty"), text: L("bookmarks_error_message_share_empty")))
-    case .archiveError: fallthrough
-    case .fileError:
-      onPreparedToShareCategory?(.error(title: L("dialog_routing_system_error"), text: L("bookmarks_error_message_share_general")))
-    }
   }
 }

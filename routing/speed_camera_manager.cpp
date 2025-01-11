@@ -6,7 +6,7 @@
 
 namespace routing
 {
-std::string const SpeedCameraManager::kSpeedCamModeKey = "speed_cam_mode";
+std::string_view constexpr kSpeedCamModeKey = "speed_cam_mode";
 
 SpeedCameraManager::SpeedCameraManager(turns::sound::NotificationManager & notificationManager)
   : m_notificationManager(notificationManager)
@@ -57,7 +57,7 @@ void SpeedCameraManager::OnLocationPositionChanged(location::GpsInfo const & inf
     }
     else if (!m_closestCamera.NoSpeed())
     {
-      m_speedLimitExceeded = IsSpeedHigh(distFromCurrentPosAndClosestCam, info.m_speedMpS, m_closestCamera);
+      m_speedLimitExceeded = IsSpeedHigh(distFromCurrentPosAndClosestCam, info.m_speed, m_closestCamera);
     }
   }
 
@@ -68,7 +68,7 @@ void SpeedCameraManager::OnLocationPositionChanged(location::GpsInfo const & inf
     // invalidate |closestSpeedCam|.
     auto const closestSpeedCam = m_cachedSpeedCameras.front();
 
-    if (NeedToUpdateClosestCamera(passedDistanceMeters, info.m_speedMpS, closestSpeedCam))
+    if (NeedToUpdateClosestCamera(passedDistanceMeters, info.m_speed, closestSpeedCam))
     {
       m_closestCamera = closestSpeedCam;
       ResetNotifications();
@@ -78,10 +78,10 @@ void SpeedCameraManager::OnLocationPositionChanged(location::GpsInfo const & inf
   }
 
   if (m_closestCamera.IsValid() &&
-      SetNotificationFlags(passedDistanceMeters, info.m_speedMpS, m_closestCamera))
+      SetNotificationFlags(passedDistanceMeters, info.m_speed, m_closestCamera))
   {
     // If some notifications available now.
-    SendNotificationStat(passedDistanceMeters, info.m_speedMpS, m_closestCamera);
+    SendNotificationStat(passedDistanceMeters, info.m_speed, m_closestCamera);
   }
 }
 
@@ -233,14 +233,14 @@ bool SpeedCameraManager::IsSpeedHigh(double distanceToCameraMeters, double speed
     if (distToDangerousZone < -kInfluenceZoneMeters)
       return false;
 
-    return speedMpS > routing::KMPH2MPS(camera.m_maxSpeedKmH);
+    return speedMpS > measurement_utils::KmphToMps(camera.m_maxSpeedKmH);
   }
 
-  if (speedMpS < routing::KMPH2MPS(camera.m_maxSpeedKmH))
+  if (speedMpS < measurement_utils::KmphToMps(camera.m_maxSpeedKmH))
     return false;
 
   double timeToSlowSpeed =
-    (routing::KMPH2MPS(camera.m_maxSpeedKmH) - speedMpS) / kAverageAccelerationOfBraking;
+    (measurement_utils::KmphToMps(camera.m_maxSpeedKmH) - speedMpS) / kAverageAccelerationOfBraking;
 
   // Look to: https://en.wikipedia.org/wiki/Acceleration#Uniform_acceleration
   // S = V_0 * t + at^2 / 2, where
@@ -395,7 +395,7 @@ std::string DebugPrint(SpeedCameraManager::Interval interval)
   case SpeedCameraManager::Interval::VoiceNotificationZone: return "VoiceNotificationZone";
   case SpeedCameraManager::Interval::ImpactZone: return "ImpactZone";
   }
-  
+
   UNREACHABLE();
 }
 

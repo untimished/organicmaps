@@ -1,13 +1,11 @@
 #pragma once
 
 #include "base/assert.hpp"
-#include "base/base.hpp"
 #include "base/math.hpp"
 #include "base/matrix.hpp"
 
 #include <array>
 #include <cmath>
-#include <functional>
 #include <limits>
 #include <sstream>
 #include <typeinfo>
@@ -22,8 +20,7 @@ public:
 
   T x, y;
 
-  constexpr Point() : x(T()), y(T()) {}
-
+  Point() = default;
   constexpr Point(T x_, T y_) : x(x_), y(y_) {}
 
   template <typename U>
@@ -39,10 +36,7 @@ public:
     return ((fabs(x - p.x) < eps) && (fabs(y - p.y) < eps));
   }
 
-  T SquaredLength(Point<T> const & p) const { return pow(x - p.x, 2.0) + pow(y - p.y, 2.0); }
-
-  T SquaredLength() const { return x * x + y * y; }
-
+  T SquaredLength(Point<T> const & p) const { return base::Pow2(x - p.x) + base::Pow2(y - p.y); }
   double Length(Point<T> const & p) const { return std::sqrt(SquaredLength(p)); }
 
   bool IsAlmostZero() const { return AlmostEqualULPs(*this, Point<T>(0, 0)); }
@@ -112,6 +106,8 @@ public:
   }
 
   /// @name VectorOperationsOnPoint
+  /// @{
+  T SquaredLength() const { return x * x + y * y; }
   double Length() const { return std::sqrt(SquaredLength()); }
 
   Point<T> Normalize() const
@@ -158,6 +154,7 @@ public:
     x = org.x + oldX * dx.x + y * dy.x;
     y = org.y + oldX * dx.y + y * dy.y;
   }
+  /// @}
 
   struct Hash
   {
@@ -235,7 +232,7 @@ std::string DebugPrint(m2::Point<T> const & p)
 }
 
 template <typename T>
-bool AlmostEqualAbs(m2::Point<T> const & a, m2::Point<T> const & b, double const eps)
+bool AlmostEqualAbs(m2::Point<T> const & a, m2::Point<T> const & b, double eps)
 {
   return base::AlmostEqualAbs(a.x, b.x, eps) && base::AlmostEqualAbs(a.y, b.y, eps);
 }
@@ -309,7 +306,7 @@ bool AlmostEqualULPs(m2::Point<T> const & p1, m2::Point<T> const & p2, unsigned 
 }
 
 template <typename T>
-bool AlmostEqualAbs(m2::Point<T> const & p1, m2::Point<T> const & p2, double const & eps)
+bool AlmostEqualAbs(m2::Point<T> const & p1, m2::Point<T> const & p2, double eps)
 {
   return m2::AlmostEqualAbs(p1, p2, eps);
 }

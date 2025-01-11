@@ -23,27 +23,16 @@ public:
     return it != m_metadata.end();
   }
 
-  std::string Get(uint8_t type) const
+  std::string_view Get(uint8_t type) const
   {
+    std::string_view sv;
     auto const it = m_metadata.find(type);
-    return (it == m_metadata.end()) ? std::string() : it->second;
-  }
-
-  bool Get(uint8_t type, std::string & value) const
-  {
-    value = Get(type);
-    return !value.empty();
-  }
-
-  std::vector<uint8_t> GetPresentTypes() const
-  {
-    std::vector<uint8_t> types;
-    types.reserve(m_metadata.size());
-
-    for (auto const & item : m_metadata)
-      types.push_back(item.first);
-
-    return types;
+    if (it != m_metadata.end())
+    {
+      sv = it->second;
+      ASSERT(!sv.empty(), ());
+    }
+    return sv;
   }
 
   inline bool Empty() const { return m_metadata.empty(); }
@@ -77,27 +66,28 @@ public:
     return m_metadata == other.m_metadata;
   }
 
+  void Clear() { m_metadata.clear(); }
+
 protected:
   friend bool indexer::MetadataDeserializer::Get(uint32_t id, MetadataBase & meta);
 
-  // TODO: Change uint8_t to appropriate type when FMD_COUNT reaches 256.
-  void Set(uint8_t type, std::string const & value)
+  std::string_view Set(uint8_t type, std::string value)
   {
-    auto found = m_metadata.find(type);
-    if (found == m_metadata.end())
-    {
-      if (!value.empty())
-        m_metadata[type] = value;
-    }
+    std::string_view sv;
+
+    if (value.empty())
+      m_metadata.erase(type);
     else
     {
-      if (value.empty())
-        m_metadata.erase(found);
-      else
-        found->second = value;
+      auto & res = m_metadata[type];
+      res = std::move(value);
+      sv = res;
     }
+
+    return sv;
   }
 
+  /// @todo Change uint8_t to appropriate type when FMD_COUNT reaches 256.
   std::map<uint8_t, std::string> m_metadata;
 };
 
@@ -106,19 +96,20 @@ class Metadata : public MetadataBase
 public:
   /// @note! Do not change values here.
   /// Add new types to the end of list, before FMD_COUNT.
-  /// Add new types to the corresponding list in Java.
-  /// Add new types to the corresponding list in generator/pygen/pygen.cpp.
+  /// Add new types to the corresponding list in android/.../Metadata.java.
   /// For types parsed from OSM get corresponding OSM tag to MetadataTagProcessor::TypeFromString().
   enum EType : int8_t
   {
+    // Used as id only, because cuisines are defined by classifier types now. Will be active in future.
     FMD_CUISINE = 1,
     FMD_OPEN_HOURS = 2,
     FMD_PHONE_NUMBER = 3,
     FMD_FAX_NUMBER = 4,
     FMD_STARS = 5,
     FMD_OPERATOR = 6,
-    FMD_URL = 7,
+    //FMD_URL = 7,        // Deprecated, use FMD_WEBSITE
     FMD_WEBSITE = 8,
+    /// @todo We have meta and classifier type at the same type. It's ok now for search, but should be revised in future.
     FMD_INTERNET = 9,
     FMD_ELE = 10,
     FMD_TURN_LANES = 11,
@@ -127,17 +118,17 @@ public:
     FMD_EMAIL = 14,
     FMD_POSTCODE = 15,
     FMD_WIKIPEDIA = 16,
-    // FMD_MAXSPEED used to be 17 but now it is stored in a section of its own.
+    FMD_DESCRIPTION = 17,
     FMD_FLATS = 18,
     FMD_HEIGHT = 19,
     FMD_MIN_HEIGHT = 20,
     FMD_DENOMINATION = 21,
     FMD_BUILDING_LEVELS = 22,
     FMD_TEST_ID = 23,
-    FMD_SPONSORED_ID = 24,
-    FMD_PRICE_RATE = 25,
-    FMD_RATING = 26,
-    FMD_BANNER_URL = 27,
+    FMD_CUSTOM_IDS = 24,
+    FMD_PRICE_RATES = 25,
+    FMD_RATINGS = 26,
+    FMD_EXTERNAL_URI = 27,
     FMD_LEVEL = 28,
     FMD_AIRPORT_IATA = 29,
     FMD_BRAND = 30,
@@ -151,25 +142,47 @@ public:
     FMD_CONTACT_TWITTER = 34,
     FMD_CONTACT_VK = 35,
     FMD_CONTACT_LINE = 36,
+    FMD_DESTINATION = 37,
+    FMD_DESTINATION_REF = 38,
+    FMD_JUNCTION_REF = 39,
+    FMD_BUILDING_MIN_LEVEL = 40,
+    FMD_WIKIMEDIA_COMMONS = 41,
+    FMD_CAPACITY = 42,
+    FMD_WHEELCHAIR = 43, // Value is runtime only, data is taken from the classificator types
+    FMD_LOCAL_REF = 44,
+    FMD_DRIVE_THROUGH = 45,
+    FMD_WEBSITE_MENU = 46,
+    FMD_SELF_SERVICE = 47,
+    FMD_OUTDOOR_SEATING = 48,
+    FMD_NETWORK = 49,
     FMD_COUNT
   };
 
+  enum ESource : uint8_t { SRC_KAYAK = 0 };
+
   /// Used to normalize tags like "contact:phone", "phone" and "contact:mobile" to a common metadata enum value.
-  static bool TypeFromString(std::string const & osmTagKey, EType & outType);
-  static bool IsSponsoredType(EType const & type);
+  static bool TypeFromString(std::string_view osmTagKey, EType & outType);
 
-  std::vector<Metadata::EType> GetKeys() const;
+  template <class FnT> void ForEach(FnT && fn) const
+  {
+    for (auto const & e : m_metadata)
+      fn(static_cast<Metadata::EType>(e.first), e.second);
+  }
 
-  using MetadataBase::Has;
-  using MetadataBase::Get;
   bool Has(EType type) const { return MetadataBase::Has(static_cast<uint8_t>(type)); }
-  std::string Get(EType type) const { return MetadataBase::Get(static_cast<uint8_t>(type)); }
-  bool Get(EType type, std::string & value) const { return MetadataBase::Get(static_cast<uint8_t>(type), value);  }
+  std::string_view Get(EType type) const { return MetadataBase::Get(static_cast<uint8_t>(type)); }
 
-  using MetadataBase::Set;
-  void Set(EType type, std::string const & value) { MetadataBase::Set(static_cast<uint8_t>(type), value); }
+  std::string_view Set(EType type, std::string value)
+  {
+    return MetadataBase::Set(static_cast<uint8_t>(type), std::move(value));
+  }
   void Drop(EType type) { Set(type, std::string()); }
+
+  static std::string ToWikiURL(std::string v);
   std::string GetWikiURL() const;
+  static std::string ToWikimediaCommonsURL(std::string const & v);
+
+  void ClearPOIAttribs();
 };
 
 class AddressData : public MetadataBase
@@ -177,17 +190,28 @@ class AddressData : public MetadataBase
 public:
   enum class Type : uint8_t
   {
-    Street,
-    Postcode
+    Street, Place,
   };
 
-  void Add(Type type, std::string const & s)
+  // Store single value only.
+  void Set(Type type, std::string_view s)
   {
-    /// @todo Probably, we need to add separator here and store multiple values.
-    MetadataBase::Set(base::Underlying(type), s);
+    Set(type, std::string(s));
+  }
+  void Set(Type type, std::string s)
+  {
+    if (!s.empty())
+      MetadataBase::Set(base::Underlying(type), std::move(s));
   }
 
-  std::string Get(Type type) const { return MetadataBase::Get(base::Underlying(type)); }
+  void SetIfAbsent(Type type, std::string s)
+  {
+    uint8_t const ut = base::Underlying(type);
+    if (!s.empty() && !Has(ut))
+      MetadataBase::Set(ut, std::move(s));
+  }
+
+  std::string_view Get(Type type) const { return MetadataBase::Get(base::Underlying(type)); }
 };
 
 class RegionData : public MetadataBase
@@ -243,16 +267,16 @@ public:
 
   void SetLeapWeightSpeed(double speedValue)
   {
-    std::string strValue = std::to_string(speedValue);
-    MetadataBase::Set(Type::RD_LEAP_WEIGHT_SPEED, strValue);
+    MetadataBase::Set(Type::RD_LEAP_WEIGHT_SPEED, std::to_string(speedValue));
   }
 
-  double GetLeapWeightSpeed(double defaultValue) const
-  {
-    if (Has(Type::RD_LEAP_WEIGHT_SPEED))
-      return std::stod(Get(Type::RD_LEAP_WEIGHT_SPEED));
-    return defaultValue;
-  }
+  /// @see EdgeEstimator::GetLeapWeightSpeed
+//  double GetLeapWeightSpeed(double defaultValue) const
+//  {
+//    if (Has(Type::RD_LEAP_WEIGHT_SPEED))
+//      return std::stod(Get(Type::RD_LEAP_WEIGHT_SPEED));
+//    return defaultValue;
+//  }
 };
 
 // Prints types in osm-friendly format.

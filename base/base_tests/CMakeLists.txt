@@ -1,9 +1,6 @@
 project(base_tests)
 
-add_definitions(-DOMIM_UNIT_TEST_DISABLE_PLATFORM_INIT)
-
-set(
-  SRC
+set(SRC
   assert_test.cpp
   beam_tests.cpp
   bidirectional_map_tests.cpp
@@ -27,10 +24,10 @@ set(
   math_test.cpp
   matrix_test.cpp
   mem_trie_test.cpp
+  message_test.cpp
   newtype_test.cpp
   non_intersecting_intervals_tests.cpp
   observer_list_test.cpp
-  optional_lock_guard_tests.cpp
   range_iterator_test.cpp
   ref_counted_tests.cpp
   regexp_test.cpp
@@ -47,11 +44,16 @@ set(
   thread_safe_queue_tests.cpp
   threaded_list_test.cpp
   threads_test.cpp
-  timegm_test.cpp
   timer_test.cpp
   uni_string_dfa_test.cpp
   visitor_tests.cpp
 )
 
-omim_add_test(${PROJECT_NAME} ${SRC})
-omim_link_libraries(${PROJECT_NAME} base)
+# Windows does not have timegm function
+if(NOT WIN32)
+  list(APPEND SRC "timegm_test.cpp")
+endif()
+
+omim_add_test(${PROJECT_NAME} ${SRC} NO_PLATFORM_INIT)
+
+target_link_libraries(${PROJECT_NAME} base)

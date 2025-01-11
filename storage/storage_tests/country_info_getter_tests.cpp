@@ -195,6 +195,26 @@ UNIT_TEST(CountryInfoGetter_HitsInTheMiddleOfNowhere)
        ());
 }
 
+UNIT_TEST(CountryInfoGetter_BorderRelations)
+{
+  auto const getter = CreateCountryInfoGetter();
+
+  ms::LatLon labels[] = {
+    {42.4318876, -8.6431592}, {42.6075172, -8.4714942},
+    {42.3436415, -7.8674242}, {42.1968459, -7.6114105},
+    {43.0118437, -7.5565749}, {43.0462247, -7.4739921},
+    {43.3709703, -8.3959425}, {43.0565609, -8.5296941},
+    {27.0006968, 49.6532161},
+  };
+
+  for (auto const & ll : labels)
+  {
+    auto const region = getter->GetRegionCountryId(mercator::FromLatLon(ll));
+    LOG(LINFO, (region));
+    TEST(!region.empty(), (ll));
+  }
+}
+
 UNIT_TEST(CountryInfoGetter_GetLimitRectForLeafSingleMwm)
 {
   auto const getter = CreateCountryInfoGetter();
@@ -243,9 +263,9 @@ UNIT_TEST(CountryInfoGetter_Countries_And_Polygons)
 
   // Set is used here because disputed territories may occur as leaves several times.
   set<CountryId> storageLeaves;
-  storage.ForEachInSubtree(storage.GetRootId(), [&](CountryId const & countryId, bool groupNode) {
-    if (!groupNode)
-      storageLeaves.insert(countryId);
+  storage.ForEachCountry([&](Country const & country)
+  {
+    storageLeaves.insert(country.Name());
   });
 
   TEST_EQUAL(countries.size(), storageLeaves.size(), ());
@@ -287,7 +307,7 @@ BENCHMARK_TEST(CountryInfoGetter_RegionsByRect)
   {
     vector<m2::RegionD> regions;
     reader->LoadRegionsFromDisk(i, regions);
-    allRegions.emplace_back(move(regions));
+    allRegions.emplace_back(std::move(regions));
   }
 
   size_t totalPoints = 0;
@@ -353,8 +373,7 @@ BENCHMARK_TEST(CountryInfoGetter_RegionsByRect)
         times[i] = t1 - t0;
       }
 
-      avgTimeByCountry[countryId] =
-          base::AverageStats<double>(times.begin(), times.end()).GetAverage();
+      avgTimeByCountry[countryId] = base::AverageStats<double>(times).GetAverage();
 
       if (longest.empty() || avgTimeByCountry[longest] < avgTimeByCountry[countryId])
         longest = countryId;
@@ -396,8 +415,7 @@ BENCHMARK_TEST(CountryInfoGetter_RegionsByRect)
         times[i] = t1 - t0;
       }
 
-      avgTimeByCountry[countryId] =
-          base::AverageStats<double>(times.begin(), times.end()).GetAverage();
+      avgTimeByCountry[countryId] = base::AverageStats<double>(times).GetAverage();
 
       if (longest.empty() || avgTimeByCountry[longest] < avgTimeByCountry[countryId])
         longest = countryId;

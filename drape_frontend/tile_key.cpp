@@ -3,8 +3,6 @@
 #include "drape_frontend/shape_view_params.hpp"
 #include "drape_frontend/tile_utils.hpp"
 
-#include "indexer/scales.hpp"
-
 #include "geometry/mercator.hpp"
 
 #include <sstream>
@@ -13,23 +11,21 @@ namespace df
 {
 namespace
 {
-uint64_t constexpr GetMask(uint32_t bitsCount)
+uint32_t constexpr GetMask(uint8_t bitsCount)
 {
-  uint64_t r = 0;
-  for (uint32_t i = 0; i < bitsCount; ++i)
-    r |= (static_cast<uint64_t>(1) << i);
-  return r;
+  ASSERT(bitsCount > 0 && bitsCount < 32, (bitsCount));
+  return (uint32_t(1) << bitsCount) - 1;
 }
 }  // namespace
 
 TileKey::TileKey()
   : m_x(-1), m_y(-1),
-    m_zoomLevel(-1),
+    m_zoomLevel(0),
     m_generation(0),
     m_userMarksGeneration(0)
 {}
 
-TileKey::TileKey(int x, int y, int zoomLevel)
+TileKey::TileKey(int x, int y, uint8_t zoomLevel)
   : m_x(x), m_y(y),
     m_zoomLevel(zoomLevel),
     m_generation(0),
@@ -117,24 +113,24 @@ uint64_t TileKey::GetHashValue(BatcherBucket bucket) const
   // 20 bit - x;
   // 3 bit - bucket.
 
-  uint32_t constexpr kCoordsBits = 20;
-  uint32_t constexpr kZoomBits = 5;
-  uint32_t constexpr kGenerationBits = 8;
-  uint32_t constexpr kBucketBits = 3;
-  uint32_t constexpr kCoordsOffset = 1 << (kCoordsBits - 1);
-  uint64_t constexpr kCoordsMask = GetMask(kCoordsBits);
-  uint64_t constexpr kZoomMask = GetMask(kZoomBits);
-  uint64_t constexpr kBucketMask = GetMask(kBucketBits);
-  uint64_t constexpr kGenerationMod = 1 << kGenerationBits;
+  uint8_t constexpr kCoordsBits = 20;
+  uint8_t constexpr kZoomBits = 5;
+  uint8_t constexpr kGenerationBits = 8;
+  uint8_t constexpr kBucketBits = 3;
+  uint32_t constexpr kCoordsMask = GetMask(kCoordsBits);
+  uint32_t constexpr kZoomMask = GetMask(kZoomBits);
+  uint32_t constexpr kBucketMask = GetMask(kBucketBits);
+  uint32_t constexpr kGenerationMod = 1 << kGenerationBits;
 
+  // Transform [-b, b] coordinates range -> [0, 2b] positive coordinates range.
+  int constexpr kCoordsOffset = 1 << (kCoordsBits - 1);
+  CHECK(abs(m_x) <= kCoordsOffset, (m_x));
+  CHECK(abs(m_y) <= kCoordsOffset, (m_y));
   auto const x = static_cast<uint64_t>(m_x + kCoordsOffset) & kCoordsMask;
-  CHECK_LESS_OR_EQUAL(x, 1 << kCoordsBits, ());
-
   auto const y = static_cast<uint64_t>(m_y + kCoordsOffset) & kCoordsMask;
-  CHECK_LESS_OR_EQUAL(y, 1 << kCoordsBits, ());
 
-  auto const zoom = static_cast<uint64_t>(m_zoomLevel) & kZoomMask;
-  CHECK_LESS_OR_EQUAL(zoom, 1 << kZoomBits, ());
+  CHECK(m_zoomLevel <= kZoomMask, (m_zoomLevel));
+  uint64_t const zoom = static_cast<uint64_t>(m_zoomLevel) & kZoomMask;
 
   auto const umg = static_cast<uint64_t>(m_userMarksGeneration % kGenerationMod);
   auto const g = static_cast<uint64_t>(m_generation % kGenerationMod);
@@ -151,12 +147,17 @@ math::Matrix<float, 4, 4> TileKey::GetTileBasedModelView(ScreenBase const & scre
   return screen.GetModelView(GetGlobalRect().Center(), kShapeCoordScalar);
 }
 
+std::string TileKey::Coord2String() const
+{
+  return strings::to_string(m_x) + ' ' + strings::to_string(m_y) + ' ' + strings::to_string(int(m_zoomLevel));
+}
+
 std::string DebugPrint(TileKey const & key)
 {
   std::ostringstream out;
-  out << "[x = " << key.m_x << ", y = " << key.m_y << ", zoomLevel = "
-      << key.m_zoomLevel << ", gen = " << key.m_generation
-      << ", user marks gen = " << key.m_userMarksGeneration << "]";
+  out << "{ x = " << key.m_x << ", y = " << key.m_y << ", zoomLevel = "
+      << (int)key.m_zoomLevel << ", gen = " << key.m_generation
+      << ", user marks gen = " << key.m_userMarksGeneration << " }";
   return out.str();
 }
 }  // namespace df

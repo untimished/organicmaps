@@ -1,66 +1,45 @@
-# Function for setting target platform:
-function(omim_set_platform_var PLATFORM_VAR pattern)
-  set(${PLATFORM_VAR} FALSE PARENT_SCOPE)
-
-  if (NOT PLATFORM)
-    if (${ARGN})
-      list(GET ARGN 0 default_case)
-      if (${default_case})
-        set(${PLATFORM_VAR} TRUE PARENT_SCOPE)
-        message("Setting ${PLATFORM_VAR} to true")
-      endif()
-    endif()
-  else()
-    message("Platform: ${PLATFORM}")
-    if (${PLATFORM} MATCHES ${pattern})
-      set(${PLATFORM_VAR} TRUE PARENT_SCOPE)
-    endif()
-  endif()
-endfunction()
+include(OmimConfig)
 
 # Functions for using in subdirectories
 function(omim_add_executable executable)
   add_executable(${executable} ${ARGN})
-  add_dependencies(${executable} BuildVersion)
+
+  # Enable warnings for all our binaries.
+  target_compile_options(${executable} PRIVATE ${OMIM_WARNING_FLAGS})
+  target_include_directories(${executable} SYSTEM PRIVATE ${3PARTY_INCLUDE_DIRS})
   if (USE_ASAN)
-    target_link_libraries(
-      ${executable}
-      "-fsanitize=address"
-      "-fno-omit-frame-pointer"
+    target_link_libraries(${executable}
+      -fsanitize=address
+      -fno-omit-frame-pointer
     )
   endif()
   if (USE_TSAN)
-    target_link_libraries(
-      ${executable}
-      "-fsanitize=thread"
-      "-fno-omit-frame-pointer"
+    target_link_libraries(${executable}
+      -fsanitize=thread
+      -fno-omit-frame-pointer
     )
   endif()
   if (USE_LIBFUZZER)
-    target_link_libraries(
-      ${executable}
-      "-fsanitize=fuzzer"
-    )
+    target_link_libraries(${executable} -fsanitize=fuzzer)
   endif()
   if (USE_PPROF)
     if (PLATFORM_MAC)
       find_library(PPROF_LIBRARY libprofiler.dylib)
       target_link_libraries(${executable} ${PPROF_LIBRARY})
     else()
-      target_link_libraries(${executable} "-lprofiler")
+      target_link_libraries(${executable} -lprofiler)
     endif()
   endif()
   if (USE_HEAPPROF)
     if (PLATFORM_MAC)
       find_library(HEAPPROF_LIBRARY libtcmalloc.dylib)
       if (NOT HEAPPROF_LIBRARY)
-          message(
-            FATAL_ERROR
+          message(FATAL_ERROR
             "Trying to use -ltcmalloc on MacOS, make sure that you have installed it (https://github.com/mapsme/omim/pull/12671).")
       endif()
       target_link_libraries(${executable} ${HEAPPROF_LIBRARY})
     else()
-      target_link_libraries(${executable} "-ltcmalloc")
+      target_link_libraries(${executable} -ltcmalloc)
     endif()
   endif()
   if (USE_PCH)
@@ -70,7 +49,10 @@ endfunction()
 
 function(omim_add_library library)
   add_library(${library} ${ARGN})
-  add_dependencies(${library} BuildVersion)
+
+  # Enable warnings for all our libraries.
+  target_compile_options(${library} PRIVATE ${OMIM_WARNING_FLAGS})
+  target_include_directories(${library} SYSTEM PRIVATE ${3PARTY_INCLUDE_DIRS})
   if (USE_PPROF AND PLATFORM_MAC)
     find_path(PPROF_INCLUDE_DIR NAMES gperftools/profiler.h)
     target_include_directories(${library} SYSTEM PUBLIC ${PPROF_INCLUDE_DIR})
@@ -80,21 +62,11 @@ function(omim_add_library library)
   endif()
 endfunction()
 
-function(omim_add_test executable)
-  if (NOT SKIP_TESTS)
-    omim_add_executable(
-      ${executable}
-      ${ARGN}
-      ${OMIM_ROOT}/testing/testingmain.cpp
-     )
-  endif()
-endfunction()
-
-function(omim_add_test_subdirectory subdir)
-  if (NOT SKIP_TESTS)
+function(omim_add_tool_subdirectory subdir)
+  if (NOT SKIP_TOOLS)
     add_subdirectory(${subdir})
   else()
-    message("SKIP_TESTS: Skipping subdirectory ${subdir}")
+    message("SKIP_TOOLS: Skipping subdirectory ${subdir}")
   endif()
 endfunction()
 
@@ -133,74 +105,6 @@ endfunction()
 
 function(append VAR)
   set(${VAR} ${${VAR}} ${ARGN} PARENT_SCOPE)
-endfunction()
-
-function(link_opengl target)
-    if (PLATFORM_MAC)
-      omim_link_libraries(
-        ${target}
-        "-framework OpenGL"
-      )
-    endif()
-
-    if (PLATFORM_LINUX)
-      omim_link_libraries(
-        ${target}
-        OpenGL::GL
-      )
-    endif()
-endfunction()
-
-function(link_qt5_core target)
-  omim_link_libraries(
-    ${target}
-    ${Qt5Core_LIBRARIES}
-  )
-
-  if (PLATFORM_MAC)
-    omim_link_libraries(
-      ${target}
-      "-framework IOKit"
-    )
-  endif()
-endfunction()
-
-function(link_qt5_network target)
-  omim_link_libraries(
-    ${target}
-    ${Qt5Network_LIBRARIES}
-  )
-endfunction()
-
-function(link_qt5_webengine target)
-  omim_link_libraries(
-    ${target}
-    ${Qt5WebEngineWidgets_LIBRARIES}
-  )
-endfunction()
-
-function(add_clang_compile_options)
-  if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    add_compile_options(${ARGV})
-  endif()
-endfunction()
-
-function(add_gcc_compile_options)
-  if (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    add_compile_options(${ARGV})
-  endif()
-endfunction()
-
-function(add_clang_cpp_compile_options)
-  if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:${ARGV}>")
-  endif()
-endfunction()
-
-function(add_gcc_cpp_compile_options)
-  if (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:${ARGV}>")
-  endif()
 endfunction()
 
 function(export_directory_flags filename)
@@ -269,8 +173,8 @@ function(add_precompiled_headers header pch_target_name)
   export_directory_flags("${pch_flags_file}")
   set(compiler_flags "@${pch_flags_file}")
 
-  # CMAKE_CXX_STANDARD 17 flags:
-  set(c_standard_flags "-std=c++17")
+  # CMAKE_CXX_STANDARD 20 flags:
+  set(c_standard_flags "-std=c++20")
   get_filename_component(pch_file_name ${header} NAME)
 
   add_pic_pch_target(${header} ${pch_target_name} ${pch_file_name} lib "-fPIC")
@@ -308,11 +212,10 @@ function(add_precompiled_headers_to_target target pch_target)
   endif()
 
   # Force gcc first search gch header in pch_exe/pch_lib:
-  target_include_directories(
-    ${target}
+  target_include_directories(${target}
     BEFORE
     PUBLIC
-    ${include_compiled_header_dir}
+      ${include_compiled_header_dir}
   )
 
   foreach(source ${sources})

@@ -2,18 +2,17 @@
 #include "indexer/feature.hpp"
 
 #include "geometry/algorithm.hpp"
+#include "geometry/mercator.hpp"
 #include "geometry/parametrized_segment.hpp"
 #include "geometry/triangle2d.hpp"
-
-#include "base/logging.hpp"
 
 #include <limits>
 
 namespace feature
 {
 /// @returns point on a feature that is the closest to f.GetLimitRect().Center().
-/// It is used by many ednities in the core of mapsme. Do not modify it's
-/// logic if you really-really know what you are doing.
+/// It is used by many entities in the core. Do not modify it's
+/// logic unless you really-really know what you are doing.
 m2::PointD GetCenter(FeatureType & f, int scale)
 {
   GeomType const type = f.GetGeomType();
@@ -23,6 +22,8 @@ m2::PointD GetCenter(FeatureType & f, int scale)
   {
     return f.GetCenter();
   }
+  /// @todo cache calculated area and line centers, as calculation could be quite heavy for big features (and
+  /// involves geometry reading) and a center could be requested multiple times during e.g. search, PP opening, etc.
   case GeomType::Line:
   {
     m2::CalculatePolyLineCenter doCalc;
@@ -102,5 +103,18 @@ double GetMinDistanceMeters(FeatureType & ft, m2::PointD const & pt, int scale)
 double GetMinDistanceMeters(FeatureType & ft, m2::PointD const & pt)
 {
   return GetMinDistanceMeters(ft, pt, FeatureType::BEST_GEOMETRY);
+}
+
+double CalcArea(FeatureType & ft)
+{
+  double area = 0;
+  if (ft.GetGeomType() == GeomType::Area)
+  {
+    ft.ForEachTriangle([&area](m2::PointD const & p1, m2::PointD const & p2, m2::PointD const & p3)
+    {
+      area += m2::GetTriangleArea(p1, p2, p3);
+    }, FeatureType::BEST_GEOMETRY);
+  }
+  return area;
 }
 }  // namespace feature

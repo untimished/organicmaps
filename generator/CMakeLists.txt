@@ -1,16 +1,14 @@
 project(generator)
 
-include_directories(
-  ${OMIM_ROOT}/3party/jansson/src
-)
-
-set(
-  SRC
+set(SRC
+  addresses_collector.cpp
+  addresses_collector.hpp
+  address_enricher.cpp
+  address_enricher.hpp
   affiliation.cpp
   affiliation.hpp
   altitude_generator.cpp
   altitude_generator.hpp
-  boost_helpers.hpp
   borders.cpp
   borders.hpp
   boundary_postcodes_enricher.cpp
@@ -43,8 +41,6 @@ set(
   collector_building_parts.hpp
   collector_camera.cpp
   collector_camera.hpp
-  collector_city_area.cpp
-  collector_city_area.hpp
   collector_collection.cpp
   collector_collection.hpp
   collector_interface.hpp
@@ -54,8 +50,8 @@ set(
   collector_routing_city_boundaries.hpp
   collector_tag.cpp
   collector_tag.hpp
-  complex_loader.cpp
-  complex_loader.hpp
+#  complex_loader.cpp
+#  complex_loader.hpp
   composite_id.cpp
   composite_id.hpp
   cross_mwm_osm_ways_collector.cpp
@@ -85,8 +81,8 @@ set(
   features_processing_helpers.hpp
   filter_collection.cpp
   filter_collection.hpp
-  filter_complex.cpp
-  filter_complex.hpp
+#  filter_complex.cpp
+#  filter_complex.hpp
   filter_elements.cpp
   filter_elements.hpp
   filter_interface.hpp
@@ -96,13 +92,14 @@ set(
   filter_roads.hpp
   filter_world.cpp
   filter_world.hpp
+  final_processor_cities.cpp
+  final_processor_cities.hpp
   final_processor_coastline.cpp
   final_processor_coastline.hpp
-  final_processor_complex.cpp
-  final_processor_complex.hpp
+#  final_processor_complex.cpp
+#  final_processor_complex.hpp
   final_processor_country.cpp
   final_processor_country.hpp
-  final_processor_interface.cpp
   final_processor_interface.hpp
   final_processor_utils.cpp
   final_processor_utils.hpp
@@ -112,10 +109,10 @@ set(
   gen_mwm_info.hpp
   generate_info.hpp
   geometry_holder.hpp
-  hierarchy.cpp
-  hierarchy.hpp
-  hierarchy_entry.cpp
-  hierarchy_entry.hpp
+#  hierarchy.cpp
+#  hierarchy.hpp
+#  hierarchy_entry.cpp
+#  hierarchy_entry.hpp
   holes.cpp
   holes.hpp
   intermediate_data.cpp
@@ -160,15 +157,15 @@ set(
   postcode_points_builder.hpp
   processor_coastline.cpp
   processor_coastline.hpp
-  processor_complex.cpp
-  processor_complex.hpp
+#  processor_complex.cpp
+#  processor_complex.hpp
   processor_country.cpp
   processor_country.hpp
   processor_factory.hpp
   processor_interface.hpp
   processor_noop.hpp
-  processor_simple.cpp
-  processor_simple.hpp
+#  processor_simple.cpp
+#  processor_simple.hpp
   processor_world.cpp
   processor_world.hpp
   raw_generator.cpp
@@ -220,8 +217,8 @@ set(
   translator_coastline.hpp
   translator_collection.cpp
   translator_collection.hpp
-  translator_complex.cpp
-  translator_complex.hpp
+#  translator_complex.cpp
+#  translator_complex.hpp
   translator_country.cpp
   translator_country.hpp
   translator_factory.hpp
@@ -230,29 +227,52 @@ set(
   translator_world.hpp
   translators_pool.cpp
   translators_pool.hpp
-  type_helper.cpp
-  type_helper.hpp
   unpack_mwm.cpp
   unpack_mwm.hpp
   utils.cpp
   utils.hpp
   ways_merger.cpp
   ways_merger.hpp
+  way_nodes_mapper.hpp
   wiki_url_dumper.cpp
   wiki_url_dumper.hpp
+  water_boundary_checker.hpp
   world_map_generator.hpp
 )
 
 omim_add_library(${PROJECT_NAME} ${SRC})
 
-omim_add_pybindings_subdirectory(pygen)
+target_link_libraries(${PROJECT_NAME}
+  transit
+  search
+  routing
+  storage
+  descriptions
+  indexer
+  cppjansson
+  expat::expat
+  tess2
+  $<$<BOOL:CMAKE_DL_LIBS>:${CMAKE_DL_LIBS}>  # dladdr from boost::stacktrace
+)
 
-omim_add_test_subdirectory(generator_tests_support)
+# Disable unity build to avoid boost::geometry macro linker errors.
+set_source_files_properties(
+  affiliation.cpp
+  final_processor_country.cpp
+  hierarchy.cpp
+  PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE
+)
+
+if (NOT (SKIP_TOOLS AND SKIP_TESTS))
+  # Used in both tests and some tools.
+  add_subdirectory(generator_tests_support)
+endif()
 omim_add_test_subdirectory(generator_tests)
 omim_add_test_subdirectory(generator_integration_tests)
 
-add_subdirectory(generator_tool)
-add_subdirectory(complex_generator)
-add_subdirectory(feature_segments_checker)
-add_subdirectory(srtm_coverage_checker)
+omim_add_tool_subdirectory(generator_tool)
+#omim_add_tool_subdirectory(complex_generator)
+omim_add_tool_subdirectory(feature_segments_checker)
+omim_add_tool_subdirectory(srtm_coverage_checker)
 add_subdirectory(world_roads_builder)
+add_subdirectory(address_parser)

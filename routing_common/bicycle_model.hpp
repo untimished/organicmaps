@@ -9,28 +9,23 @@ class BicycleModel : public VehicleModel
 {
 public:
   BicycleModel();
-  BicycleModel(VehicleModel::LimitsInitList const & speedLimits);
+  explicit BicycleModel(VehicleModel::LimitsInitList const & limits);
+  BicycleModel(VehicleModel::LimitsInitList const & limits, HighwayBasedSpeeds const & speeds);
 
   /// VehicleModelInterface overrides:
-  SpeedKMpH GetSpeed(FeatureType & f, SpeedParams const & speedParams) const override;
-  bool IsOneWay(FeatureType & f) const override;
+  SpeedKMpH GetSpeed(FeatureTypes const & types, SpeedParams const & speedParams) const override;
+  bool IsOneWay(FeatureTypes const & types) const override;
   SpeedKMpH const & GetOffroadSpeed() const override;
 
   static BicycleModel const & AllLimitsInstance();
-
-protected:
-  RoadAvailability GetRoadAvailability(feature::TypesHolder const & types) const override;
+  static SpeedKMpH DismountSpeed();
 
 private:
-  void Init();
-
   /// @return true if it is allowed to ride a bicycle in both directions.
   bool IsBicycleBidir(feature::TypesHolder const & types) const;
   // Returns true if the road is explicitly set oneway for bicycles.
   bool IsBicycleOnedir(feature::TypesHolder const & types) const;
 
-  uint32_t m_noBicycleType = 0;
-  uint32_t m_yesBicycleType = 0;
   uint32_t m_bidirBicycleType = 0;
   uint32_t m_onedirBicycleType = 0;
 };

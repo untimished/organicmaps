@@ -30,7 +30,6 @@
 
 #include <utility> // std::pair
 #include <sys/xattr.h>
-#include <TargetConditionals.h> // TARGET_OS_IPHONE
 
 #import <CoreFoundation/CoreFoundation.h>
 #import <CoreFoundation/CFURL.h>
@@ -100,7 +99,6 @@ static NSString * gInstallationId = nil;
     // Non-standard situation: this method is called before calling setup. Return current date.
     date = [NSDate date];
     [ud setObject:date forKey:kFirstLaunchDateKey];
-    [ud synchronize];
   }
   return date;
 }
@@ -143,7 +141,6 @@ static NSString * gInstallationId = nil;
       gInstallationId = [@"I:" stringByAppendingString:(NSString *)CFBridgingRelease(CFUUIDCreateString(kCFAllocatorDefault, uuid))];
       CFRelease(uuid);
       [ud setValue:gInstallationId forKey:kAlohalyticsInstallationId];
-      [ud synchronize];
       gIsFirstSession = YES;
     }
   }

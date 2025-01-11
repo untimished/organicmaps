@@ -2,13 +2,14 @@
 
 #include "base/assert.hpp"
 #include "base/logging.hpp"
+#include "base/stl_helpers.hpp"
 
 #include <cstdint>
 #include <iosfwd>
 #include <tuple>
 #include <utility>
 
-#include "3party/boost/boost/date_time/gregorian/gregorian.hpp"
+#include <boost/date_time/gregorian/gregorian.hpp>
 
 namespace transit
 {
@@ -248,7 +249,7 @@ void MergeRules(osmoh::TRuleSequences & dstRules, osmoh::TRuleSequences const & 
 {
   for (auto const & rule : srcRules)
   {
-    if (std::find(dstRules.begin(), dstRules.end(), rule) == dstRules.end())
+    if (!base::IsExist(dstRules, rule))
       dstRules.push_back(rule);
   }
 }

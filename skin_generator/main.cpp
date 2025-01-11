@@ -8,10 +8,7 @@
 #include <QtCore/QString>
 #include <QtCore/QHash>
 
-#include <QtXml/QXmlSimpleReader>
-#include <QtXml/QXmlInputSource>
-
-#include "gflags/gflags.h"
+#include <gflags/gflags.h>
 
 DEFINE_string(fontFileName, "../../data/01_dejavusans.ttf", "path to TrueType font file");
 DEFINE_string(symbolsFile, "../../data/results.unicode", "file with 2bytes symbols for which the skin should be generated");
@@ -20,21 +17,14 @@ DEFINE_int32(symbolWidth, 24, "width of the rendered symbol");
 DEFINE_int32(symbolHeight, 24, "height of the rendered symbol");
 DEFINE_string(skinName, "../../data/basic", "prefix for the skin and skinImage file name");
 DEFINE_string(skinSuffix, "mdpi", "suffix for skinName<suffix>.skn and symbols<suffix>.png");
-DEFINE_string(searchIconsOutPath, "../../data/search-icons/png", "output path for search category icons");
-DEFINE_string(searchCategories, "../../data/search-icons/categories-icons.txt", "path to file that contains mapping between category and icon names");
-DEFINE_string(searchIconsSrcPath, "../../data/search-icons/svg", "input path for search category icons");
 DEFINE_int32(searchIconWidth, 24, "width of the search category icon");
 DEFINE_int32(searchIconHeight, 24, "height of the search category icon");
-DEFINE_int32(maxSize, 2048, "max width/height of output textures");
+DEFINE_int32(maxSize, 4096, "max width/height of output textures");
 
 int main(int argc, char *argv[])
 {
 // Used to lock the hash seed, so the order of XML attributes is always the same.
-#if QT_VERSION >= QT_VERSION_CHECK(5, 6, 0)
-  qSetGlobalQHashSeed(0);
-#else
-  qputenv("QT_HASH_SEED", "0");
-#endif
+  QHashSeed::setDeterministicGlobalSeed();
   try
   {
     gflags::ParseCommandLineFlags(&argc, &argv, true);

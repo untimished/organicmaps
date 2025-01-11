@@ -3,6 +3,8 @@
 #import "MWMMapUpdateInfo+Core.h"
 
 #include <CoreApi/Framework.h>
+
+#include "storage/country_info_getter.hpp"
 #include "storage/storage_helpers.hpp"
 
 NSErrorDomain const kStorageErrorDomain = @"com.mapswithme.storage";
@@ -143,7 +145,7 @@ using namespace storage;
 - (BOOL)downloadNodes:(NSArray<NSString *> *)countryIds error:(NSError *__autoreleasing _Nullable *)error {
   auto &s = GetFramework().GetStorage();
 
-  MwmSize requiredSize = s.GetMaxMwmSizeBytes();
+  MwmSize requiredSize = 0;
   for (NSString *countryId in countryIds) {
     NodeAttrs nodeAttrs;
     GetFramework().GetStorage().GetNodeAttrs(countryId.UTF8String, nodeAttrs);

@@ -23,7 +23,7 @@
                                 <constraint firstAttribute="width" constant="240" id="Bz8-HZ-yfK"/>
                                 <constraint firstAttribute="height" relation="greaterThanOrEqual" constant="22" id="JWn-Ze-jrX"/>
                             </constraints>
-                            <fontDescription key="fontDescription" name="HelveticaNeue-Medium" family="Helvetica Neue" pointSize="18"/>
+                            <fontDescription key="fontDescription" type="system" weight="medium" pointSize="18"/>
                             <color key="textColor" red="0.0" green="0.0" blue="0.0" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                             <nil key="highlightedColor"/>
                             <userDefinedRuntimeAttributes>
@@ -37,7 +37,7 @@
                                 <constraint firstAttribute="width" constant="240" id="Gau-b5-VxP"/>
                                 <constraint firstAttribute="height" relation="greaterThanOrEqual" constant="20" id="VWx-20-JCg"/>
                             </constraints>
-                            <fontDescription key="fontDescription" name="HelveticaNeue" family="Helvetica Neue" pointSize="14"/>
+                            <fontDescription key="fontDescription" type="system" pointSize="14"/>
                             <color key="textColor" red="0.0" green="0.0" blue="0.0" alpha="0.54000000000000004" colorSpace="custom" customColorSpace="sRGB"/>
                             <nil key="highlightedColor"/>
                             <userDefinedRuntimeAttributes>
@@ -58,9 +58,8 @@
                                     <fontDescription key="fontDescription" type="system" pointSize="14"/>
                                     <textInputTraits key="textInputTraits"/>
                                     <userDefinedRuntimeAttributes>
-                                        <userDefinedRuntimeAttribute type="string" keyPath="styleName" value="regular14:blackPrimaryText"/>
+                                        <userDefinedRuntimeAttribute type="string" keyPath="styleName" value="AlertViewTextField"/>
                                         <userDefinedRuntimeAttribute type="string" keyPath="localizedPlaceholder" value="editor_comment_hint"/>
-                                        <userDefinedRuntimeAttribute type="string" keyPath="styleName" value="Background"/>
                                     </userDefinedRuntimeAttributes>
                                 </textField>
                             </subviews>
@@ -73,7 +72,7 @@
                                 <constraint firstItem="0f8-vD-nJT" firstAttribute="height" secondItem="npf-dH-f50" secondAttribute="height" id="zHi-xB-aCQ"/>
                             </constraints>
                             <userDefinedRuntimeAttributes>
-                                <userDefinedRuntimeAttribute type="string" keyPath="styleName" value="AlertViewTextField"/>
+                                <userDefinedRuntimeAttribute type="string" keyPath="styleName" value="AlertViewTextFieldContainer"/>
                             </userDefinedRuntimeAttributes>
                         </view>
                         <view contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="kEx-DM-ynC" userLabel="hDivider">
@@ -92,7 +91,7 @@
                                 <constraint firstAttribute="height" constant="44" id="JRt-9h-Ljb"/>
                                 <constraint firstAttribute="width" constant="140" id="y86-N4-bGg"/>
                             </constraints>
-                            <fontDescription key="fontDescription" name="HelveticaNeue" family="Helvetica Neue" pointSize="17"/>
+                            <fontDescription key="fontDescription" type="system" pointSize="17"/>
                             <state key="normal" title="left">
                                 <color key="titleColor" red="0.090196078430000007" green="0.61960784310000006" blue="0.30196078430000001" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                                 <color key="titleShadowColor" red="0.5" green="0.5" blue="0.5" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
@@ -112,7 +111,7 @@
                                 <constraint firstAttribute="height" constant="44" id="2ra-bP-J3a"/>
                                 <constraint firstAttribute="width" constant="140" id="pNb-5U-J8Z"/>
                             </constraints>
-                            <fontDescription key="fontDescription" name="HelveticaNeue-Medium" family="Helvetica Neue" pointSize="17"/>
+                            <fontDescription key="fontDescription" type="system" weight="medium" pointSize="17"/>
                             <state key="normal" title="right">
                                 <color key="titleColor" red="0.090196078430000007" green="0.61960784310000006" blue="0.30196078430000001" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                                 <color key="titleShadowColor" red="0.5" green="0.5" blue="0.5" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>

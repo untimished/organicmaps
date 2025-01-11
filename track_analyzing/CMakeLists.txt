@@ -1,7 +1,6 @@
 project(track_analyzing)
 
-set(
-  SRC
+set(SRC
   exceptions.hpp
   log_parser.cpp
   log_parser.hpp
@@ -19,5 +18,12 @@ set(
 )
 
 omim_add_library(${PROJECT_NAME} ${SRC})
-add_subdirectory(track_analyzer)
-add_subdirectory(track_analyzing_tests)
+
+target_link_libraries(${PROJECT_NAME}
+  generator
+  tracking
+  platform
+)
+
+omim_add_tool_subdirectory(track_analyzer)
+omim_add_test_subdirectory(track_analyzing_tests)

@@ -9,6 +9,12 @@
 #include "base/logging.hpp"
 #include "base/thread_pool_delayed.hpp"
 
+#include <QtCore/QTemporaryFile>
+#include <QtCore/QDebug>
+#include <QtCore/QDir>
+#include <QtCore/QProcess>
+#include <QtCore/QTextStream>
+
 #include <atomic>
 #include <chrono>
 #include <functional>
@@ -16,15 +22,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wshorten-64-to-32"
-#include <QtCore/QTemporaryFile>
-#include <QtCore/QDebug>
-#include <QtCore/QDir>
-#include <QtCore/QProcess>
-#include <QtCore/QTextStream>
-#pragma GCC diagnostic pop
 
 std::string const kCompilersDir = "shaders_compiler";
 
@@ -167,7 +164,7 @@ void CompileShaders(CompilerData const & compiler, std::string const & additiona
 
 UNIT_TEST(MobileCompileShaders_Test)
 {
-  base::thread_pool::delayed::ThreadPool workerThread(6 /* threadsCount */);
+  base::DelayedThreadPool workerThread(6 /* threadsCount */);
 
   workerThread.Push([] {
     CompileShaders({dp::ApiVersion::OpenGLES2, GetCompilerPath(kCompilerOpenGLES)});
@@ -197,7 +194,7 @@ UNIT_TEST(MobileCompileShaders_Test)
       "#define SAMSUNG_GOOGLE_NEXUS\n");
   });
 
-  workerThread.Shutdown(base::thread_pool::delayed::ThreadPool::Exit::ExecPending);
+  workerThread.Shutdown(base::DelayedThreadPool::Exit::ExecPending);
 }
 
 struct MaliReleaseVersion
@@ -493,7 +490,7 @@ UNIT_TEST(MALI_MobileCompileShaders_Test)
      driversES3new}
   };
 
-  base::thread_pool::delayed::ThreadPool workerThread(16 /* threadsCount */);
+  base::DelayedThreadPool workerThread(16 /* threadsCount */);
   uint32_t counter = 0;
   std::atomic<uint32_t> progressCounter(0);
   for (auto const & compiler : compilers)
@@ -520,5 +517,5 @@ UNIT_TEST(MALI_MobileCompileShaders_Test)
   while (progressCounter < counter)
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-  workerThread.Shutdown(base::thread_pool::delayed::ThreadPool::Exit::ExecPending);
+  workerThread.Shutdown(base::DelayedThreadPool::Exit::ExecPending);
 }

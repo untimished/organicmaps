@@ -30,8 +30,9 @@ class GlobalStyleSheet: IStyleSheet {
     theme.add(styleName: "SearchBar") { (s) -> (Void) in
       s.backgroundColor = colors.white
       s.barTintColor = colors.primary
-      s.tintColor = UIColor.white
-      s.fontColor = colors.blackSecondaryText
+      s.fontColor = colors.blackPrimaryText
+      s.fontColorDetailed = UIColor.white
+      s.tintColor = colors.blackSecondaryText
     }
 
     theme.add(styleName: "NavigationBar") { (s) -> (Void) in
@@ -39,7 +40,7 @@ class GlobalStyleSheet: IStyleSheet {
       s.tintColor = colors.whitePrimaryText
       s.backgroundImage = UIImage()
       s.shadowImage = UIImage()
-      s.font = fonts.regular18
+      s.font = fonts.header
       s.fontColor = colors.whitePrimaryText
     }
 
@@ -88,6 +89,7 @@ class GlobalStyleSheet: IStyleSheet {
 
     theme.add(styleName: "Background") { (s) -> (Void) in
       s.backgroundColor = colors.white
+      s.backgroundColorSelected = colors.pressBackground
     }
 
     theme.add(styleName: "PressBackground") { (s) -> (Void) in
@@ -104,6 +106,21 @@ class GlobalStyleSheet: IStyleSheet {
 
     theme.add(styleName: "MenuBackground") { (s) -> (Void) in
       s.backgroundColor = colors.menuBackground
+    }
+    
+    theme.add(styleName: "BottomTabBarButton") { (s) -> (Void) in
+      s.backgroundColor = colors.tabBarButtonBackground
+      s.tintColor = colors.blackSecondaryText
+      s.coloring = MWMButtonColoring.black
+      s.cornerRadius = 8
+      s.shadowColor = UIColor(0,0,0,alpha20)
+      s.shadowOpacity = 1
+      s.shadowOffset = CGSize(width: 0, height: 1)
+      s.onTintColor = .red
+    }
+
+    theme.add(styleName: "TrackRecordingWidgetButton", from: "BottomTabBarButton") { (s) -> (Void) in
+      s.cornerRadius = 23
     }
 
     theme.add(styleName: "BlackOpaqueBackground") { (s) -> (Void) in
@@ -170,10 +187,16 @@ class GlobalStyleSheet: IStyleSheet {
       s.clip = true
     }
 
-    theme.add(styleName: "AlertViewTextField") { (s) -> (Void) in
+    theme.add(styleName: "AlertViewTextFieldContainer") { (s) -> (Void) in
       s.borderColor = colors.blackDividers
       s.borderWidth = 0.5
       s.backgroundColor = colors.white
+    }
+
+    theme.add(styleName: "AlertViewTextField") { (s) -> Void in
+      s.font = fonts.regular14
+      s.fontColor = colors.blackPrimaryText
+      s.tintColor = colors.blackSecondaryText
     }
 
     theme.add(styleName: "SearchStatusBarView") { (s) -> (Void) in
@@ -218,6 +241,12 @@ class GlobalStyleSheet: IStyleSheet {
     theme.add(styleName: "FlatGrayTransButton") { (s) -> (Void) in
       s.font = fonts.medium14
       s.fontColor = colors.blackSecondaryText
+      s.backgroundColor = colors.clear
+      s.fontColorHighlighted = colors.linkBlueHighlighted
+    }
+
+    theme.add(styleName: "FlatPrimaryTransButton") { (s) -> (Void) in
+      s.fontColor = colors.blackPrimaryText
       s.backgroundColor = colors.clear
       s.fontColorHighlighted = colors.linkBlueHighlighted
     }

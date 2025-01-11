@@ -81,27 +81,6 @@ std::unique_ptr<FeatureType> FeatureGetter::GetFeatureByIndex(uint32_t index) co
   return m_guard->GetFeatureByIndex(index);
 }
 
-void LoadDataSource(DataSource & dataSource)
-{
-  std::vector<platform::LocalCountryFile> localFiles;
-
-  Platform & platform = GetPlatform();
-  platform::FindAllLocalMapsInDirectoryAndCleanup(platform.WritableDir(), 0 /* version */,
-                                                  -1 /* latestVersion */, localFiles);
-  for (auto const & localFile : localFiles)
-  {
-    LOG(LINFO, ("Found mwm:", localFile));
-    try
-    {
-      dataSource.RegisterMap(localFile);
-    }
-    catch (RootException const & ex)
-    {
-      CHECK(false, (ex.Msg(), "Bad mwm file:", localFile));
-    }
-  }
-}
-
 bool ParseFeatureIdToOsmIdMapping(std::string const & path,
                                   std::unordered_map<uint32_t, base::GeoObjectId> & mapping)
 {
@@ -116,10 +95,11 @@ bool ParseFeatureIdToTestIdMapping(std::string const & path,
                                    std::unordered_map<uint32_t, uint64_t> & mapping)
 {
   bool success = true;
-  feature::ForEachFeature(path, [&](FeatureType & feature, uint32_t fid) {
+  feature::ForEachFeature(path, [&](FeatureType & feature, uint32_t fid)
+  {
     auto const testIdStr = feature.GetMetadata(feature::Metadata::FMD_TEST_ID);
     uint64_t testId;
-    if (!strings::to_uint64(testIdStr, testId))
+    if (!strings::to_uint(testIdStr, testId))
     {
       LOG(LERROR, ("Can't parse test id from:", testIdStr, "for the feature", fid));
       success = false;
@@ -149,6 +129,8 @@ bool MapcssRule::Matches(std::vector<OsmElement::Tag> const & tags) const
       return false;
   }
 
+  /// @todo Should we also take into account "none", "false" here?
+
   for (auto const & key : m_mandatoryKeys)
   {
     if (!base::AnyOf(tags, [&](auto const & t) { return t.m_key == key && t.m_value != "no"; }))
@@ -164,6 +146,7 @@ bool MapcssRule::Matches(std::vector<OsmElement::Tag> const & tags) const
   return true;
 }
 
+// The data/mapcss-mapping.csv format is described inside the file itself.
 MapcssRules ParseMapCSS(std::unique_ptr<Reader> reader)
 {
   ReaderStreamBuf buffer(std::move(reader));
@@ -172,70 +155,59 @@ MapcssRules ParseMapCSS(std::unique_ptr<Reader> reader)
 
   MapcssRules rules;
 
-  auto const processShort = [&rules](std::string const & typeString) {
-    auto const typeTokens = strings::Tokenize(typeString, "|");
+  auto const processShort = [&rules](std::string const & typeString)
+  {
+    auto typeTokens = strings::Tokenize<std::string>(typeString, "|");
     CHECK(typeTokens.size() == 2, (typeString));
     MapcssRule rule;
     rule.m_tags = {{typeTokens[0], typeTokens[1]}};
-    rules.push_back({typeTokens, rule});
+    rules.emplace_back(std::move(typeTokens), std::move(rule));
   };
 
   auto const processFull = [&rules](std::string const & typeString,
-                                    std::string const & selectorsString) {
-    auto const typeTokens = strings::Tokenize(typeString, "|");
-    for (auto const & selector : strings::Tokenize(selectorsString, ","))
+                                    std::string const & selectorsString)
+  {
+    ASSERT(!typeString.empty(), ());
+    ASSERT(!selectorsString.empty(), ());
+
+    auto const typeTokens = strings::Tokenize<std::string>(typeString, "|");
+    strings::Tokenize(selectorsString, ",", [&typeTokens, &rules](std::string_view selector)
     {
-      CHECK(!selector.empty(), (selectorsString));
-      CHECK_EQUAL(selector[0], '[', (selectorsString));
-      CHECK_EQUAL(selector.back(), ']', (selectorsString));
+      ASSERT_EQUAL(selector.front(), '[', ());
+      ASSERT_EQUAL(selector.back(), ']', ());
 
       MapcssRule rule;
-      auto tags = strings::Tokenize(selector, "[");
-      for (auto & rawTag : tags)
+      strings::Tokenize(selector, "[]", [&rule](std::string_view kv)
       {
-        strings::Trim(rawTag, "]");
-        CHECK(!rawTag.empty(), (selector, tags));
-        auto tag = strings::Tokenize(rawTag, "=");
+        auto const tag = strings::Tokenize(kv, "=");
         if (tag.size() == 1)
         {
-          CHECK(!tag[0].empty(), (rawTag));
-          auto const forbidden = tag[0][0] == '!';
-          strings::Trim(tag[0], "?!");
+          auto const forbidden = (tag[0][0] == '!');
+
+          std::string v(tag[0]);
+          strings::Trim(v, "?!");
           if (forbidden)
-            rule.m_forbiddenKeys.push_back(tag[0]);
+            rule.m_forbiddenKeys.push_back(std::move(v));
           else
-            rule.m_mandatoryKeys.push_back(tag[0]);
+            rule.m_mandatoryKeys.push_back(std::move(v));
         }
         else
         {
-          CHECK_EQUAL(tag.size(), 2, (tag));
-          rule.m_tags.push_back({tag[0], tag[1]});
+          ASSERT_EQUAL(tag.size(), 2, (tag));
+          rule.m_tags.emplace_back(tag[0], tag[1]);
         }
-      }
-      rules.push_back({typeTokens, rule});
-    }
-  };
+      });
 
-  // Mapcss-mapping maps tags to types.
-  // Types can be marked obsolete or replaced with a different type.
-  //
-  // Example row: highway|bus_stop;[highway=bus_stop];;name;int_name;22;
-  // It contains:
-  // - type name: "highway|bus_stop" ('|' is converted to '-' internally)
-  // - mapcss selectors for tags: "[highway=bus_stop]", multiple selectors are separated with comma
-  // - "x" for an obsolete type or an empty cell otherwise
-  // - primary title tag (usually "name")
-  // - secondary title tag (usually "int_name")
-  // - type id, sequential starting from 1
-  // - replacement type for an obsolete tag, if exists
-  //
-  // A shorter format for above example: highway|bus_stop;22;
-  // It leaves only columns 1, 6 and 7. For obsolete types with no replacement put "x" into the last
-  // column. It works only for simple types that are produced from tags replacing '=' with '|'.
+      rules.emplace_back(typeTokens, std::move(rule));
+    });
+  };
 
   std::string line;
   while (std::getline(data, line))
   {
+    if (line.empty() || line.front() == '#')
+      continue;
+
     std::vector<std::string> fields;
     strings::ParseCSVRow(line, ';', fields);
     CHECK(fields.size() == 3 || fields.size() == 7, (fields.size(), fields, line));

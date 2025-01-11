@@ -18,7 +18,7 @@
 
 namespace df
 {
-double const kShapeCoordScalar = 1000;
+double constexpr kShapeCoordScalar = 1000;
 int constexpr kBuildingOutlineSize = 16;
 uint32_t constexpr kStartUserMarkOverlayIndex = 1000;
 
@@ -35,17 +35,15 @@ struct CommonViewParams
 enum class SpecialDisplacement : uint8_t
 {
   None,
-  SpecialMode,
   UserMark,
   SpecialModeUserMark,
-  HouseNumber,
 };
 
 struct CommonOverlayViewParams : public CommonViewParams
 {
   SpecialDisplacement m_specialDisplacement = SpecialDisplacement::None;
   uint16_t m_specialPriority = std::numeric_limits<uint16_t>::max();
-  int m_startOverlayRank = 0;
+  uint8_t m_startOverlayRank = 0;
 
   FeatureID m_featureId;
   kml::MarkId m_markId = kml::kInvalidMarkId;
@@ -76,17 +74,18 @@ struct AreaViewParams : CommonViewParams
   float m_posZ = 0.0f;
   bool m_is3D = false;
   bool m_hatching = false;
-  float m_baseGtoPScale = 1.0f;
+  double m_baseGtoPScale = 1.0;
 };
 
 struct LineViewParams : CommonViewParams
 {
   dp::Color m_color;
   float m_width = 0.0f;
+  /// @todo Consider set defaults like RoundCap, RoundJoin?
   dp::LineCap m_cap;
   dp::LineJoin m_join;
-  buffer_vector<uint8_t, 8> m_pattern;
-  float m_baseGtoPScale = 1.0f;
+  dp::PenPatternT m_pattern;
+  double m_baseGtoPScale = 1.0;
   int m_zoomLevel = -1;
 };
 
@@ -106,16 +105,15 @@ struct PathTextViewParams : CommonOverlayViewParams
   dp::FontDecl m_textFont;
   std::string m_mainText;
   std::string m_auxText;
-  float m_baseGtoPScale = 1.0f;
+  double m_baseGtoPScale = 1.0;
 };
 
 struct PathSymbolViewParams : CommonViewParams
 {
-  FeatureID m_featureID;
   std::string m_symbolName;
   float m_offset = 0.0f;
   float m_step = 0.0f;
-  float m_baseGtoPScale = 1.0f;
+  double m_baseGtoPScale = 1.0;
 };
 
 struct ColoredSymbolViewParams : CommonOverlayViewParams

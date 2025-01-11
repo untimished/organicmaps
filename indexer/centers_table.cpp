@@ -1,11 +1,8 @@
 #include "indexer/centers_table.hpp"
-
 #include "indexer/feature_processor.hpp"
 
-#include "coding/endianness.hpp"
 #include "coding/files_container.hpp"
 #include "coding/geometry_coding.hpp"
-#include "coding/memory_region.hpp"
 #include "coding/point_coding.hpp"
 #include "coding/reader.hpp"
 #include "coding/succinct_mapper.hpp"
@@ -15,17 +12,11 @@
 
 #include "base/assert.hpp"
 #include "base/checked_cast.hpp"
-#include "base/logging.hpp"
 
-#include <unordered_map>
-
-#include "3party/succinct/elias_fano.hpp"
-#include "3party/succinct/rs_bit_vector.hpp"
-
-using namespace std;
 
 namespace search
 {
+
 void CentersTable::Header::Read(Reader & reader)
 {
   NonOwningReaderSource source(reader);
@@ -55,35 +46,33 @@ bool CentersTable::Get(uint32_t id, m2::PointD & center)
 
 // CentersTable ------------------------------------------------------------------------------------
 // static
-unique_ptr<CentersTable> CentersTable::LoadV0(Reader & reader,
-                                              serial::GeometryCodingParams const & codingParams)
+std::unique_ptr<CentersTable> CentersTable::LoadV0(
+    Reader & reader, serial::GeometryCodingParams const & codingParams)
 {
-  auto table = make_unique<CentersTable>();
+  auto table = std::make_unique<CentersTable>();
   table->m_version = Version::V0;
   if (!table->Init(reader, codingParams, {} /* limitRect */))
     return {};
   return table;
 }
 
-unique_ptr<CentersTable> CentersTable::LoadV1(Reader & reader)
+std::unique_ptr<CentersTable> CentersTable::LoadV1(Reader & reader)
 {
-  auto table = make_unique<CentersTable>();
+  auto table = std::make_unique<CentersTable>();
   table->m_version = Version::V1;
 
   Header header;
   header.Read(reader);
 
-  auto geometryParamsSubreader =
-      reader.CreateSubReader(header.m_geometryParamsOffset, header.m_geometryParamsSize);
-  if (!geometryParamsSubreader)
-    return {};
-  NonOwningReaderSource geometryParamsSource(*geometryParamsSubreader);
+  NonOwningReaderSource src(reader, header.m_geometryParamsOffset,
+                            header.m_geometryParamsOffset + header.m_geometryParamsSize);
+
   serial::GeometryCodingParams codingParams;
-  codingParams.Load(geometryParamsSource);
-  auto minX = ReadPrimitiveFromSource<uint32_t>(geometryParamsSource);
-  auto minY = ReadPrimitiveFromSource<uint32_t>(geometryParamsSource);
-  auto maxX = ReadPrimitiveFromSource<uint32_t>(geometryParamsSource);
-  auto maxY = ReadPrimitiveFromSource<uint32_t>(geometryParamsSource);
+  codingParams.Load(src);
+  auto minX = ReadPrimitiveFromSource<uint32_t>(src);
+  auto minY = ReadPrimitiveFromSource<uint32_t>(src);
+  auto maxX = ReadPrimitiveFromSource<uint32_t>(src);
+  auto maxY = ReadPrimitiveFromSource<uint32_t>(src);
   m2::RectD limitRect(PointUToPointD({minX, minY}, kPointCoordBits),
                       PointUToPointD({maxX, maxY}, kPointCoordBits));
 
@@ -102,15 +91,16 @@ bool CentersTable::Init(Reader & reader, serial::GeometryCodingParams const & co
   m_limitRect = limitRect;
   // Decodes block encoded by writeBlockCallback from CentersTableBuilder::Freeze.
   auto const readBlockCallback = [&](NonOwningReaderSource & source, uint32_t blockSize,
-                                     vector<m2::PointU> & values) {
-    values.resize(blockSize);
-    uint64_t delta = ReadVarUint<uint64_t>(source);
-    values[0] = coding::DecodePointDeltaFromUint(delta, m_codingParams.GetBasePoint());
+                                     std::vector<m2::PointU> & values)
+  {
+    values.reserve(blockSize);
 
-    for (size_t i = 1; i < blockSize && source.Size() > 0; ++i)
+    auto prev = m_codingParams.GetBasePoint();
+    while (source.Size() > 0)
     {
-      delta = ReadVarUint<uint64_t>(source);
-      values[i] = coding::DecodePointDeltaFromUint(delta, values[i - 1]);
+      auto const pt = coding::DecodePointDeltaFromUint(ReadVarUint<uint64_t>(source), prev);
+      values.push_back(pt);
+      prev = pt;
     }
   };
 
@@ -121,6 +111,7 @@ bool CentersTable::Init(Reader & reader, serial::GeometryCodingParams const & co
 // CentersTableBuilder -----------------------------------------------------------------------------
 void CentersTableBuilder::SetGeometryParams(m2::RectD const & limitRect, double pointAccuracy)
 {
+  CHECK(limitRect.IsValid(), (limitRect));
   auto const coordBits = GetCoordBits(limitRect, pointAccuracy);
   m_codingParams = serial::GeometryCodingParams(coordBits, limitRect.Center());
   m_limitRect = limitRect;
@@ -134,8 +125,8 @@ void CentersTableBuilder::Put(uint32_t featureId, m2::PointD const & center)
 // Each center is encoded as delta from some prediction.
 // For the first center in the block map base point is used as a prediction, for all other
 // centers in the block previous center is used as a prediction.
-void CentersTableBuilder::WriteBlock(Writer & w, vector<m2::PointU>::const_iterator begin,
-                                     vector<m2::PointU>::const_iterator end) const
+void CentersTableBuilder::WriteBlock(Writer & w, std::vector<m2::PointU>::const_iterator begin,
+                                     std::vector<m2::PointU>::const_iterator end) const
 {
   uint64_t delta = coding::EncodePointDeltaAsUint(*begin, m_codingParams.GetBasePoint());
   WriteVarUint(w, delta);

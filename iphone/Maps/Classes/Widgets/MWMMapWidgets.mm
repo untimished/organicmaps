@@ -27,7 +27,7 @@
   m_skin->Resize(p.m_surfaceWidth, p.m_surfaceHeight);
   m_skin->ForEach(
       [&p](gui::EWidget widget, gui::Position const & pos) { p.m_widgetsInitInfo[widget] = pos; });
-  p.m_widgetsInitInfo[gui::WIDGET_SCALE_FPS_LABEL] = gui::Position(dp::LeftBottom);
+  p.m_widgetsInitInfo[gui::WIDGET_SCALE_FPS_LABEL] = gui::Position(m2::PointF(self.visualScale * 10, self.visualScale * 45), dp::LeftTop);
 }
 
 - (void)resize:(CGSize)size
@@ -70,8 +70,9 @@
   auto const viewWidth = [MapViewController sharedController].mapView.width;
   auto const rulerOffset =
     m2::PointF(frame.origin.x * vs, (frame.origin.y + frame.size.height - viewHeight) * vs);
+  auto const kCompassAdditionalYOffset = [TrackRecordingManager.shared isActive] ? 50 : 0;
   auto const compassOffset =
-    m2::PointF((frame.origin.x + frame.size.width - viewWidth) * vs, frame.origin.y * vs);
+    m2::PointF((frame.origin.x + frame.size.width - viewWidth) * vs, (frame.origin.y + kCompassAdditionalYOffset) * vs);
   m_skin->ForEach([&](gui::EWidget w, gui::Position const & pos) {
     m2::PointF pivot = pos.m_pixelPivot;
     switch (w)
@@ -84,7 +85,7 @@
     }
     layout[w] = pivot;
   });
-  GetFramework().SetWidgetLayout(move(layout));
+  GetFramework().SetWidgetLayout(std::move(layout));
 }
 
 @end

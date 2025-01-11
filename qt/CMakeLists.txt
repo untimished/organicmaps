@@ -1,19 +1,8 @@
 project(desktop)
 
-set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTOUIC ON)
+QT6_ADD_RESOURCES(RES_SOURCES res/resources.qrc)
 
-QT5_ADD_RESOURCES(RES_SOURCES res/resources.qrc)
-
-set_property(SOURCE qrc_resources.cpp PROPERTY SKIP_AUTOGEN ON)
-
-include_directories(
-  ${OMIM_ROOT}/3party/glm
-  ${OMIM_ROOT}/3party/jansson/src
-)
-
-set(
-  SRC
+set(SRC
   about.cpp
   about.hpp
   bookmark_dialog.cpp
@@ -47,10 +36,16 @@ set(
   mwms_borders_selection.hpp
   osm_auth_dialog.cpp
   osm_auth_dialog.hpp
-  place_page_dialog.cpp
-  place_page_dialog.hpp
+  place_page_dialog_common.cpp
+  place_page_dialog_common.hpp
+  place_page_dialog_developer.cpp
+  place_page_dialog_developer.hpp
+  place_page_dialog_user.cpp
+  place_page_dialog_user.hpp
   preferences_dialog.cpp
   preferences_dialog.hpp
+  popup_menu_holder.cpp
+  popup_menu_holder.hpp
   routing_settings_dialog.cpp
   routing_settings_dialog.hpp
   routing_turns_visualizer.cpp
@@ -61,84 +56,34 @@ set(
   screenshoter.hpp
   search_panel.cpp
   search_panel.hpp
+  selection.hpp
   update_dialog.cpp
   update_dialog.hpp
 )
 
 omim_add_executable(${PROJECT_NAME} MACOSX_BUNDLE ${RES_SOURCES} ${SRC})
-target_link_libraries(${PROJECT_NAME} gflags::gflags)
 
-omim_link_libraries(
-  ${PROJECT_NAME}
+set_target_properties(${PROJECT_NAME} PROPERTIES AUTOMOC ON)
+
+target_link_libraries(${PROJECT_NAME}
+  generator  # For borders::LoadBorders
   qt_common
   map
-  ge0
-  drape_frontend
-  shaders
-  generator
-  routing
-  search
-  storage
-  mwm_diff
-  bsdiff
-  tracking
-  traffic
-  routing_common
-  transit
-  descriptions
-  drape
-  kml
-  editor
-  indexer
-  platform
-  geometry
-  coding
-  base
-  freetype
-  expat
-  icu
-  agg
-  jansson
-  protobuf
-  minizip
-  succinct
-  pugixml
-  oauthcpp
-  opening_hours
-  stb_image
-  sdf_image
-  vulkan_wrapper
-  ${Qt5Gui_LIBRARIES}
-  ${Qt5Network_LIBRARIES}
-  ${Qt5Widgets_LIBRARIES}
-  ${LIBZ}
+  gflags::gflags
 )
 
-if (PLATFORM_LINUX)
-  omim_link_libraries(
-    ${PROJECT_NAME}
-    dl
-  )
-endif()
-
-link_opengl(${PROJECT_NAME})
-link_qt5_core(${PROJECT_NAME})
-
 if (BUILD_DESIGNER)
+  target_link_libraries(${PROJECT_NAME} generator)
   set(BUNDLE_NAME "OMaps.Designer")
-  set(BUNDLE_DISPLAY_NAME "OMaps Designer")
+  set(BUNDLE_DISPLAY_NAME "Organic Maps Designer")
   set(BUNDLE_ICON designer.icns)
 else()
   set(BUNDLE_NAME "OMaps")
-  set(BUNDLE_DISPLAY_NAME "OMaps Desktop")
+  set(BUNDLE_DISPLAY_NAME "Organic Maps Desktop")
   set(BUNDLE_ICON mac.icns)
 endif()
 
-set_target_properties(
-  ${PROJECT_NAME}
-  PROPERTIES
-  OUTPUT_NAME ${BUNDLE_NAME}
-)
+set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME ${BUNDLE_NAME})
 
 set(BUNDLE_EXECUTABLE ${BUNDLE_NAME})
 
@@ -163,12 +108,12 @@ endfunction()
 copy_resources(
   countries-strings
   resources-default
-  resources-mdpi_clear
-  resources-hdpi_clear
-  resources-xhdpi_clear
-  resources-xxhdpi_clear
-  resources-xxxhdpi_clear
-  resources-6plus_clear
+  resources-mdpi_light
+  resources-hdpi_light
+  resources-xhdpi_light
+  resources-xxhdpi_light
+  resources-xxxhdpi_light
+  resources-6plus_light
   welcome.html
 
   categories.txt
@@ -177,9 +122,9 @@ copy_resources(
   colors.txt
   copyright.html
   countries.txt
-  drules_proto_clear.bin
-  drules_proto_dark.bin
-  drules_proto_vehicle_clear.bin
+  drules_proto_default_light.bin
+  drules_proto_default_dark.bin
+  drules_proto_vehicle_light.bin
   drules_proto_vehicle_dark.bin
   editor.config
   fonts_blacklist.txt
@@ -191,10 +136,13 @@ copy_resources(
   unicode_blocks.txt
   World.mwm
   WorldCoasts.mwm
-  icudt69l.dat
 
   00_NotoNaskhArabic-Regular.ttf
+  00_NotoSansBengali-Regular.ttf
+  00_NotoSansHebrew-Regular.ttf
+  00_NotoSansMalayalam-Regular.ttf
   00_NotoSansThai-Regular.ttf
+  00_NotoSerifDevanagari-Regular.ttf
   01_dejavusans.ttf
   02_droidsans-fallback.ttf
   03_jomolhari-id-a3d.ttf
@@ -204,58 +152,62 @@ copy_resources(
   07_roboto_medium.ttf
 )
 
+install(TARGETS ${PROJECT_NAME} DESTINATION ${CMAKE_INSTALL_PREFIX}/bin/)
+install(DIRECTORY ${OMIM_ROOT}/data DESTINATION ${CMAKE_INSTALL_PREFIX}/share/organicmaps/)
+
+if (PLATFORM_LINUX)
+  install(FILES ${OMIM_ROOT}/packaging/app.organicmaps.desktop.metainfo.xml DESTINATION ${CMAKE_INSTALL_PREFIX}/share/metainfo/)
+  install(FILES ${OMIM_ROOT}/qt/res/app.organicmaps.desktop.desktop DESTINATION ${CMAKE_INSTALL_PREFIX}/share/applications/)
+  install(FILES ${OMIM_ROOT}/qt/res/logo.png DESTINATION ${CMAKE_INSTALL_PREFIX}/share/icons/hicolor/512x512/apps/ RENAME organicmaps.png)
+endif()
+
+if (NOT PLATFORM_LINUX)
+  # On Linux, ICU data is loaded from the shared library.
+  copy_resources(icudt75l.dat)
+endif()
+
 if (PLATFORM_MAC)
   execute_process(
     COMMAND cp -r ${OMIM_ROOT}/tools/shaders_compiler/macos ${RESOURCES_FOLDER}/shaders_compiler
   )
-elseif(PLATFORM_LINUX)
+elseif (PLATFORM_LINUX)
   execute_process(
     COMMAND cp -r ${OMIM_ROOT}/tools/shaders_compiler/linux ${RESOURCES_FOLDER}/shaders_compiler
   )
 endif()
 
 if (PLATFORM_MAC)
-  target_link_libraries(
-    ${PROJECT_NAME}
-    "-framework Foundation"
-    "-framework CoreLocation"
-    "-framework CoreWLAN"
-    "-framework SystemConfiguration"
-    "-framework CFNetwork"
-  )
-
   if (NOT APP_VERSION)
     set(BUNDLE_VERSION "UNKNOWN")
   else()
     set(BUNDLE_VERSION ${APP_VERSION})
   endif()
 
-  configure_file(${PROJECT_SOURCE_DIR}/res/Info.plist.in ${PROJECT_SOURCE_DIR}/res/Info.plist)
+  configure_file(${CMAKE_CURRENT_SOURCE_DIR}/res/Info.plist.in ${CMAKE_CURRENT_SOURCE_DIR}/res/Info.plist)
 
-  set_target_properties(
-    ${PROJECT_NAME}
+  set_target_properties(${PROJECT_NAME}
     PROPERTIES
-    OUTPUT_NAME ${BUNDLE_NAME}
-    MACOSX_BUNDLE_INFO_PLIST ${PROJECT_SOURCE_DIR}/res/Info.plist
+      OUTPUT_NAME ${BUNDLE_NAME}
+      MACOSX_BUNDLE_INFO_PLIST ${PROJECT_SOURCE_DIR}/res/Info.plist
   )
 endif()
 
 if (BUILD_DESIGNER)
   execute_process(
-    COMMAND cp -rf ${OMIM_ROOT}/data/resources-mdpi_clear/ ${OMIM_ROOT}/data/resources-mdpi_design/
-    COMMAND cp -rf ${OMIM_ROOT}/data/resources-hdpi_clear/ ${OMIM_ROOT}/data/resources-hdpi_design/
-    COMMAND cp -rf ${OMIM_ROOT}/data/resources-xhdpi_clear/ ${OMIM_ROOT}/data/resources-xhdpi_design/
-    COMMAND cp -rf ${OMIM_ROOT}/data/resources-xxhdpi_clear/ ${OMIM_ROOT}/data/resources-xxhdpi_design/
-    COMMAND cp -rf ${OMIM_ROOT}/data/resources-6plus_clear/ ${OMIM_ROOT}/data/resources-6plus_design/
-    COMMAND cp -rf ${OMIM_ROOT}/data/resources-xxxhdpi_clear/ ${OMIM_ROOT}/data/resources-xxxhdpi_design/
-    COMMAND cp -f ${OMIM_ROOT}/data/drules_proto_clear.bin ${OMIM_ROOT}/data/drules_proto_design.bin
+    COMMAND cp -rf ${OMIM_ROOT}/data/resources-mdpi_light/ ${OMIM_ROOT}/data/resources-mdpi_design/
+    COMMAND cp -rf ${OMIM_ROOT}/data/resources-hdpi_light/ ${OMIM_ROOT}/data/resources-hdpi_design/
+    COMMAND cp -rf ${OMIM_ROOT}/data/resources-xhdpi_light/ ${OMIM_ROOT}/data/resources-xhdpi_design/
+    COMMAND cp -rf ${OMIM_ROOT}/data/resources-xxhdpi_light/ ${OMIM_ROOT}/data/resources-xxhdpi_design/
+    COMMAND cp -rf ${OMIM_ROOT}/data/resources-6plus_light/ ${OMIM_ROOT}/data/resources-6plus_design/
+    COMMAND cp -rf ${OMIM_ROOT}/data/resources-xxxhdpi_light/ ${OMIM_ROOT}/data/resources-xxxhdpi_design/
+    COMMAND cp -f ${OMIM_ROOT}/data/drules_proto_default_light.bin ${OMIM_ROOT}/data/drules_proto_default_design.bin
     COMMAND cp -f ${OMIM_ROOT}/data/colors.txt ${OMIM_ROOT}/data/colors_design.txt
     COMMAND cp -f ${OMIM_ROOT}/data/patterns.txt ${OMIM_ROOT}/data/patterns_design.txt
   )
 
   copy_resources(
     colors_design.txt
-    drules_proto_design.bin
+    drules_proto_default_design.bin
     mapcss-dynamic.txt
     mapcss-mapping.csv
     patterns_design.txt
@@ -278,8 +230,7 @@ if (BUILD_DESIGNER)
 
   # Generate DMG
   install(DIRECTORY ${DATA_DIR}/styles DESTINATION .)
-  set(
-    BUNDLES
+  set(BUNDLES
     ${CMAKE_BINARY_DIR}/generator_tool.app
     ${CMAKE_BINARY_DIR}/skin_generator_tool.app
     ${CMAKE_BINARY_DIR}/style_tests.app
@@ -288,7 +239,6 @@ if (BUILD_DESIGNER)
     foreach(BUNDLE ${BUNDLE_FOLDER} ${BUNDLES})
       execute_process(
         COMMAND \"${QT_PATH}/bin/macdeployqt\" \"\${BUNDLE}\"
-        COMMAND find \"\${BUNDLE}/Contents/MacOS\" -type f -exec python \"${OMIM_ROOT}/tools/macdeployqtfix/macdeployqtfix.py\" -q -nl {} \"${QT_PATH}\" \\;
       )
     endforeach()
     foreach(BUNDLE ${BUNDLES})
@@ -307,7 +257,7 @@ if (BUILD_DESIGNER)
 elseif (BUILD_STANDALONE)
   add_custom_command(TARGET desktop POST_BUILD
     COMMAND "${QT_PATH}/bin/macdeployqt" ${BUNDLE_FOLDER}
-    COMMAND ${PYTHON_EXECUTABLE} "${OMIM_ROOT}/tools/macdeployqtfix/macdeployqtfix.py" -q -nl ${BUNDLE_FOLDER}/Contents/MacOS/${BUNDLE_NAME} ${QT_PATH}
+    COMMAND ${Python3_EXECUTABLE} "${OMIM_ROOT}/tools/macdeployqtfix/macdeployqtfix.py" -q -nl ${BUNDLE_FOLDER}/Contents/MacOS/${BUNDLE_NAME} ${QT_PATH}
     COMMAND echo "Fixing Qt dependencies finished."
     VERBATIM
     COMMENT "Fixing Qt dependencies for standalone desktop app"

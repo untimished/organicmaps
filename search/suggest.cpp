@@ -1,43 +1,26 @@
 #include "search/suggest.hpp"
 
-#include "indexer/search_delimiters.hpp"
 #include "indexer/search_string_utils.hpp"
 
-#include "search/common.hpp"
-
-#include "base/stl_helpers.hpp"
-
+#include <algorithm>
 #include <vector>
-
-using namespace std;
 
 namespace search
 {
-void GetSuggestion(RankerResult const & res, string const & query, QueryTokens const & paramTokens,
-                   strings::UniString const & prefix, string & suggest)
-{
-  // Splits result's name.
-  search::Delimiters delims;
-  vector<strings::UniString> tokens;
-  SplitUniString(NormalizeAndSimplifyString(res.GetName()), base::MakeBackInsertFunctor(tokens), delims);
 
-  // Finds tokens that are already present in the input query.
-  vector<bool> tokensMatched(tokens.size());
+std::string GetSuggestion(std::string const & name, QueryString const & query)
+{
+  auto const nTokens = NormalizeAndTokenizeString(name);
+
   bool prefixMatched = false;
   bool fullPrefixMatched = false;
 
-  for (size_t i = 0; i < tokens.size(); ++i)
+  for (auto const & token : nTokens)
   {
-    auto const & token = tokens[i];
-
-    if (find(paramTokens.begin(), paramTokens.end(), token) != paramTokens.end())
-    {
-      tokensMatched[i] = true;
-    }
-    else if (StartsWith(token, prefix))
+    if (StartsWith(token, query.m_prefix))
     {
       prefixMatched = true;
-      fullPrefixMatched = token.size() == prefix.size();
+      fullPrefixMatched = token.size() == query.m_prefix.size();
     }
   }
 
@@ -45,17 +28,19 @@ void GetSuggestion(RankerResult const & res, string const & query, QueryTokens c
   // token of the |name| (for example, when user entered "Moscow"
   // without space at the end), we should not suggest anything.
   if (!prefixMatched || fullPrefixMatched)
-    return;
+    return {};
 
-  suggest = DropLastToken(query);
-
-  // Appends unmatched result's tokens to the suggestion.
-  for (size_t i = 0; i < tokens.size(); ++i)
+  std::string suggest;
+  for (auto const & token : query.m_tokens)
   {
-    if (tokensMatched[i])
-      continue;
-    suggest.append(strings::ToUtf8(tokens[i]));
-    suggest.push_back(' ');
+    /// @todo Process street shorts like: st, av, ne, w, ..
+    if (std::find(nTokens.begin(), nTokens.end(), token) == nTokens.end())
+    {
+      suggest += strings::ToUtf8(token);
+      suggest += ' ';
+    }
   }
+
+  return suggest + name + ' ';
 }
 }  // namespace search

@@ -1,11 +1,9 @@
 #include "base/file_name_utils.hpp"
 
-#include "std/target_os.hpp"
-
-using namespace std;
-
 namespace base
 {
+using namespace std;
+
 void GetNameWithoutExt(string & name)
 {
   string::size_type const i = name.rfind('.');
@@ -32,48 +30,46 @@ void GetNameFromFullPath(string & name)
     name = name.substr(i+1);
 }
 
-std::string GetNameFromFullPath(std::string const & path)
+std::string FileNameFromFullPath(std::string path)
 {
-  std::string name = path;
-  GetNameFromFullPath(name);
-  return name;
+  GetNameFromFullPath(path);
+  return path;
 }
 
-string GetNameFromFullPathWithoutExt(string const & path)
+string GetNameFromFullPathWithoutExt(string path)
 {
-  string name = path;
-  GetNameFromFullPath(name);
-  GetNameWithoutExt(name);
-  return name;
+  GetNameFromFullPath(path);
+  GetNameWithoutExt(path);
+  return path;
 }
 
 string GetDirectory(string const & name)
 {
-  string const sep = GetNativeSeparator();
-  size_t const sepSize = sep.size();
+  auto const sep = GetNativeSeparator();
+  size_t const sepSize = sizeof(sep);
 
   string::size_type i = name.rfind(sep);
   if (i == string::npos)
     return ".";
-  while (i > sepSize && (name.substr(i - sepSize, sepSize) == sep))
+  while (i > sepSize && (name[i - sepSize] == sep))
     i -= sepSize;
-  return i == 0 ? sep : name.substr(0, i);
+  return name.substr(0, i ? i : sepSize);
 }
 
-string GetNativeSeparator()
+string::value_type GetNativeSeparator()
 {
 #ifdef OMIM_OS_WINDOWS
-    return "\\";
+    return '\\';
 #else
-    return "/";
+    return '/';
 #endif
 }
 
 string AddSlashIfNeeded(string const & path)
 {
-  string const sep = GetNativeSeparator();
+  auto const sep = GetNativeSeparator();
   string::size_type const pos = path.rfind(sep);
-  if ((pos != string::npos) && (pos + sep.size() == path.size()))
+  if (pos != string::npos && pos + sizeof(sep) == path.size())
     return path;
   return path + sep;
 }

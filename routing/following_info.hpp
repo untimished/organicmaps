@@ -2,6 +2,8 @@
 
 #include "geometry/latlon.hpp"
 
+#include "platform/distance.hpp"
+
 #include "routing/turns.hpp"
 #include "routing/turns_sound_settings.hpp"
 
@@ -44,18 +46,14 @@ public:
     }
   };
 
-  bool IsValid() const { return !m_distToTarget.empty(); }
+  bool IsValid() const { return m_distToTarget.IsValid(); }
 
-  /// @name Formatted covered distance with measurement units suffix.
-  //@{
-  std::string m_distToTarget;
-  std::string m_targetUnitsSuffix;
-  //@}
+  /// @name Formatted covered distance.
+  platform::Distance m_distToTarget;
 
-  /// @name Formated distance to next turn with measurement unit suffix
+  /// @name Formatted distance to the next turn.
   //@{
-  std::string m_distToTurn;
-  std::string m_turnUnitsSuffix;
+  platform::Distance m_distToTurn;
   turns::CarDirection m_turn;
   /// Turn after m_turn. Returns NoTurn if there is no turns after.
   turns::CarDirection m_nextTurn;
@@ -69,12 +67,12 @@ public:
   // If there is something to pronounce the size of m_turnNotifications may be one or even more
   // depends on the number of notifications to prononce.
   std::vector<std::string> m_turnNotifications;
-  // Current street name.
-  std::string m_sourceName;
-  // The next street name.
-  std::string m_targetName;
-  // Street name to display. May be empty.
-  std::string m_displayedStreetName;
+  // Current street name. May be empty.
+  std::string m_currentStreetName;
+  // The next street name. May be empty.
+  std::string m_nextStreetName;
+  // The next next street name. May be empty.
+  std::string m_nextNextStreetName;
 
   // Percentage of the route completion.
   double m_completionPercent;
@@ -83,5 +81,9 @@ public:
   //@{
   turns::PedestrianDirection m_pedestrianTurn;
   //@}
+
+  // Current speed limit in meters per second.
+  // If no info about speed limit then m_speedLimitMps < 0.
+  double m_speedLimitMps = -1.0;
 };
 }  // namespace routing

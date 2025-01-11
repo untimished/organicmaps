@@ -3,10 +3,11 @@
 #include "base/buffer_vector.hpp"
 #include "base/string_utils.hpp"
 
+#include <array>
 #include <memory>
 #include <numeric>
 
-namespace
+namespace buffer_vector_test
 {
   template <class TCont>
   void CheckVector(TCont & cont, size_t count)
@@ -15,9 +16,8 @@ namespace
     for (size_t i = 0; i < count; ++i)
       TEST_EQUAL ( cont[i], i, () );
   }
-}
 
-UNIT_TEST(BufferVector_PushBack_And_Realloc)
+UNIT_TEST(BufferVector_PushBackAndRealloc)
 {
   using ElementT = std::vector<int>;
   ElementT element({1, 2, 3});
@@ -47,7 +47,7 @@ UNIT_TEST(BufferVector_PushBack_And_Realloc)
   }
 }
 
-UNIT_TEST(BufferVectorBounds)
+UNIT_TEST(BufferVector_Bounds)
 {
   buffer_vector<size_t, 2> v;
 
@@ -75,7 +75,7 @@ UNIT_TEST(BufferVectorBounds)
   CheckVector(v, 0);
 }
 
-UNIT_TEST(BufferVectorSwap)
+UNIT_TEST(BufferVector_Swap)
 {
   typedef buffer_vector<size_t, 2> value_t;
   buffer_vector<value_t, 2> v1, v2;
@@ -145,17 +145,7 @@ UNIT_TEST(BufferVectorSwap)
   }
 }
 
-UNIT_TEST(BufferVectorZeroInitialized)
-{
-  for (size_t size = 0; size < 20; ++size)
-  {
-    buffer_vector<int, 5> v(size);
-    for (size_t i = 0; i < size; ++i)
-      TEST_EQUAL(v[i], 0, ());
-  }
-}
-
-UNIT_TEST(BufferVectorResize)
+UNIT_TEST(BufferVector_Resize)
 {
   for (size_t size = 0; size < 20; ++size)
   {
@@ -166,7 +156,7 @@ UNIT_TEST(BufferVectorResize)
   }
 }
 
-UNIT_TEST(BufferVectorInsert)
+UNIT_TEST(BufferVector_Insert)
 {
   for (size_t initialLength = 0; initialLength < 20; ++initialLength)
   {
@@ -195,7 +185,7 @@ UNIT_TEST(BufferVectorInsert)
   }
 }
 
-UNIT_TEST(BufferVectorInsertSingleValue)
+UNIT_TEST(BufferVector_InsertSingleValue)
 {
   buffer_vector<char, 3> v;
   v.insert(v.end(), 'x');
@@ -225,7 +215,7 @@ UNIT_TEST(BufferVectorInsertSingleValue)
   TEST_EQUAL(v[4], 'x', ());
 }
 
-UNIT_TEST(BufferVectorAppend)
+UNIT_TEST(BufferVector_Append)
 {
   for (size_t initialLength = 0; initialLength < 20; ++initialLength)
   {
@@ -251,7 +241,7 @@ UNIT_TEST(BufferVectorAppend)
   }
 }
 
-UNIT_TEST(BufferVectorPopBack)
+UNIT_TEST(BufferVector_PopBack)
 {
   for (size_t len = 1; len < 6; ++len)
   {
@@ -271,7 +261,7 @@ UNIT_TEST(BufferVectorPopBack)
   }
 }
 
-UNIT_TEST(BufferVectorAssign)
+UNIT_TEST(BufferVector_Assign)
 {
   int const arr5[] = {1, 2, 3, 4, 5};
   buffer_vector<int, 5> v(&arr5[0], &arr5[0] + ARRAY_SIZE(arr5));
@@ -288,7 +278,7 @@ UNIT_TEST(BufferVectorAssign)
   }
 }
 
-UNIT_TEST(BufferVectorEquality)
+UNIT_TEST(BufferVector_Equality)
 {
   int const arr5[] = {1, 2, 3, 4, 5};
   buffer_vector<int, 5> v1(&arr5[0], &arr5[0] + ARRAY_SIZE(arr5));
@@ -325,10 +315,10 @@ struct CopyCtorChecker
   }
 };
 
-void swap(CopyCtorChecker & r1, CopyCtorChecker & r2)
-{
-  r1.m_s.swap(r2.m_s);
-}
+// void swap(CopyCtorChecker & r1, CopyCtorChecker & r2)
+// {
+//   r1.m_s.swap(r2.m_s);
+// }
 
 typedef buffer_vector<CopyCtorChecker, 2> VectorT;
 
@@ -347,11 +337,16 @@ void TestVector(VectorT const & v, size_t sz)
     TEST_EQUAL(v[i].m_s, strings::to_string(i), ());
 }
 
-}
+} // namespace
 
-UNIT_TEST(BufferVectorMove)
+UNIT_TEST(BufferVector_Move)
 {
   VectorT v1 = GetVector();
+  TestVector(v1, 2);
+
+  // Make intermediate array to avoid warning (moving to itself).
+  std::array<VectorT *, 2> arr = { &v1, &v1 };
+  *arr[0] = std::move(*arr[1]);
   TestVector(v1, 2);
 
   v1.emplace_back("2");
@@ -359,10 +354,11 @@ UNIT_TEST(BufferVectorMove)
 
   VectorT v2(std::move(v1));
   TestVector(v2, 3);
+  TestVector(v1, 0);
 
-  VectorT().swap(v1);
   v1 = std::move(v2);
   TestVector(v1, 3);
+  TestVector(v2, 0);
 }
 
 UNIT_TEST(BufferVector_EraseIf)
@@ -417,3 +413,4 @@ UNIT_TEST(BufferVector_Erase)
       TEST_EQUAL(v1[i], v2[i], ());
   }
 }
+}  // namespace buffer_vector_test

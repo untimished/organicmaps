@@ -1,22 +1,21 @@
 #include "indexer/data_source.hpp"
+#include "indexer/scale_index.hpp"
+#include "indexer/unique_index.hpp"
 
 #include "platform/mwm_version.hpp"
-
-#include "base/logging.hpp"
 
 #include <algorithm>
 #include <limits>
 
 using platform::CountryFile;
 using platform::LocalCountryFile;
-using namespace std;
 
 namespace
 {
 class ReadMWMFunctor
 {
 public:
-  using Fn = function<void(uint32_t, FeatureSource & src)>;
+  using Fn = std::function<void(uint32_t, FeatureSource & src)>;
 
   ReadMWMFunctor(FeatureSourceFactory const & factory, Fn const & fn) : m_factory(factory), m_fn(fn)
   {
@@ -57,15 +56,16 @@ public:
       // iterate through intervals
       for (auto const & i : intervals)
       {
-        index.ForEachInIntervalAndScale(i.first, i.second, scale, [&](uint64_t /* key */, uint32_t value) {
-          if (!checkUnique(value))
-            return;
-          m_fn(value, *src);
+        index.ForEachInIntervalAndScale(i.first, i.second, scale, [&](uint64_t /* key */, uint32_t value)
+        {
+          if (checkUnique(value))
+            m_fn(value, *src);
         });
         if (m_stop())
           break;
       }
     }
+
     // Check created features container.
     // Need to do it on a per-mwm basis, because Drape relies on features in a sorted order.
     // Touched (created, edited) features reading.
@@ -79,9 +79,9 @@ private:
   DataSource::StopSearchCallback m_stop;
 };
 
-void ReadFeatureType(function<void(FeatureType &)> const & fn, FeatureSource & src, uint32_t index)
+void ReadFeatureType(std::function<void(FeatureType &)> const & fn, FeatureSource & src, uint32_t index)
 {
-  unique_ptr<FeatureType> ft;
+  std::unique_ptr<FeatureType> ft;
   switch (src.GetFeatureStatus(index))
   {
   case FeatureStatus::Deleted:
@@ -104,37 +104,34 @@ void ReadFeatureType(function<void(FeatureType &)> const & fn, FeatureSource & s
 }  //  namespace
 
 // FeaturesLoaderGuard ---------------------------------------------------------------------
-string FeaturesLoaderGuard::GetCountryFileName() const
+std::string FeaturesLoaderGuard::GetCountryFileName() const
 {
-  if (!m_handle.IsAlive())
-    return string();
-
+  ASSERT(m_handle.IsAlive(), ());
   return m_handle.GetValue()->GetCountryFileName();
+}
+
+int64_t FeaturesLoaderGuard::GetVersion() const
+{
+  ASSERT(m_handle.IsAlive(), ());
+  return m_handle.GetInfo()->GetVersion();
 }
 
 bool FeaturesLoaderGuard::IsWorld() const
 {
-  if (!m_handle.IsAlive())
-    return false;
-
-  return m_handle.GetValue()->GetHeader().GetType() ==
-         feature::DataHeader::MapType::World;
+  ASSERT(m_handle.IsAlive(), ());
+  return m_handle.GetValue()->GetHeader().GetType() == feature::DataHeader::MapType::World;
 }
 
-unique_ptr<FeatureType> FeaturesLoaderGuard::GetOriginalOrEditedFeatureByIndex(uint32_t index) const
+std::unique_ptr<FeatureType> FeaturesLoaderGuard::GetOriginalOrEditedFeatureByIndex(uint32_t index) const
 {
-  if (!m_handle.IsAlive())
-    return {};
-
+  ASSERT(m_handle.IsAlive(), ());
   ASSERT_NOT_EQUAL(m_source->GetFeatureStatus(index), FeatureStatus::Created, ());
   return GetFeatureByIndex(index);
 }
 
-unique_ptr<FeatureType> FeaturesLoaderGuard::GetFeatureByIndex(uint32_t index) const
+std::unique_ptr<FeatureType> FeaturesLoaderGuard::GetFeatureByIndex(uint32_t index) const
 {
-  if (!m_handle.IsAlive())
-    return {};
-
+  ASSERT(m_handle.IsAlive(), ());
   ASSERT_NOT_EQUAL(FeatureStatus::Deleted, m_source->GetFeatureStatus(index),
                    ("Deleted feature was cached. It should not be here. Please review your code."));
 
@@ -145,51 +142,43 @@ unique_ptr<FeatureType> FeaturesLoaderGuard::GetFeatureByIndex(uint32_t index) c
   return GetOriginalFeatureByIndex(index);
 }
 
-unique_ptr<FeatureType> FeaturesLoaderGuard::GetOriginalFeatureByIndex(uint32_t index) const
+std::unique_ptr<FeatureType> FeaturesLoaderGuard::GetOriginalFeatureByIndex(uint32_t index) const
 {
   return m_handle.IsAlive() ? m_source->GetOriginalFeature(index) : nullptr;
 }
 
 // DataSource ----------------------------------------------------------------------------------
-unique_ptr<MwmInfo> DataSource::CreateInfo(platform::LocalCountryFile const & localFile) const
+std::unique_ptr<MwmInfo> DataSource::CreateInfo(platform::LocalCountryFile const & localFile) const
 {
   MwmValue value(localFile);
 
-  if (version::GetMwmType(value.GetMwmVersion()) != version::MwmType::SingleMwm)
-    return nullptr;
-
   feature::DataHeader const & h = value.GetHeader();
-  if (!h.IsMWMSuitable())
-    return nullptr;
 
-  auto info = make_unique<MwmInfoEx>();
+  auto info = std::make_unique<MwmInfoEx>();
   info->m_bordersRect = h.GetBounds();
 
-  pair<int, int> const scaleR = h.GetScaleRange();
+  auto const scaleR = h.GetScaleRange();
   info->m_minScale = static_cast<uint8_t>(scaleR.first);
   info->m_maxScale = static_cast<uint8_t>(scaleR.second);
   info->m_version = value.GetMwmVersion();
-  // Copying to drop the const qualifier.
-  feature::RegionData regionData(value.GetRegionData());
-  info->m_data = regionData;
+  value.m_factory.MoveRegionData(info->m_data);
 
-  return unique_ptr<MwmInfo>(move(info));
+  return info;
 }
 
-unique_ptr<MwmValue> DataSource::CreateValue(MwmInfo & info) const
+std::unique_ptr<MwmValue> DataSource::CreateValue(MwmInfo & info) const
 {
-  // Create a section with rank table if it does not exist.
   platform::LocalCountryFile const & localFile = info.GetLocalFile();
-  auto p = make_unique<MwmValue>(localFile);
-  if (!p || version::GetMwmType(p->GetMwmVersion()) != version::MwmType::SingleMwm)
-    return nullptr;
+  auto p = std::make_unique<MwmValue>(localFile);
 
   p->SetTable(dynamic_cast<MwmInfoEx &>(info));
-  ASSERT(p->GetHeader().IsMWMSuitable(), ());
-  return unique_ptr<MwmValue>(move(p));
+
+  p->m_metaDeserializer = indexer::MetadataDeserializer::Load(p->m_cont);
+  CHECK(p->m_metaDeserializer, ());
+  return p;
 }
 
-pair<MwmSet::MwmId, MwmSet::RegResult> DataSource::RegisterMap(LocalCountryFile const & localFile)
+std::pair<MwmSet::MwmId, MwmSet::RegResult> DataSource::RegisterMap(LocalCountryFile const & localFile)
 {
   return Register(localFile);
 }
@@ -199,14 +188,14 @@ bool DataSource::DeregisterMap(CountryFile const & countryFile) { return Deregis
 void DataSource::ForEachInIntervals(ReaderCallback const & fn, covering::CoveringMode mode,
                                     m2::RectD const & rect, int scale) const
 {
-  vector<shared_ptr<MwmInfo>> mwms;
+  std::vector<std::shared_ptr<MwmInfo>> mwms;
   GetMwmsInfo(mwms);
 
   covering::CoveringGetter cov(rect, mode);
 
   MwmId worldID[2];
 
-  for (shared_ptr<MwmInfo> const & info : mwms)
+  for (auto const & info : mwms)
   {
     if (info->m_minScale <= scale && scale <= info->m_maxScale &&
         rect.IsIntersect(info->m_bordersRect))
@@ -228,16 +217,17 @@ void DataSource::ForEachInIntervals(ReaderCallback const & fn, covering::Coverin
     fn(GetMwmHandleById(worldID[1]), cov, scale);
 }
 
-void DataSource::ForEachFeatureIDInRect(FeatureIdCallback const & f, m2::RectD const & rect,
-                                        int scale) const
+void DataSource::ForEachFeatureIDInRect(FeatureIdCallback const & f, m2::RectD const & rect, int scale,
+                                        covering::CoveringMode mode /* = covering::ViewportWithLowLevels */) const
 {
-  auto readFeatureId = [&f](uint32_t index, FeatureSource & src) {
+  auto readFeatureId = [&f](uint32_t index, FeatureSource & src)
+  {
     if (src.GetFeatureStatus(index) != FeatureStatus::Deleted)
-      f(src.GetFeatureId(index));
+      f({ src.GetMwmId(), index });
   };
 
   ReadMWMFunctor readFunctor(*m_factory, readFeatureId);
-  ForEachInIntervals(readFunctor, covering::LowLevelsOnly, rect, scale);
+  ForEachInIntervals(readFunctor, mode, rect, scale);
 }
 
 void DataSource::ForEachInRect(FeatureCallback const & f, m2::RectD const & rect, int scale) const
@@ -288,7 +278,7 @@ void DataSource::ForEachInRectForMWM(FeatureCallback const & f, m2::RectD const 
   }
 }
 
-void DataSource::ReadFeatures(FeatureCallback const & fn, vector<FeatureID> const & features) const
+void DataSource::ReadFeatures(FeatureCallback const & fn, std::vector<FeatureID> const & features) const
 {
   ASSERT(is_sorted(features.begin(), features.end()), ());
 
@@ -308,11 +298,12 @@ void DataSource::ReadFeatures(FeatureCallback const & fn, vector<FeatureID> cons
         ASSERT_NOT_EQUAL(
             FeatureStatus::Deleted, fts,
             ("Deleted feature was cached. It should not be here. Please review your code."));
-        unique_ptr<FeatureType> ft;
+        std::unique_ptr<FeatureType> ft;
         if (fts == FeatureStatus::Modified || fts == FeatureStatus::Created)
           ft = src->GetModifiedFeature(fidIter->m_index);
         else
           ft = src->GetOriginalFeature(fidIter->m_index);
+
         CHECK(ft, ());
         fn(*ft);
       } while (++fidIter != endIter && id == fidIter->m_mwmId);

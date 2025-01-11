@@ -95,7 +95,9 @@
 		4577B26521F2044300864FAC /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
-				LastUpgradeCheck = 1310;
+				BuildIndependentTargetsInParallel = YES;
+				DefaultBuildSystemTypeForWorkspace = Latest;
+				LastUpgradeCheck = 1510;
 				TargetAttributes = {
 					4577B26C21F2044300864FAC = {
 						CreatedOnToolsVersion = 10.1;
@@ -151,8 +153,6 @@
 			buildSettings = {
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(OMIM_ROOT)",
-					"$(BOOST_ROOT)",
 					"$(OMIM_ROOT)/3party/Vulkan-Headers/include",
 				);
 			};
@@ -163,8 +163,6 @@
 			buildSettings = {
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(OMIM_ROOT)",
-					"$(BOOST_ROOT)",
 					"$(OMIM_ROOT)/3party/Vulkan-Headers/include",
 				);
 			};

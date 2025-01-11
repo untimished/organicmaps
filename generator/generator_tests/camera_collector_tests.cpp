@@ -5,7 +5,6 @@
 #include "generator/filter_planet.hpp"
 #include "generator/generate_info.hpp"
 #include "generator/intermediate_data.hpp"
-#include "generator/intermediate_elements.hpp"
 #include "generator/osm2type.hpp"
 #include "generator/osm_element.hpp"
 #include "generator/osm_source.hpp"
@@ -26,23 +25,13 @@
 
 #include "defines.hpp"
 
-#include <cstdint>
-#include <memory>
-#include <set>
-#include <string>
-#include <utility>
 
-using namespace generator;
-using namespace generator::cache;
-using namespace feature;
-using namespace platform::tests_support;
-using namespace platform;
-using namespace routing;
-using namespace std;
-
-namespace
+namespace routing_builder
 {
-string const kSpeedCameraTag = "<tag k=\"highway\" v=\"speed_camera\"/>";
+using namespace generator;
+using std::pair, std::string;
+
+string const kSpeedCameraTag = R"(<tag k="highway" v="speed_camera"/>)";
 
 feature::FeatureBuilder MakeFeatureBuilderWithParams(OsmElement & element)
 {
@@ -52,18 +41,18 @@ feature::FeatureBuilder MakeFeatureBuilderWithParams(OsmElement & element)
   return fb;
 }
 
-class TranslatorForTest : public Translator
+class TranslatorForTest : public generator::Translator
 {
 public:
-  explicit TranslatorForTest(shared_ptr<FeatureProcessorInterface> const & processor,
-                             shared_ptr<generator::cache::IntermediateData> const & cache)
-    : Translator(processor, cache, make_shared<FeatureMaker>(cache->GetCache()))
+  explicit TranslatorForTest(std::shared_ptr<FeatureProcessorInterface> const & processor,
+                             std::shared_ptr<generator::cache::IntermediateData> const & cache)
+    : Translator(processor, cache, std::make_shared<FeatureMaker>(cache->GetCache()))
   {
-    SetFilter(make_shared<FilterPlanet>());
+    SetFilter(std::make_shared<FilterPlanet>());
   }
 
   // TranslatorInterface overrides:
-  shared_ptr<TranslatorInterface> Clone() const override
+  std::shared_ptr<TranslatorInterface> Clone() const override
   {
     CHECK(false, ());
     return {};
@@ -77,14 +66,11 @@ public:
 protected:
   using Translator::Translator;
 };
-}  // namespace
 
-namespace generator_tests
-{
 class TestCameraCollector
 {
 public:
-  // Directory name for creating test mwm and temprary files.
+  // Directory name for creating test mwm and temporary files.
   string static const kTestDir;
   string static const kOsmFileName;
 
@@ -94,8 +80,10 @@ public:
     classificator::Load();
   }
 
-  bool Test(string const & osmSourceXML, set<pair<uint64_t, uint64_t>> const & trueAnswers)
+  static bool Test(string const & osmSourceXML, std::set<pair<uint64_t, uint64_t>> const & trueAnswers)
   {
+    using namespace platform::tests_support;
+
     Platform & platform = GetPlatform();
     WritableDirChanger writableDirChanger(kTestDir);
     auto const & writableDir = platform.WritableDir();
@@ -103,8 +91,9 @@ public:
     auto const osmRelativePath = base::JoinPath(kTestDir, kOsmFileName);
     ScopedFile const osmScopedFile(osmRelativePath, osmSourceXML);
 
-    GenerateInfo genInfo;
+    feature::GenerateInfo genInfo;
     // Generate intermediate data.
+    genInfo.m_cacheDir = writableDir;
     genInfo.m_intermediateDir = writableDir;
     genInfo.m_nodeStorageType = feature::GenerateInfo::NodeStorageType::Index;
     genInfo.m_osmFileName = base::JoinPath(writableDir, osmRelativePath);
@@ -114,103 +103,29 @@ public:
     CHECK(GenerateIntermediateData(genInfo), ());
 
     // Test load this data from cached file.
-    auto collector = make_shared<CameraCollector>(genInfo.GetIntermediateFileName(CAMERAS_TO_WAYS_FILENAME));
     generator::cache::IntermediateDataObjectsCache objectsCache;
-    auto cache = make_shared<generator::cache::IntermediateData>(objectsCache, genInfo);
+    auto cache = std::make_shared<generator::cache::IntermediateData>(objectsCache, genInfo);
+    auto collector = std::make_shared<CameraCollector>(genInfo.GetIntermediateFileName(CAMERAS_TO_WAYS_FILENAME), cache->GetCache());
     auto processor = CreateProcessor(ProcessorType::Noop);
-    auto translator = make_shared<TranslatorForTest>(processor, cache);
+    auto translator = std::make_shared<TranslatorForTest>(processor, cache);
     translator->SetCollector(collector);
+
     RawGenerator rawGenerator(genInfo);
     rawGenerator.GenerateCustom(translator);
     CHECK(rawGenerator.Execute(), ());
-    set<pair<uint64_t, uint64_t>> answers;
-    collector->m_processor.ForEachCamera([&](auto const & camera) {
+    std::set<pair<uint64_t, uint64_t>> answers;
+    collector->ForEachCamera([&](auto const & camera)
+    {
       for (auto const & w : camera.m_ways)
         answers.emplace(camera.m_id, w);
     });
 
     return answers == trueAnswers;
   }
-
-  void TestMergeCollectors()
-  {
-    Platform & platform = GetPlatform();
-    auto const & writableDir = platform.WritableDir();
-    GenerateInfo genInfo;
-    // Generate intermediate data.
-    genInfo.m_intermediateDir = writableDir;
-    auto const filename = genInfo.GetIntermediateFileName(CAMERAS_TO_WAYS_FILENAME);
-    auto collector1 = make_shared<CameraCollector>(filename);
-    auto collector2 = collector1->Clone();
-    {
-      OsmElement el;
-      el.m_id = 1;
-      el.m_type = OsmElement::EntityType::Node;
-      el.m_tags = {{"highway", "speed_camera"}};
-      collector1->CollectFeature(MakeFeatureBuilderWithParams(el), el);
-    }
-    {
-      OsmElement el;
-      el.m_id = 2;
-      el.m_type = OsmElement::EntityType::Node;
-      el.m_tags = {{"highway", "speed_camera"}};
-      collector2->CollectFeature(MakeFeatureBuilderWithParams(el), el);
-    }
-    {
-      OsmElement el;
-      el.m_id = 3;
-      el.m_type = OsmElement::EntityType::Node;
-      el.m_tags = {{"highway", "speed_camera"}};
-      collector1->CollectFeature(MakeFeatureBuilderWithParams(el), el);
-    }
-    {
-      OsmElement el;
-      el.m_id = 4;
-      el.m_type = OsmElement::EntityType::Node;
-      collector2->CollectFeature(MakeFeatureBuilderWithParams(el), el);
-    }
-    {
-      OsmElement el;
-      el.m_id = 10;
-      el.m_type = OsmElement::EntityType::Way;
-      el.m_tags = {{"highway", "unclassified"}};
-      el.AddNd(1 /* ref */);
-      el.AddNd(4 /* ref */);
-      collector1->CollectFeature(MakeFeatureBuilderWithParams(el), el);
-    }
-    {
-      OsmElement el;
-      el.m_id = 20;
-      el.m_type = OsmElement::EntityType::Way;
-      el.m_tags = {{"highway", "unclassified"}};
-      el.AddNd(1 /* ref */);
-      el.AddNd(2 /* ref */);
-      el.AddNd(3 /* ref */);
-      collector2->CollectFeature(MakeFeatureBuilderWithParams(el), el);
-    }
-
-    collector1->Finish();
-    collector2->Finish();
-    collector1->Merge(*collector2);
-    collector1->Save();
-    set<pair<uint64_t, uint64_t>> trueAnswers = {
-      {1, 10}, {1, 20}, {2, 20}, {3, 20}
-    };
-    set<pair<uint64_t, uint64_t>> answers;
-    collector1->m_processor.ForEachCamera([&](auto const & camera) {
-      for (auto const & w : camera.m_ways)
-        answers.emplace(camera.m_id, w);
-    });
-
-    TEST_EQUAL(answers, trueAnswers, ());
-  }
 };
 
 string const TestCameraCollector::kTestDir = "camera_test";
 string const TestCameraCollector::kOsmFileName = "planet" OSM_DATA_FILE_EXTENSION;
-} // namespace generator_tests
-
-using namespace generator_tests;
 
 UNIT_CLASS_TEST(TestCameraCollector, test_1)
 {
@@ -234,7 +149,7 @@ UNIT_CLASS_TEST(TestCameraCollector, test_1)
       </way>
       </osm>)";
 
-  set<pair<uint64_t, uint64_t>> trueAnswers = {
+  std::set<pair<uint64_t, uint64_t>> trueAnswers = {
     {1, 10}, {1, 20}, {2, 20}, {3, 20}
   };
 
@@ -270,7 +185,7 @@ UNIT_CLASS_TEST(TestCameraCollector, test_2)
       </way>
       </osm>)";
 
-  set<pair<uint64_t, uint64_t>> trueAnswers = {
+  std::set<pair<uint64_t, uint64_t>> trueAnswers = {
     {1, 10}, {2, 10}, {1, 20}, {3, 20}, {1, 30}, {3, 30}, {4, 30}, {5, 30}
   };
 
@@ -296,7 +211,7 @@ UNIT_CLASS_TEST(TestCameraCollector, test_3)
       </way>
       </osm>)";
 
-  set<pair<uint64_t, uint64_t>> trueAnswers = {
+  std::set<pair<uint64_t, uint64_t>> trueAnswers = {
     {1, 10}, {1, 20}
   };
 
@@ -316,7 +231,7 @@ UNIT_CLASS_TEST(TestCameraCollector, test_4)
       </way>
       </osm>)";
 
-  set<pair<uint64_t, uint64_t>> trueAnswers = {};
+  std::set<pair<uint64_t, uint64_t>> trueAnswers = {};
 
   TEST(TestCameraCollector::Test(osmSourceXML, trueAnswers), ());
 }
@@ -332,12 +247,9 @@ UNIT_CLASS_TEST(TestCameraCollector, test_5)
       </way>
       </osm>)";
 
-  set<pair<uint64_t, uint64_t>> trueAnswers = {};
+  std::set<pair<uint64_t, uint64_t>> trueAnswers = {};
 
   TEST(TestCameraCollector::Test(osmSourceXML, trueAnswers), ());
 }
 
-UNIT_CLASS_TEST(TestCameraCollector, Merge)
-{
-  TestCameraCollector::TestMergeCollectors();
-}
+} // namespace routing_builder

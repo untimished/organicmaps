@@ -4,10 +4,7 @@
 
 #include "base/string_utils.hpp"
 
-#include <array>
-#include <cstdint>
 #include <string>
-#include <utility>
 #include <vector>
 
 namespace search
@@ -53,14 +50,13 @@ public:
   }
 
   // Store references to keywords from source array of strings.
-  inline void SetKeywords(strings::UniString const * keywords, size_t count,
-                          strings::UniString const & prefix)
+  inline void SetKeywords(QueryString const & query)
   {
-    m_keywordMatcher.SetKeywords(keywords, count, prefix);
+    m_keywordMatcher.SetKeywords(query);
   }
 
   // Returns the Score of the name (greater is better).
-  Score CalcScore(int8_t lang, std::string const & name) const;
+  Score CalcScore(int8_t lang, std::string_view name) const;
   Score CalcScore(int8_t lang, strings::UniString const & name) const;
   Score CalcScore(int8_t lang, strings::UniString const * tokens, size_t count) const;
 

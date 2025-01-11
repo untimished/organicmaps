@@ -55,6 +55,7 @@ std::string DebugPrint(Message::Type msgType)
   case Message::Type::Invalidate: return "Invalidate";
   case Message::Type::Allow3dMode: return "Allow3dMode";
   case Message::Type::Allow3dBuildings: return "Allow3dBuildings";
+  case Message::Type::SetMapLangIndex: return "SetMapLangIndex";
   case Message::Type::EnablePerspective: return "EnablePerspective";
   case Message::Type::FlushCirclesPack: return "FlushCirclesPack";
   case Message::Type::CacheCirclesPack: return "CacheCirclesPack";
@@ -101,6 +102,7 @@ std::string DebugPrint(Message::Type msgType)
   case Message::Type::NotifyGraphicsReady: return "NotifyGraphicsReady";
   case Message::Type::EnableIsolines: return "EnableIsolines";
   case Message::Type::OnEnterBackground: return "OnEnterBackground";
+  case Message::Type::Arrow3dRecache: return "Arrow3dRecache";
   }
   ASSERT(false, ("Unknown message type."));
   return "Unknown type";

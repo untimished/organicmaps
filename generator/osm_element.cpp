@@ -1,12 +1,12 @@
 #include "generator/osm_element.hpp"
 
-#include "coding/parse_xml.hpp"
+#include "geometry/mercator.hpp"  // kPointEqualityEps
 
+#include "base/logging.hpp"
+#include "base/math.hpp"
 #include "base/string_utils.hpp"
 #include "base/stl_helpers.hpp"
 
-#include <cstdio>
-#include <cstring>
 #include <sstream>
 
 std::string DebugPrint(OsmElement::EntityType type)
@@ -15,6 +15,8 @@ std::string DebugPrint(OsmElement::EntityType type)
   {
   case OsmElement::EntityType::Unknown:
     return "unknown";
+  case OsmElement::EntityType::Bounds:
+    return "bounds";
   case OsmElement::EntityType::Way:
     return "way";
   case OsmElement::EntityType::Tag:
@@ -33,72 +35,98 @@ std::string DebugPrint(OsmElement::EntityType type)
   UNREACHABLE();
 }
 
-void OsmElement::AddTag(Tag const & tag) { AddTag(tag.m_key, tag.m_value); }
-
-void OsmElement::AddTag(char const * key, char const * value)
+namespace
 {
-  ASSERT(key, ());
-  ASSERT(value, ());
-
-  // Seems like source osm data has empty values. They are useless for us.
-  if (key[0] == '\0' || value[0] == '\0')
-    return;
-
-#define SKIP_KEY_BY_PREFIX(skippedKey) if (std::strncmp(key, skippedKey, sizeof(skippedKey)-1) == 0) return;
-  // OSM technical info tags
-  SKIP_KEY_BY_PREFIX("created_by");
-  SKIP_KEY_BY_PREFIX("source");
-  SKIP_KEY_BY_PREFIX("odbl");
-  SKIP_KEY_BY_PREFIX("note");
-  SKIP_KEY_BY_PREFIX("fixme");
-  SKIP_KEY_BY_PREFIX("iemv");
+std::string_view constexpr kUselessKeys[] = {
+  "created_by", "source", "odbl", "note", "fixme", "iemv",
 
   // Skip tags for speedup, now we don't use it
-  SKIP_KEY_BY_PREFIX("not:");
-  SKIP_KEY_BY_PREFIX("artist_name");
-  SKIP_KEY_BY_PREFIX("whitewater"); // https://wiki.openstreetmap.org/wiki/Whitewater_sports
+  "not:", "artist_name", "whitewater",// https://wiki.openstreetmap.org/wiki/Whitewater_sports
 
   // In future we can use this tags for improve our search
-  SKIP_KEY_BY_PREFIX("nat_name");
-  SKIP_KEY_BY_PREFIX("reg_name");
-  SKIP_KEY_BY_PREFIX("loc_name");
-  SKIP_KEY_BY_PREFIX("lock_name");
-  SKIP_KEY_BY_PREFIX("local_name");
-  SKIP_KEY_BY_PREFIX("short_name");
-  SKIP_KEY_BY_PREFIX("official_name");
-#undef SKIP_KEY_BY_PREFIX
+  "nat_name", "reg_name", "loc_name", "lock_name", "local_name", "short_name", "official_name"
+};
+} // namespace
 
-  std::string val(value);
-  m_tags.emplace_back(key, std::move(strings::Trim(val)));
-}
-
-void OsmElement::AddTag(std::string const & key, std::string const & value)
+void OsmElement::AddTag(std::string_view key, std::string_view value)
 {
-  AddTag(key.data(), value.data());
+  strings::Trim(key);
+  strings::Trim(value);
+
+  // Seems like source osm data has empty values. They are useless for us.
+  if (key.empty() || value.empty())
+    return;
+
+  for (auto const & useless : kUselessKeys)
+  {
+    if (key == useless)
+      return;
+  }
+
+  m_tags.emplace_back(key, value);
 }
 
-bool OsmElement::HasTag(std::string const & key) const
+bool OsmElement::HasTag(std::string_view const & key) const
 {
   return base::AnyOf(m_tags, [&](auto const & t) { return t.m_key == key; });
 }
 
-bool OsmElement::HasTag(std::string const & key, std::string const & value) const
+bool OsmElement::HasTag(std::string_view const & key, std::string_view const & value) const
 {
   return base::AnyOf(m_tags, [&](auto const & t) { return t.m_key == key && t.m_value == value; });
 }
 
-bool OsmElement::HasAnyTag(std::unordered_multimap<std::string, std::string> const & tags) const
+void OsmElement::Validate()
 {
-  return base::AnyOf(m_tags, [&](auto const & t) {
-    auto beginEnd = tags.equal_range(t.m_key);
-    for (auto it = beginEnd.first; it != beginEnd.second; ++it)
-    {
-      if (it->second == t.m_value)
-        return true;
-    }
+  if (GetTag("type") != "multipolygon")
+    return;
 
-    return false;
-  });
+  struct MembersCompare
+  {
+    bool operator()(Member const * l, Member const * r) const
+    {
+      return *l < *r;
+    }
+  };
+
+  // Don't to change the initial order of m_members, so make intermediate set.
+  std::set<Member const *, MembersCompare> theSet;
+  for (Member & m : m_members)
+  {
+    ASSERT(m.m_ref > 0, (m_id));
+    ASSERT(m.m_type != EntityType::Unknown, (m_id));
+
+    if (!theSet.insert(&m).second)
+    {
+      LOG(LWARNING, ("Duplicating member:", m.m_ref, "in multipolygon Relation:", m_id));
+      m.m_ref = 0;
+    }
+  }
+
+  if (theSet.size() != m_members.size())
+  {
+    m_members.erase(std::remove_if(m_members.begin(), m_members.end(), [](Member const & m)
+    {
+      return m.m_ref == 0;
+    }), m_members.end());
+  }
+}
+
+void OsmElement::Clear()
+{
+  m_type = EntityType::Unknown;
+  m_id = 0;
+  m_lon = 0.0;
+  m_lat = 0.0;
+  m_ref = 0;
+  m_k.clear();
+  m_v.clear();
+  m_memberType = EntityType::Unknown;
+  m_role.clear();
+
+  m_nodes.clear();
+  m_members.clear();
+  m_tags.clear();
 }
 
 std::string OsmElement::ToString(std::string const & shift) const
@@ -140,8 +168,7 @@ std::string OsmElement::ToString(std::string const & shift) const
   case EntityType::Member:
     ss << "Member: " << m_ref << " type: " << DebugPrint(m_memberType) << " role: " << m_role;
     break;
-  case EntityType::Unknown:
-  case EntityType::Osm:
+  default:
     UNREACHABLE();
     break;
   }
@@ -156,17 +183,26 @@ std::string OsmElement::ToString(std::string const & shift) const
   return ss.str();
 }
 
+bool OsmElement::operator==(OsmElement const & other) const
+{
+  return m_type == other.m_type
+         && m_id == other.m_id
+         && base::AlmostEqualAbs(m_lon, other.m_lon, mercator::kPointEqualityEps)
+         && base::AlmostEqualAbs(m_lat, other.m_lat, mercator::kPointEqualityEps)
+         && m_ref == other.m_ref
+         && m_k == other.m_k
+         && m_v == other.m_v
+         && m_memberType == other.m_memberType
+         && m_role == other.m_role
+         && m_nodes == other.m_nodes
+         && m_members == other.m_members
+         && m_tags == other.m_tags;
+}
+
 std::string OsmElement::GetTag(std::string const & key) const
 {
   auto const it = base::FindIf(m_tags, [&key](Tag const & tag) { return tag.m_key == key; });
   return it == m_tags.cend() ? std::string() : it->m_value;
-}
-
-std::string OsmElement::GetTagValue(std::string const & key,
-                                    std::string const & defaultValue) const
-{
-  auto const it = base::FindIf(m_tags, [&key](Tag const & tag) { return tag.m_key == key; });
-  return it != m_tags.cend() ? it->m_value : defaultValue;
 }
 
 std::string DebugPrint(OsmElement const & element)
@@ -191,13 +227,13 @@ base::GeoObjectId GetGeoObjectId(OsmElement const & element)
     return base::MakeOsmWay(element.m_id);
   case OsmElement::EntityType::Relation:
     return base::MakeOsmRelation(element.m_id);
-  case OsmElement::EntityType::Member:
-  case OsmElement::EntityType::Nd:
-  case OsmElement::EntityType::Osm:
-  case OsmElement::EntityType::Tag:
-  case OsmElement::EntityType::Unknown:
+  default:
     UNREACHABLE();
     return base::GeoObjectId();
   }
-  UNREACHABLE();
+}
+
+std::string DebugPrintID(OsmElement const & e)
+{
+  return (e.m_type != OsmElement::EntityType::Unknown) ? DebugPrint(GetGeoObjectId(e)) : std::string("Unknown");
 }

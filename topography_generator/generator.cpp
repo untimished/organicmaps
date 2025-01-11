@@ -22,7 +22,6 @@ namespace topography_generator
 {
 namespace
 {
-double const kEps = 1e-7;
 size_t constexpr kArcSecondsInDegree = 60 * 60;
 int constexpr kAsterTilesLatTop = 60;
 int constexpr kAsterTilesLatBottom = -60;
@@ -111,17 +110,17 @@ private:
       // Try to prevent loading a new tile if the position can be found in the loaded one.
       auto const latDist = pos.m_lat - m_leftBottomOfPreferredTile.m_lat;
       auto const lonDist = pos.m_lon - m_leftBottomOfPreferredTile.m_lon;
-      if (latDist > -kEps && latDist < 1.0 + kEps && lonDist > -kEps && lonDist < 1.0 + kEps)
+      if (latDist > -mercator::kPointEqualityEps && latDist < 1.0 + mercator::kPointEqualityEps && lonDist > -mercator::kPointEqualityEps && lonDist < 1.0 + mercator::kPointEqualityEps)
       {
         ms::LatLon innerPos = pos;
         if (latDist < 0.0)
-          innerPos.m_lat += kEps;
+          innerPos.m_lat += mercator::kPointEqualityEps;
         else if (latDist >= 1.0)
-          innerPos.m_lat -= kEps;
+          innerPos.m_lat -= mercator::kPointEqualityEps;
         if (lonDist < 0.0)
-          innerPos.m_lon += kEps;
+          innerPos.m_lon += mercator::kPointEqualityEps;
         else if (lonDist >= 1.0)
-          innerPos.m_lon -= kEps;
+          innerPos.m_lon -= mercator::kPointEqualityEps;
         return m_preferredTile->GetHeight(innerPos);
       }
     }
@@ -386,8 +385,8 @@ private:
             // for the same position on the border could be returned different altitudes.
             // Force to use altitudes near the srtm/aster border from srtm source,
             // it helps to avoid contours gaps due to different altitudes for equal positions.
-            return fabs(pos.m_lat - kAsterTilesLatTop) < kEps ||
-                   fabs(pos.m_lat - kAsterTilesLatBottom) < kEps;
+            return fabs(pos.m_lat - kAsterTilesLatTop) < mercator::kPointEqualityEps ||
+                   fabs(pos.m_lat - kAsterTilesLatBottom) < mercator::kPointEqualityEps;
           });
       GenerateContours(lat, lon, params, seamlessAltProvider, contours);
     }
@@ -425,7 +424,7 @@ private:
 template <typename ParamsType>
 void RunGenerateIsolinesTasks(int left, int bottom, int right, int top,
                               std::string const & srtmPath, ParamsType const & params,
-                              size_t threadsCount, size_t maxCachedTilesPerThread,
+                              long threadsCount, long maxCachedTilesPerThread,
                               bool forceRegenerate)
 {
   std::vector<std::unique_ptr<TileIsolinesTask>> tasks;
@@ -452,7 +451,7 @@ void RunGenerateIsolinesTasks(int left, int bottom, int right, int top,
     }
   }
 
-  base::thread_pool::computational::ThreadPool threadPool(threadsCount);
+  base::ComputationalThreadPool threadPool(threadsCount);
 
   for (int lat = bottom; lat < top; lat += tilesRowPerTask)
   {
@@ -468,8 +467,8 @@ void RunGenerateIsolinesTasks(int left, int bottom, int right, int top,
 }
 }  // namespace
 
-Generator::Generator(std::string const & srtmPath, size_t threadsCount,
-                     size_t maxCachedTilesPerThread, bool forceRegenerate)
+Generator::Generator(std::string const & srtmPath, long threadsCount,
+                     long maxCachedTilesPerThread, bool forceRegenerate)
   : m_threadsCount(threadsCount)
   , m_maxCachedTilesPerThread(maxCachedTilesPerThread)
   , m_srtmPath(srtmPath)
@@ -594,6 +593,10 @@ void Generator::PackIsolinesForCountry(storage::CountryId const & countryId,
     return;
   }
 
+  // TODO : prepare simplified and filtered isolones for all geom levels here
+  // (ATM its the most detailed geom3 only) instead of in the generator
+  // to skip re-doing it for every maps gen. And it'll be needed anyway
+  // for the longer term vision to supply isolines in separately downloadable files.
   LOG(LINFO, ("Begin packing isolines for country", countryId));
 
   m2::RectD countryRect;
@@ -623,6 +626,8 @@ void Generator::PackIsolinesForCountry(storage::CountryId const & countryId,
 
       CropContours(countryRect, countryRegions, params.m_maxIsolineLength,
                    params.m_alitudesStepFactor, isolines);
+      // Simplification is done already while processing tiles in ProcessTile().
+      // But now a different country-specific simpificationZoom could be applied.
       if (params.m_simplificationZoom > 0)
         SimplifyContours(params.m_simplificationZoom, isolines);
 
@@ -660,7 +665,7 @@ void Generator::PackIsolinesForCountries()
     return;
   }
 
-  base::thread_pool::computational::ThreadPool threadPool(m_threadsCount);
+  base::ComputationalThreadPool threadPool(m_threadsCount);
   size_t taskInd = 0;
   size_t tasksCount = m_countriesToGenerate.m_countryParams.size();
   for (auto const & countryParams : m_countriesToGenerate.m_countryParams)

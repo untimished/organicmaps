@@ -3,11 +3,8 @@
 #include "geometry/transformations.hpp"
 
 #include "base/assert.hpp"
-#include "base/logging.hpp"
 
 #include <cmath>
-
-using namespace std;
 
 double constexpr kPerspectiveAngleFOV = math::pi / 3.0;
 double constexpr kMaxPerspectiveAngle1 = math::pi4;
@@ -20,13 +17,13 @@ double constexpr kEndPerspectiveScale2 = 0.13e-5;
 ScreenBase::ScreenBase()
   : m_Org(320, 240)
   , m_GlobalRect(m_Org, ang::AngleD(0), m2::RectD(-320, -240, 320, 240))
-  , m_ClipRect(m2::RectD(0, 0, 640, 480))
+  , m_ClipRect(m_GlobalRect.GetGlobalRect())
   , m_ViewportRect(0, 0, 640, 480)
   , m_PixelRect(m_ViewportRect)
   , m_Scale(0.1)
   , m_Angle(0.0)
   , m_3dFOV(kPerspectiveAngleFOV)
-  , m_3dNearZ(0.001)
+  , m_3dNearZ(0.1)
   , m_3dFarZ(0.0)
   , m_3dAngleX(0.0)
   , m_3dMaxAngleX(0.0)
@@ -47,7 +44,7 @@ ScreenBase::ScreenBase(m2::RectI const & pxRect, m2::AnyRectD const & glbRect)
 ScreenBase::ScreenBase(ScreenBase const & s, m2::PointD const & org, double scale, double angle)
   : m_Org(org), m_ViewportRect(s.m_ViewportRect), m_Scale(scale), m_Angle(angle)
 {
-  CHECK_GREATER_OR_EQUAL(m_Scale, 0.0, ());
+  ASSERT_GREATER(m_Scale, 0.0, ());
   UpdateDependentParameters();
 }
 
@@ -70,16 +67,17 @@ void ScreenBase::UpdateDependentParameters()
   m_GtoP = math::Inverse(m_PtoG);
 
   m2::PointD const pxC = m_PixelRect.Center();
-  double const szX = PtoG(m2::PointD(m_PixelRect.maxX(), pxC.y)).Length(PtoG(m2::PointD(pxC)));
-  double const szY = PtoG(m2::PointD(pxC.x, m_PixelRect.minY())).Length(PtoG(m2::PointD(pxC)));
+  m2::PointD const glbC = PtoG(pxC);
+  double const szX = PtoG(m2::PointD(m_PixelRect.maxX(), pxC.y)).Length(glbC);
+  double const szY = PtoG(m2::PointD(pxC.x, m_PixelRect.minY())).Length(glbC);
 
   m_GlobalRect = m2::AnyRectD(m_Org, m_Angle, m2::RectD(-szX, -szY, szX, szY));
   m_ClipRect = m_GlobalRect.GetGlobalRect();
 
-  double const kEps = 1e-5;
-  double angle = CalculatePerspectiveAngle(m_Scale);
+  double constexpr kEps = 1.0E-5;
+  double const angle = CalculatePerspectiveAngle(m_Scale);
   m_isPerspective = angle > 0.0;
-  if (fabs(angle - m_3dAngleX) > kEps)
+  if (std::fabs(angle - m_3dAngleX) > kEps)
   {
     m_3dMaxAngleX = angle;
     m_3dScale = CalculateScale3d(angle);
@@ -129,12 +127,15 @@ void ScreenBase::SetAutoPerspective(bool isAutoPerspective)
 
 void ScreenBase::SetFromRects(m2::AnyRectD const & glbRect, m2::RectD const & pxRect)
 {
-  double hScale = glbRect.GetLocalRect().SizeX() / pxRect.SizeX();
-  double vScale = glbRect.GetLocalRect().SizeY() / pxRect.SizeY();
+  m2::RectD const & lRect = glbRect.GetLocalRect();
+  ASSERT(lRect.IsValid(), (lRect));
+  ASSERT(!pxRect.IsEmptyInterior(), (pxRect));
 
-  CHECK_GREATER_OR_EQUAL(hScale, 0.0, ());
-  CHECK_GREATER_OR_EQUAL(vScale, 0.0, ());
-  m_Scale = max(hScale, vScale);
+  double const hScale = lRect.SizeX() / pxRect.SizeX();
+  double const vScale = lRect.SizeY() / pxRect.SizeY();
+  m_Scale = std::max(hScale, vScale);
+  ASSERT_GREATER(m_Scale, 0.0, ());
+
   m_Angle = glbRect.Angle();
   m_Org = glbRect.GlobalCenter();
 
@@ -145,7 +146,7 @@ void ScreenBase::SetFromRect(m2::AnyRectD const & glbRect) { SetFromRects(glbRec
 
 void ScreenBase::SetFromParams(m2::PointD const & org, double angle, double scale)
 {
-  CHECK_GREATER_OR_EQUAL(scale, 0.0, ());
+  ASSERT_GREATER(scale, 0.0, ());
   m_Scale = scale;
   m_Angle = ang::Angle<double>(angle);
   m_Org = org;
@@ -184,8 +185,9 @@ void ScreenBase::MoveG(m2::PointD const & p)
 
 void ScreenBase::Scale(double scale)
 {
+  ASSERT_GREATER(scale, 0, ());
   m_Scale /= scale;
-  CHECK_GREATER_OR_EQUAL(m_Scale, 0.0, ());
+  ASSERT_GREATER(m_Scale, 0.0, ());
   UpdateDependentParameters();
 }
 
@@ -205,7 +207,7 @@ void ScreenBase::OnSize(int x0, int y0, int w, int h) { OnSize(m2::RectI(x0, y0,
 
 void ScreenBase::SetScale(double scale)
 {
-  CHECK_GREATER_OR_EQUAL(scale, 0.0, ());
+  ASSERT_GREATER(scale, 0.0, ());
   m_Scale = scale;
   UpdateDependentParameters();
 }
@@ -245,8 +247,9 @@ void ScreenBase::SetGtoPMatrix(MatrixT const & m)
   double dx, dy, a, s;
   ExtractGtoPParams(m, a, s, dx, dy);
   m_Angle = ang::AngleD(-a);
+  ASSERT_GREATER(s, 0.0, ());
   m_Scale = 1 / s;
-  CHECK_GREATER_OR_EQUAL(m_Scale, 0.0, ());
+  ASSERT_GREATER(m_Scale, 0.0, ());
   m_Org = PtoG(m_PixelRect.Center());
 
   UpdateDependentParameters();
@@ -316,7 +319,7 @@ double ScreenBase::CalculateScale3d(double rotationAngle) const
   double const x3dScale =
       1.0 + 2 * sin(rotationAngle) * cos(halfFOV) / (cameraZ * cos(halfFOV + rotationAngle));
 
-  return max(x3dScale, y3dScale);
+  return std::max(x3dScale, y3dScale);
 }
 
 m2::RectD ScreenBase::CalculatePixelRect(double scale) const

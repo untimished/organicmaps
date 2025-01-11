@@ -3,20 +3,16 @@
 #include "ge0/parser.hpp"
 
 #include "search/common.hpp"
-#include "search/cuisine_filter.hpp"
-#include "search/dummy_rank_table.hpp"
 #include "search/geometry_utils.hpp"
 #include "search/intermediate_result.hpp"
 #include "search/latlon_match.hpp"
 #include "search/mode.hpp"
 #include "search/postcode_points.hpp"
-#include "search/pre_ranking_info.hpp"
 #include "search/query_params.hpp"
-#include "search/ranking_info.hpp"
 #include "search/ranking_utils.hpp"
-#include "search/search_index_values.hpp"
 #include "search/search_params.hpp"
 #include "search/utils.hpp"
+#include "search/utm_mgrs_coords_match.hpp"
 
 #include "storage/country_info_getter.hpp"
 #include "storage/storage_defines.hpp"
@@ -26,27 +22,16 @@
 #include "indexer/data_source.hpp"
 #include "indexer/feature.hpp"
 #include "indexer/feature_algo.hpp"
-#include "indexer/feature_covering.hpp"
-#include "indexer/feature_data.hpp"
-#include "indexer/feature_impl.hpp"
 #include "indexer/feature_utils.hpp"
-#include "indexer/features_vector.hpp"
 #include "indexer/ftypes_matcher.hpp"
 #include "indexer/mwm_set.hpp"
 #include "indexer/postcodes_matcher.hpp"
-#include "indexer/scales.hpp"
 #include "indexer/search_delimiters.hpp"
 #include "indexer/search_string_utils.hpp"
-#include "indexer/trie_reader.hpp"
 
-#include "platform/mwm_traits.hpp"
-#include "platform/mwm_version.hpp"
 #include "platform/preferred_languages.hpp"
 
-#include "coding/compressed_bit_vector.hpp"
-#include "coding/reader_wrapper.hpp"
 #include "coding/string_utf8_multilang.hpp"
-#include "coding/url.hpp"
 
 #include "geometry/latlon.hpp"
 #include "geometry/mercator.hpp"
@@ -54,25 +39,18 @@
 #include "base/assert.hpp"
 #include "base/buffer_vector.hpp"
 #include "base/logging.hpp"
-#include "base/macros.hpp"
-#include "base/scope_guard.hpp"
 #include "base/stl_helpers.hpp"
 #include "base/string_utils.hpp"
 
 #include <algorithm>
-#include <cctype>
-#include <memory>
-#include <optional>
-#include <set>
 #include <sstream>
-#include <utility>
 
 #include "3party/open-location-code/openlocationcode.h"
 
-using namespace std;
-
 namespace search
 {
+using namespace std;
+
 namespace
 {
 enum LanguageTier
@@ -253,88 +231,65 @@ void Processor::SetInputLocale(string const & locale)
   m_inputLocaleCode = CategoriesHolder::MapLocaleToInteger(locale);
 }
 
-void Processor::SetQuery(string const & query)
+void Processor::SetQuery(string const & query, bool categorialRequest /* = false */)
 {
-  m_query = query;
-  m_tokens.clear();
-  m_prefix.clear();
+  LOG(LDEBUG, ("query:", query, "isCategorial:", categorialRequest));
+
+  m_query.m_query = query;
+  m_query.m_tokens.clear();
+  m_query.m_prefix.clear();
 
   // Following code splits input query by delimiters except hash tags
   // first, and then splits result tokens by hashtags. The goal is to
   // retrieve all tokens that start with a single hashtag and leave
   // them as is.
 
-  vector<strings::UniString> tokens;
-  {
-    search::DelimitersWithExceptions delims(vector<strings::UniChar>{'#'});
-    auto normalizedQuery = NormalizeAndSimplifyString(query);
-    PreprocessBeforeTokenization(normalizedQuery);
-    SplitUniString(normalizedQuery, base::MakeBackInsertFunctor(tokens), delims);
-  }
-
-  search::Delimiters delims;
-  {
-    QueryTokens subTokens;
-    for (auto const & token : tokens)
-    {
-      size_t numHashes = 0;
-      for (; numHashes < token.size() && token[numHashes] == '#'; ++numHashes)
-        ;
-
-      // Splits |token| by hashtags, because all other delimiters are
-      // already removed.
-      subTokens.clear();
-      SplitUniString(token, base::MakeBackInsertFunctor(subTokens), delims);
-      if (subTokens.empty())
-        continue;
-
-      if (numHashes == 1)
-        m_tokens.push_back(strings::MakeUniString("#") + subTokens[0]);
-      else
-        m_tokens.emplace_back(move(subTokens[0]));
-
-      for (size_t i = 1; i < subTokens.size(); ++i)
-        m_tokens.push_back(move(subTokens[i]));
-    }
-  }
+  Delimiters delims;
+  auto normalizedQuery = NormalizeAndSimplifyString(query);
+  PreprocessBeforeTokenization(normalizedQuery);
+  SplitUniString(normalizedQuery, base::MakeBackInsertFunctor(m_query.m_tokens), delims);
 
   static_assert(kMaxNumTokens > 0, "");
   size_t const maxTokensCount = kMaxNumTokens - 1;
-  if (m_tokens.size() > maxTokensCount)
+  if (m_query.m_tokens.size() > maxTokensCount)
   {
-    m_tokens.resize(maxTokensCount);
+    m_query.m_tokens.resize(maxTokensCount);
   }
   else
   {
     // Assign the last parsed token to prefix.
-    if (!m_tokens.empty() && !delims(strings::LastUniChar(query)))
+    if (!m_query.m_tokens.empty() && !delims(normalizedQuery.back()))
     {
-      m_prefix.swap(m_tokens.back());
-      m_tokens.pop_back();
+      m_query.m_prefix.swap(m_query.m_tokens.back());
+      m_query.m_tokens.pop_back();
     }
   }
 
-  RemoveStopWordsIfNeeded(m_tokens, m_prefix);
+  QuerySliceOnRawStrings const tokenSlice(m_query.m_tokens, m_query.m_prefix);
 
   // Get preferred types to show in results.
   m_preferredTypes.clear();
-  auto const tokenSlice = QuerySliceOnRawStrings<decltype(m_tokens)>(m_tokens, m_prefix);
-  m_isCategorialRequest = FillCategories(tokenSlice, GetCategoryLocales(), m_categories, m_preferredTypes);
+  m_isCategorialRequest = categorialRequest;
 
-  if (!m_isCategorialRequest)
+  auto const locales = GetCategoryLocales();
+  if (!FillCategories(tokenSlice, locales, m_categories, m_preferredTypes))
   {
     // Try to match query to cuisine categories.
-    bool const isCuisineRequest = FillCategories(
-        tokenSlice, GetCategoryLocales(), GetDefaultCuisineCategories(), m_cuisineTypes);
-
-    if (isCuisineRequest)
+    if (FillCategories(tokenSlice, locales, GetDefaultCuisineCategories(), m_cuisineTypes))
     {
+      /// @todo What if I'd like to find "Burger" street? @see "BurgerStreet" test.
       m_isCategorialRequest = true;
       m_preferredTypes = ftypes::IsEatChecker::Instance().GetTypes();
     }
+  }
 
+  // Remove stopwords *after* FillCategories call (it makes exact tokens match).
+  RemoveStopWordsIfNeeded(m_query.m_tokens, m_query.m_prefix);
+
+  if (!m_isCategorialRequest)
+  {
     // Assign tokens and prefix to scorer.
-    m_keywordsScorer.SetKeywords(m_tokens.data(), m_tokens.size(), m_prefix);
+    m_keywordsScorer.SetKeywords(m_query);
 
     ForEachCategoryType(tokenSlice, [&](size_t, uint32_t t) { m_preferredTypes.push_back(t); });
   }
@@ -453,78 +408,114 @@ bool Processor::IsCancelled() const
 
 void Processor::SearchByFeatureId()
 {
-  // String processing is suboptimal in this method so
-  // we need a guard against very long strings.
-  size_t const kMaxFeatureIdStringSize = 1000;
-  if (m_query.size() > kMaxFeatureIdStringSize)
-    return;
-
   // Create a copy of the query to trim it in-place.
-  string query(m_query);
+  string query(m_query.m_query);
   strings::Trim(query);
 
-  strings::EatPrefix(query, "?");
-
-  string const kFidPrefix = "fid";
-  bool hasFidPrefix = false;
-
-  if (strings::EatPrefix(query, kFidPrefix))
+  if (strings::EatPrefix(query, "?fid"))
   {
-    hasFidPrefix = true;
-
     strings::Trim(query);
     if (strings::EatPrefix(query, "="))
       strings::Trim(query);
   }
+  else
+    return;
 
   vector<shared_ptr<MwmInfo>> infos;
   m_dataSource.GetMwmsInfo(infos);
 
+  auto const putFeature = [](FeaturesLoaderGuard & guard, uint32_t fid, auto const & fn)
+  {
+    // Feature can be deleted, so always check.
+    auto ft = guard.GetFeatureByIndex(fid);
+    if (ft)
+      fn(std::move(ft));
+  };
+
+  storage::CountryId mwmName;
+  uint32_t version;
+  uint32_t fid;
+
   // Case 0.
-  if (hasFidPrefix)
   {
     string s = query;
-    uint32_t fid;
     if (EatFid(s, fid))
-      EmitFeaturesByIndexFromAllMwms(infos, fid);
+    {
+      EmitResultsFromMwms(infos, [&putFeature, fid](FeaturesLoaderGuard & guard, auto const & fn)
+      {
+        if (fid < guard.GetNumFeatures())
+          putFeature(guard, fid, fn);
+      });
+    }
   }
 
   // Case 1.
-  if (hasFidPrefix)
   {
     string s = query;
-    storage::CountryId mwmName;
-    uint32_t fid;
-
-    bool ok = true;
     bool const parenPref = strings::EatPrefix(s, "(");
     bool const parenSuff = strings::EatSuffix(s, ")");
-    ok = ok && parenPref == parenSuff;
-    ok = ok && EatMwmName(m_countriesTrie, s, mwmName);
-    ok = ok && strings::EatPrefix(s, ",");
-    ok = ok && EatFid(s, fid);
-    if (ok)
-      EmitFeatureIfExists(infos, mwmName, {} /* version */, fid);
+    if (parenPref == parenSuff &&
+        EatMwmName(m_countriesTrie, s, mwmName) &&
+        strings::EatPrefix(s, ",") &&
+        EatFid(s, fid))
+    {
+      EmitResultsFromMwms(infos, [&putFeature, &mwmName, fid](FeaturesLoaderGuard & guard, auto const & fn)
+      {
+        if (guard.GetCountryFileName() == mwmName && fid < guard.GetNumFeatures())
+          putFeature(guard, fid, fn);
+      });
+    }
   }
 
   // Case 2.
   {
     string s = query;
-    storage::CountryId mwmName;
-    uint32_t version;
-    uint32_t fid;
-
-    bool ok = true;
-    ok = ok && strings::EatPrefix(s, "{ MwmId [");
-    ok = ok && EatMwmName(m_countriesTrie, s, mwmName);
-    ok = ok && strings::EatPrefix(s, ", ");
-    ok = ok && EatVersion(s, version);
-    ok = ok && strings::EatPrefix(s, "], ");
-    ok = ok && EatFid(s, fid);
-    ok = ok && strings::EatPrefix(s, " }");
-    if (ok)
-      EmitFeatureIfExists(infos, mwmName, version, fid);
+    if (strings::EatPrefix(s, "{ MwmId [") &&
+        EatMwmName(m_countriesTrie, s, mwmName) &&
+        strings::EatPrefix(s, ", ") &&
+        EatVersion(s, version) &&
+        strings::EatPrefix(s, "], ") &&
+        EatFid(s, fid) &&
+        strings::EatPrefix(s, " }"))
+    {
+      EmitResultsFromMwms(infos, [&putFeature, &mwmName, version, fid](FeaturesLoaderGuard & guard, auto const & fn)
+      {
+        if (guard.GetCountryFileName() == mwmName && guard.GetVersion() == version && fid < guard.GetNumFeatures())
+          putFeature(guard, fid, fn);
+      });
+    }
   }
+}
+
+void Processor::EmitWithMetadata(feature::Metadata::EType type)
+{
+  std::vector<std::shared_ptr<MwmInfo>> infos;
+  m_dataSource.GetMwmsInfo(infos);
+  // less<MwmInfo*>
+  std::sort(infos.begin(), infos.end());
+
+  std::vector<FeatureID> ids;
+  m_dataSource.ForEachFeatureIDInRect([&ids](FeatureID id)
+  {
+    ids.push_back(std::move(id));
+  }, m_viewport, scales::GetUpperScale());
+
+  // The same, first criteria is less<MwmId> -> less<MwmInfo*>
+  std::sort(ids.begin(), ids.end());
+
+  size_t idx = 0;
+  EmitResultsFromMwms(infos, [type, &idx, &ids](FeaturesLoaderGuard & guard, auto const & fn)
+  {
+    for (; idx < ids.size() && ids[idx].m_mwmId == guard.GetId(); ++idx)
+    {
+      auto ft = guard.GetFeatureByIndex(ids[idx].m_index);
+      if (ft)
+      {
+        if (ft->HasMetadata(type))
+          fn(std::move(ft));
+      }
+    }
+  });
 }
 
 Locales Processor::GetCategoryLocales() const
@@ -545,21 +536,20 @@ Locales Processor::GetCategoryLocales() const
 template <typename ToDo>
 void Processor::ForEachCategoryType(StringSliceBase const & slice, ToDo && toDo) const
 {
-  ::search::ForEachCategoryType(slice, GetCategoryLocales(), m_categories, forward<ToDo>(toDo));
+  ::search::ForEachCategoryType(slice, GetCategoryLocales(), m_categories, toDo);
 }
 
 template <typename ToDo>
 void Processor::ForEachCategoryTypeFuzzy(StringSliceBase const & slice, ToDo && toDo) const
 {
-  ::search::ForEachCategoryTypeFuzzy(slice, GetCategoryLocales(), m_categories,
-                                     forward<ToDo>(toDo));
+  ::search::ForEachCategoryTypeFuzzy(slice, GetCategoryLocales(), m_categories, toDo);
 }
 
-void Processor::Search(SearchParams const & params)
+void Processor::Search(SearchParams params)
 {
+  /// @DebugNote
+  // Comment this line to run search in a debugger.
   SetDeadline(chrono::steady_clock::now() + params.m_timeout);
-
-  InitEmitter(params);
 
   if (params.m_onStarted)
     params.m_onStarted();
@@ -569,13 +559,11 @@ void Processor::Search(SearchParams const & params)
   {
     Results results;
     results.SetEndMarker(true /* isCancelled */);
-
-    if (params.m_onResults)
-      params.m_onResults(results);
-    else
-      LOG(LERROR, ("OnResults is not set."));
+    params.m_onResults(std::move(results));
     return;
   }
+
+  m_emitter.Init(std::move(params.m_onResults));
 
   bool const viewportSearch = params.m_mode == Mode::Viewport;
 
@@ -586,7 +574,7 @@ void Processor::Search(SearchParams const & params)
 
   SetInputLocale(params.m_inputLocale);
 
-  SetQuery(params.m_query);
+  SetQuery(params.m_query, params.m_categorialRequest);
   SetViewport(viewport);
 
   // Used to store the earliest available cancellation status:
@@ -608,19 +596,20 @@ void Processor::Search(SearchParams const & params)
 
     try
     {
-      SearchDebug();
-      SearchCoordinates();
-      SearchPlusCode();
-      SearchPostcode();
-      if (viewportSearch)
+      if (!SearchCoordinates() && !SearchDebug())
       {
-        m_geocoder.GoInViewport();
-      }
-      else
-      {
-        if (m_tokens.empty())
-          m_ranker.SuggestStrings();
-        m_geocoder.GoEverywhere();
+        SearchPlusCode();
+        SearchPostcode();
+        if (viewportSearch)
+        {
+          m_geocoder.GoInViewport();
+        }
+        else
+        {
+          if (m_query.m_tokens.empty())
+            m_ranker.SuggestStrings();
+          m_geocoder.GoEverywhere();
+        }
       }
     }
     catch (CancelException const &)
@@ -645,40 +634,80 @@ void Processor::Search(SearchParams const & params)
   case Mode::Count: ASSERT(false, ("Invalid mode")); break;
   }
 
-  if (!viewportSearch && cancellationStatus != Cancellable::Status::CancelCalled)
-  {
-    LOG(LWARNING, ("Search cancelled by timeout"));
-  }
+  if (!viewportSearch && cancellationStatus == Cancellable::Status::DeadlineExceeded)
+    LOG(LWARNING, ("Search stopped by timeout"));
 }
 
-void Processor::SearchDebug()
+bool Processor::SearchDebug()
 {
+  if (m_query.m_query == "?wiki")
+  {
+    EmitWithMetadata(feature::Metadata::FMD_WIKIPEDIA);
+    return true;
+  }
+
+  if (m_query.m_query == "?description")
+  {
+    EmitWithMetadata(feature::Metadata::FMD_DESCRIPTION);
+    return true;
+  }
+
+#ifdef DEBUG
   SearchByFeatureId();
+
+  if (m_query.m_query == "?euri")
+  {
+    EmitWithMetadata(feature::Metadata::FMD_EXTERNAL_URI);
+    return true;
+  }
+#endif
+  return false;
 }
 
-void Processor::SearchCoordinates()
+bool Processor::SearchCoordinates()
 {
+  bool coords_found = false;
   buffer_vector<ms::LatLon, 3> results;
+  double lat, lon;
 
+  if (MatchLatLonDegree(m_query.m_query, lat, lon))
   {
-    double lat;
-    double lon;
-    if (MatchLatLonDegree(m_query, lat, lon))
-      results.emplace_back(lat, lon);
+    coords_found = true;
+    results.emplace_back(lat, lon);
   }
 
-  istringstream iss(m_query);
+  auto ll = MatchUTMCoords(m_query.m_query);
+  if (ll)
+  {
+    coords_found = true;
+    results.emplace_back(ll->m_lat, ll->m_lon);
+  }
+
+  ll = MatchMGRSCoords(m_query.m_query);
+  if (ll)
+  {
+    coords_found = true;
+    results.emplace_back(ll->m_lat, ll->m_lon);
+  }
+
+  istringstream iss(m_query.m_query);
   string token;
   while (iss >> token)
   {
     ge0::Ge0Parser parser;
     ge0::Ge0Parser::Result r;
     if (parser.Parse(token, r))
+    {
+      coords_found = true;
       results.emplace_back(r.m_lat, r.m_lon);
+    }
 
-    url::GeoURLInfo info(token);
-    if (info.IsValid())
+    geo::GeoURLInfo info;
+    if (m_geoUrlParser.Parse(token, info))
+    {
+      coords_found = true;
       results.emplace_back(info.m_lat, info.m_lon);
+    }
   }
 
   base::SortUnique(results);
@@ -688,50 +717,67 @@ void Processor::SearchCoordinates()
         RankerResult(r.m_lat, r.m_lon), true /* needAddress */, true /* needHighlighting */));
     m_emitter.Emit();
   }
+  return coords_found;
 }
 
 void Processor::SearchPlusCode()
 {
   // Create a copy of the query to trim it in-place.
-  string query(m_query);
+  string query(m_query.m_query);
   strings::Trim(query);
-
-  string code;
 
   if (openlocationcode::IsFull(query))
   {
-    code = query;
+    openlocationcode::CodeArea const area = openlocationcode::Decode(query);
+    m_emitter.AddResultNoChecks(
+            m_ranker.MakeResult(RankerResult(area.GetCenter().latitude, area.GetCenter().longitude),
+                                true /* needAddress */, false /* needHighlighting */));
   }
   else if (openlocationcode::IsShort(query))
   {
-    if (!m_position)
-      return;
-    ms::LatLon const latLon = mercator::ToLatLon(*m_position);
-    code = openlocationcode::RecoverNearest(query, {latLon.m_lat, latLon.m_lon});
+    string codeFromPos;
+
+    if (m_position)
+    {
+      ms::LatLon const latLonFromPos = mercator::ToLatLon(*m_position);
+      codeFromPos = openlocationcode::RecoverNearest(query, {latLonFromPos.m_lat, latLonFromPos.m_lon});
+      openlocationcode::CodeArea const areaFromPos = openlocationcode::Decode(codeFromPos);
+
+      m_emitter.AddResultNoChecks(
+              m_ranker.MakeResult(RankerResult(areaFromPos.GetCenter().latitude, areaFromPos.GetCenter().longitude),
+                                  true /* needAddress */, false /* needHighlighting */));
+    }
+
+    ms::LatLon const latLonFromView = mercator::ToLatLon(m_viewport.Center());
+    string codeFromView = openlocationcode::RecoverNearest(query, {latLonFromView.m_lat, latLonFromView.m_lon});
+
+    if (codeFromView != codeFromPos)
+    {
+      openlocationcode::CodeArea const areaFromView = openlocationcode::Decode(codeFromView);
+
+      m_emitter.AddResultNoChecks(
+              m_ranker.MakeResult(RankerResult(areaFromView.GetCenter().latitude, areaFromView.GetCenter().longitude),
+                              true /* needAddress */, false /* needHighlighting */));
+    }
   }
 
-  if (code.empty())
-    return;
-
-  openlocationcode::CodeArea const area = openlocationcode::Decode(code);
-  m_emitter.AddResultNoChecks(
-      m_ranker.MakeResult(RankerResult(area.GetCenter().latitude, area.GetCenter().longitude),
-                          true /* needAddress */, false /* needHighlighting */));
   m_emitter.Emit();
 }
 
 void Processor::SearchPostcode()
 {
   // Create a copy of the query to trim it in-place.
-  string query(m_query);
+  string_view query(m_query.m_query);
   strings::Trim(query);
 
-  if (!LooksLikePostcode(query, !m_prefix.empty()))
+  /// @todo So, "G4 " now doesn't match UK (Glasgow) postcodes as prefix :)
+  if (!LooksLikePostcode(query, !m_query.m_prefix.empty()))
     return;
 
   vector<shared_ptr<MwmInfo>> infos;
   m_dataSource.GetMwmsInfo(infos);
 
+  auto const normQuery = NormalizeAndSimplifyString(query);
   for (auto const & info : infos)
   {
     auto handle = m_dataSource.GetMwmHandleById(MwmSet::MwmId(info));
@@ -741,10 +787,10 @@ void Processor::SearchPostcode()
     if (!value.m_cont.IsExist(POSTCODE_POINTS_FILE_TAG))
       continue;
 
+    /// @todo Well, ok for now, but we do only full or "prefix-rect" match w/o possible errors, with only one result.
     PostcodePoints postcodes(value);
-
     vector<m2::PointD> points;
-    postcodes.Get(NormalizeAndSimplifyString(query), points);
+    postcodes.Get(normQuery, points);
     if (points.empty())
       continue;
 
@@ -753,8 +799,9 @@ void Processor::SearchPostcode()
       r.Add(p);
 
     m_emitter.AddResultNoChecks(m_ranker.MakeResult(
-        RankerResult(r.Center(), query), true /* needAddress */, false /* needHighlighting */));
+        RankerResult(r.Center(), query), true /* needAddress */, true /* needHighlighting */));
     m_emitter.Emit();
+
     return;
   }
 }
@@ -780,20 +827,13 @@ void Processor::SearchBookmarks(bookmarks::GroupId const & groupId)
 
 void Processor::InitParams(QueryParams & params) const
 {
-  params.SetQuery(m_query);
+  /// @todo Prettify
+  params.Init(m_query.m_query, m_query.m_tokens.begin(), m_query.m_tokens.end(), m_query.m_prefix);
 
-  if (m_prefix.empty())
-    params.InitNoPrefix(m_tokens.begin(), m_tokens.end());
-  else
-    params.InitWithPrefix(m_tokens.begin(), m_tokens.end(), m_prefix);
+  Classificator const & c = classif();
 
   // Add names of categories (and synonyms).
-  Classificator const & c = classif();
-  auto addCategorySynonyms = [&](size_t i, uint32_t t) {
-    uint32_t const index = c.GetIndexForType(t);
-    params.GetTypeIndices(i).push_back(index);
-  };
-  auto const tokenSlice = QuerySliceOnRawStrings<decltype(m_tokens)>(m_tokens, m_prefix);
+  QuerySliceOnRawStrings const tokenSlice(m_query.m_tokens, m_query.m_prefix);
   params.SetCategorialRequest(m_isCategorialRequest);
   if (m_isCategorialRequest)
   {
@@ -806,24 +846,23 @@ void Processor::InitParams(QueryParams & params) const
   }
   else
   {
-    // todo(@m, @y). Shall we match prefix tokens for categories?
-    ForEachCategoryTypeFuzzy(tokenSlice, addCategorySynonyms);
+    ForEachCategoryTypeFuzzy(tokenSlice, [&c, &params](size_t i, uint32_t t)
+    {
+      uint32_t const index = c.GetIndexForType(t);
+      params.GetTypeIndices(i).push_back(index);
+    });
   }
 
-  // Remove all type indices for streets, as they're considired
-  // individually.
-  for (size_t i = 0; i < params.GetNumTokens(); ++i)
-  {
-    auto & token = params.GetToken(i);
-    if (IsStreetSynonym(token.GetOriginal()))
-      params.GetTypeIndices(i).clear();
-  }
+  // Remove all type indices for streets, as they're considired individually.
+  params.ClearStreetIndices();
 
   for (size_t i = 0; i < params.GetNumTokens(); ++i)
     base::SortUnique(params.GetTypeIndices(i));
 
-  m_keywordsScorer.ForEachLanguage(
-      [&](int8_t lang) { params.GetLangs().Insert(static_cast<uint64_t>(lang)); });
+  m_keywordsScorer.ForEachLanguage([&params](int8_t lang)
+  {
+    params.GetLangs().Insert(static_cast<uint64_t>(lang));
+  });
 }
 
 void Processor::InitGeocoder(Geocoder::Params & geocoderParams, SearchParams const & searchParams)
@@ -839,8 +878,8 @@ void Processor::InitGeocoder(Geocoder::Params & geocoderParams, SearchParams con
   geocoderParams.m_cuisineTypes = m_cuisineTypes;
   geocoderParams.m_preferredTypes = m_preferredTypes;
   geocoderParams.m_tracer = searchParams.m_tracer;
-  geocoderParams.m_streetSearchRadiusM = searchParams.m_streetSearchRadiusM;
-  geocoderParams.m_villageSearchRadiusM = searchParams.m_villageSearchRadiusM;
+  geocoderParams.m_filteringParams = searchParams.m_filteringParams;
+  geocoderParams.m_useDebugInfo = searchParams.m_useDebugInfo;
 
   m_geocoder.SetParams(geocoderParams);
 }
@@ -853,10 +892,7 @@ void Processor::InitPreRanker(Geocoder::Params const & geocoderParams,
   PreRanker::Params params;
 
   if (viewportSearch)
-  {
-    params.m_minDistanceOnMapBetweenResultsX = searchParams.m_minDistanceOnMapBetweenResultsX;
-    params.m_minDistanceOnMapBetweenResultsY = searchParams.m_minDistanceOnMapBetweenResultsY;
-  }
+    params.m_minDistanceOnMapBetweenResults = searchParams.m_minDistanceOnMapBetweenResults;
 
   params.m_viewport = GetViewport();
   params.m_accuratePivotCenter = GetPivotPoint(viewportSearch);
@@ -870,6 +906,23 @@ void Processor::InitPreRanker(Geocoder::Params const & geocoderParams,
   m_preRanker.Init(params);
 }
 
+namespace
+{
+class NotInPreffered : public ftypes::BaseChecker
+{
+  NotInPreffered() : ftypes::BaseChecker(1)
+  {
+    base::StringIL const types[] = { {"organic"}, {"internet_access"} };
+    auto const & c = classif();
+    for (auto const & e : types)
+      m_types.push_back(c.GetTypeByPath(e));
+  }
+
+public:
+  DECLARE_CHECKER_INSTANCE(NotInPreffered);
+};
+} // namespace
+
 void Processor::InitRanker(Geocoder::Params const & geocoderParams,
                            SearchParams const & searchParams)
 {
@@ -877,31 +930,29 @@ void Processor::InitRanker(Geocoder::Params const & geocoderParams,
 
   Ranker::Params params;
 
-  params.m_currentLocaleCode = m_currentLocaleCode;
-
   params.m_batchSize = searchParams.m_batchSize;
   params.m_limit = searchParams.m_maxNumResults;
-  params.m_pivot = m_position ? *m_position : GetViewport().Center();
-  params.m_pivotRegion = GetPivotRegion();
+  params.m_pivot = GetPivotPoint(viewportSearch);
+  {
+    storage::CountryInfo info;
+    m_infoGetter.GetRegionInfo(params.m_pivot, info);
+    params.m_pivotRegion = std::move(info.m_name);
+  }
+
   params.m_preferredTypes = m_preferredTypes;
+  // Remove "secondary" category types from preferred.
+  base::EraseIf(params.m_preferredTypes, NotInPreffered::Instance());
+
   params.m_suggestsEnabled = searchParams.m_suggestsEnabled;
   params.m_needAddress = searchParams.m_needAddress;
   params.m_needHighlighting = searchParams.m_needHighlighting && !geocoderParams.IsCategorialRequest();
   params.m_query = m_query;
-  params.m_tokens = m_tokens;
-  params.m_prefix = m_prefix;
   params.m_categoryLocales = GetCategoryLocales();
-  params.m_accuratePivotCenter = GetPivotPoint(viewportSearch);
   params.m_viewportSearch = viewportSearch;
   params.m_viewport = GetViewport();
   params.m_categorialRequest = geocoderParams.IsCategorialRequest();
 
   m_ranker.Init(params, geocoderParams);
-}
-
-void Processor::InitEmitter(SearchParams const & searchParams)
-{
-  m_emitter.Init(searchParams.m_onResults);
 }
 
 void Processor::ClearCaches()
@@ -913,72 +964,37 @@ void Processor::ClearCaches()
   m_viewport.MakeEmpty();
 }
 
-void Processor::EmitFeatureIfExists(vector<shared_ptr<MwmInfo>> const & infos,
-                                    storage::CountryId const & mwmName, optional<uint32_t> version,
-                                    uint32_t fid)
+template <class FnT>
+void Processor::EmitResultsFromMwms(std::vector<std::shared_ptr<MwmInfo>> const & infos, FnT const & fn)
 {
+  // Don't pay attention on possible overhead here, this function is used for debug purpose only.
+  std::vector<std::tuple<double, std::string, std::unique_ptr<FeatureType>>> results;
+  std::vector<std::unique_ptr<FeaturesLoaderGuard>> guards;
+
   for (auto const & info : infos)
   {
-    if (info->GetCountryName() != mwmName)
-      continue;
+    auto guard = std::make_unique<FeaturesLoaderGuard>(m_dataSource, MwmSet::MwmId(info));
 
-    if (version && version != info->GetVersion())
-      continue;
-
-    auto guard = make_unique<FeaturesLoaderGuard>(m_dataSource, MwmSet::MwmId(info));
-    if (fid >= guard->GetNumFeatures())
-      continue;
-    auto ft = guard->GetFeatureByIndex(fid);
-    if (!ft)
-      continue;
-    auto const center = feature::GetCenter(*ft, FeatureType::WORST_GEOMETRY);
-    string name;
-    ft->GetReadableName(name);
-    m_emitter.AddResultNoChecks(m_ranker.MakeResult(
-        RankerResult(*ft, center, m2::PointD() /* pivot */, name, guard->GetCountryFileName()),
-        true /* needAddress */, true /* needHighlighting */));
-    m_emitter.Emit();
-  }
-}
-
-void Processor::EmitFeaturesByIndexFromAllMwms(vector<shared_ptr<MwmInfo>> const & infos,
-                                               uint32_t fid)
-{
-  vector<tuple<double, m2::PointD, std::string, std::unique_ptr<FeatureType>>> results;
-  vector<unique_ptr<FeaturesLoaderGuard>> guards;
-  for (auto const & info : infos)
-  {
-    auto guard = make_unique<FeaturesLoaderGuard>(m_dataSource, MwmSet::MwmId(info));
-    if (fid >= guard->GetNumFeatures())
-      continue;
-    auto ft = guard->GetFeatureByIndex(fid);
-    if (!ft)
-      continue;
-    auto const center = feature::GetCenter(*ft, FeatureType::WORST_GEOMETRY);
-    double dist = center.SquaredLength(m_viewport.Center());
-    auto pivot = m_viewport.Center();
-    if (m_position)
+    fn(*guard, [&](std::unique_ptr<FeatureType> ft)
     {
-      auto const distPos = center.SquaredLength(*m_position);
-      if (dist > distPos)
-      {
-        dist = distPos;
-        pivot = *m_position;
-      }
-    }
-    results.emplace_back(dist, pivot, guard->GetCountryFileName(), move(ft));
-    guards.push_back(move(guard));
+      // Distance needed for sorting.
+      auto const center = feature::GetCenter(*ft, FeatureType::WORST_GEOMETRY);
+      double const dist = center.SquaredLength(m_viewport.Center());
+      results.emplace_back(dist, guard->GetCountryFileName(), std::move(ft));
+    });
+
+    guards.push_back(std::move(guard));
   }
-  sort(results.begin(), results.end());
-  for (auto const & [dist, pivot, country, ft] : results)
+
+  std::sort(results.begin(), results.end());
+
+  for (auto const & [_, country, ft] : results)
   {
-    auto const center = feature::GetCenter(*ft, FeatureType::WORST_GEOMETRY);
-    string name;
-    ft->GetReadableName(name);
-    m_emitter.AddResultNoChecks(m_ranker.MakeResult(RankerResult(*ft, center, pivot, name, country),
+    m_emitter.AddResultNoChecks(m_ranker.MakeResult(RankerResult(*ft, country),
                                                     true /* needAddress */,
                                                     true /* needHighlighting */));
-    m_emitter.Emit();
   }
+
+  m_emitter.Emit();
 }
 }  // namespace search

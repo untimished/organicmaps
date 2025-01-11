@@ -10,10 +10,10 @@
 #include "std/target_os.hpp"
 
 #include <algorithm>
+#include <cstring>    // strlen
 #include <limits>
 #include <map>
 #include <mutex>
-#include <utility>
 
 #if defined(OMIM_OS_WINDOWS)
 #define DP_APIENTRY __stdcall
@@ -234,7 +234,7 @@ TFunc LoadExtension(std::string const & ext)
 
 void GLFunctions::Init(dp::ApiVersion apiVersion)
 {
-  std::lock_guard<std::mutex> lock(s_mutex);
+  std::lock_guard const lock(s_mutex);
   if (s_inited)
     return;
 
@@ -243,38 +243,32 @@ void GLFunctions::Init(dp::ApiVersion apiVersion)
   s_inited = true;
 
 /// VAO
-#if defined(OMIM_OS_MAC)
+#if !defined(OMIM_OS_WINDOWS)
   if (CurrentApiVersion == dp::ApiVersion::OpenGLES2)
   {
+#if defined(OMIM_OS_MAC)
+
     glGenVertexArraysFn = &glGenVertexArraysAPPLE;
     glBindVertexArrayFn = &glBindVertexArrayAPPLE;
     glDeleteVertexArrayFn = &glDeleteVertexArraysAPPLE;
     glMapBufferFn = &::glMapBuffer;
     glUnmapBufferFn = &::glUnmapBuffer;
-  }
-  else if (CurrentApiVersion == dp::ApiVersion::OpenGLES3)
-  {
-    glGenVertexArraysFn = &::glGenVertexArrays;
-    glBindVertexArrayFn = &::glBindVertexArray;
-    glDeleteVertexArrayFn = &::glDeleteVertexArrays;
-    glUnmapBufferFn = &::glUnmapBuffer;
-    glMapBufferRangeFn = &::glMapBufferRange;
-    glFlushMappedBufferRangeFn = &::glFlushMappedBufferRange;
-    glGetStringiFn = &::glGetStringi;
-  }
-  else
-  {
-    ASSERT(false, ("Unknown Graphics API"));
-  }
+
 #elif defined(OMIM_OS_LINUX)
-  glGenVertexArraysFn = &::glGenVertexArrays;
-  glBindVertexArrayFn = &::glBindVertexArray;
-  glDeleteVertexArrayFn = &::glDeleteVertexArrays;
-  glMapBufferFn = &::glMapBuffer;
-  glUnmapBufferFn = &::glUnmapBuffer;
+    void *libhandle = dlopen("libGL.so.1", RTLD_LAZY);
+    if (!libhandle)
+      LOG(LCRITICAL, ("Failed to open libGL.so.1:", dlerror()));
+    glGenVertexArraysFn = (TglGenVertexArraysFn)dlsym(libhandle,"glGenVertexArraysOES");
+    glBindVertexArrayFn = (TglBindVertexArrayFn)dlsym(libhandle, "glBindVertexArrayOES");
+    glDeleteVertexArrayFn = (TglDeleteVertexArrayFn)dlsym(libhandle,"glDeleteVertexArraysOES");
+    glMapBufferFn = (TglMapBufferFn)dlsym(libhandle, "glMapBufferOES");
+    glUnmapBufferFn = (TglUnmapBufferFn)dlsym(libhandle, "glUnmapBufferOES");
+    glMapBufferRangeFn = (TglMapBufferRangeFn)dlsym(libhandle, "glMapBufferRangeEXT");
+    glFlushMappedBufferRangeFn =
+        (TglFlushMappedBufferRangeFn)dlsym(libhandle, "glFlushMappedBufferRangeEXT");
+
 #elif defined(OMIM_OS_ANDROID)
-  if (CurrentApiVersion == dp::ApiVersion::OpenGLES2)
-  {
+
     glGenVertexArraysFn = (TglGenVertexArraysFn)eglGetProcAddress("glGenVertexArraysOES");
     glBindVertexArrayFn = (TglBindVertexArrayFn)eglGetProcAddress("glBindVertexArrayOES");
     glDeleteVertexArrayFn = (TglDeleteVertexArrayFn)eglGetProcAddress("glDeleteVertexArraysOES");
@@ -283,9 +277,21 @@ void GLFunctions::Init(dp::ApiVersion apiVersion)
     glMapBufferRangeFn = (TglMapBufferRangeFn)eglGetProcAddress("glMapBufferRangeEXT");
     glFlushMappedBufferRangeFn =
         (TglFlushMappedBufferRangeFn)eglGetProcAddress("glFlushMappedBufferRangeEXT");
+
+#elif defined(OMIM_OS_MOBILE)
+
+    glGenVertexArraysFn = &glGenVertexArraysOES;
+    glBindVertexArrayFn = &glBindVertexArrayOES;
+    glDeleteVertexArrayFn = &glDeleteVertexArraysOES;
+    glMapBufferFn = &::glMapBufferOES;
+    glUnmapBufferFn = &::glUnmapBufferOES;
+    glMapBufferRangeFn = &::glMapBufferRangeEXT;
+    glFlushMappedBufferRangeFn = &::glFlushMappedBufferRangeEXT;
+#endif  // #if defined(OMIM_OS_MAC)
   }
   else if (CurrentApiVersion == dp::ApiVersion::OpenGLES3)
   {
+    // OpenGL ES3 api is the same for all systems, except WINDOWS.
     glGenVertexArraysFn = ::glGenVertexArrays;
     glBindVertexArrayFn = ::glBindVertexArray;
     glDeleteVertexArrayFn = ::glDeleteVertexArrays;
@@ -296,34 +302,10 @@ void GLFunctions::Init(dp::ApiVersion apiVersion)
   }
   else
   {
-    ASSERT(false, ("Unknown Graphics API"));
+    CHECK(false, ("Unknown Graphics API"));
   }
-#elif defined(OMIM_OS_MOBILE)
-  if (CurrentApiVersion == dp::ApiVersion::OpenGLES2)
-  {
-    glGenVertexArraysFn = &glGenVertexArraysOES;
-    glBindVertexArrayFn = &glBindVertexArrayOES;
-    glDeleteVertexArrayFn = &glDeleteVertexArraysOES;
-    glMapBufferFn = &::glMapBufferOES;
-    glUnmapBufferFn = &::glUnmapBufferOES;
-    glMapBufferRangeFn = &::glMapBufferRangeEXT;
-    glFlushMappedBufferRangeFn = &::glFlushMappedBufferRangeEXT;
-  }
-  else if (CurrentApiVersion == dp::ApiVersion::OpenGLES3)
-  {
-    glGenVertexArraysFn = &::glGenVertexArrays;
-    glBindVertexArrayFn = &::glBindVertexArray;
-    glDeleteVertexArrayFn = &::glDeleteVertexArrays;
-    glUnmapBufferFn = &::glUnmapBuffer;
-    glMapBufferRangeFn = &::glMapBufferRange;
-    glFlushMappedBufferRangeFn = &::glFlushMappedBufferRange;
-    glGetStringiFn = &::glGetStringi;
-  }
-  else
-  {
-    ASSERT(false, ("Unknown Graphics API"));
-  }
-#elif defined(OMIM_OS_WINDOWS)
+
+#else  // OMIM_OS_WINDOWS
   if (ExtensionsList.IsSupported(dp::GLExtensionsList::VertexArrayObject))
   {
     glGenVertexArraysFn = LOAD_GL_FUNC(TglGenVertexArraysFn, glGenVertexArrays);
@@ -568,7 +550,7 @@ void GLFunctions::glDisable(glConst mode)
 void GLFunctions::glClearDepthValue(double depth)
 {
   ASSERT_NOT_EQUAL(CurrentApiVersion, dp::ApiVersion::Invalid, ());
-#if defined(OMIM_OS_IPHONE) || defined(OMIM_OS_ANDROID)
+#if defined(OMIM_OS_IPHONE) || defined(OMIM_OS_ANDROID) || defined(OMIM_OS_LINUX)
   GLCHECK(::glClearDepthf(static_cast<GLclampf>(depth)));
 #else
   GLCHECK(::glClearDepth(depth));

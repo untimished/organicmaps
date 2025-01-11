@@ -95,7 +95,9 @@
 		4586D0CA1F48130600DF9CE5 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
-				LastUpgradeCheck = 1240;
+				BuildIndependentTargetsInParallel = YES;
+				DefaultBuildSystemTypeForWorkspace = Latest;
+				LastUpgradeCheck = 1510;
 				TargetAttributes = {
 					4586D0D11F48130600DF9CE5 = {
 						CreatedOnToolsVersion = 8.3.3;
@@ -151,7 +153,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				EXECUTABLE_PREFIX = lib;
-				GCC_PREFIX_HEADER = "$(OMIM_ROOT)/precompiled_headers.hpp";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
 			name = Debug;
@@ -160,7 +161,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				EXECUTABLE_PREFIX = lib;
-				GCC_PREFIX_HEADER = "$(OMIM_ROOT)/precompiled_headers.hpp";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
 			name = Release;

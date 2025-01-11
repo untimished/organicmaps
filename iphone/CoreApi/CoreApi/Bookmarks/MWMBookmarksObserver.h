@@ -10,8 +10,13 @@ NS_SWIFT_NAME(BookmarksObserver)
 - (void)onBookmarksFileLoadSuccess;
 - (void)onBookmarksFileLoadError;
 - (void)onBookmarksCategoryDeleted:(MWMMarkGroupID)groupId;
+- (void)onRecentlyDeletedBookmarksCategoriesChanged;
 - (void)onBookmarkDeleted:(MWMMarkID)bookmarkId;
-- (void)onBookmarksCategoryFilePrepared:(MWMBookmarksShareStatus)status;
-
 @end
+
+@protocol BookmarksObservable<NSObject>
+- (void)addObserver:(id<MWMBookmarksObserver>)observer;
+- (void)removeObserver:(id<MWMBookmarksObserver>)observer;
+@end
+
 NS_ASSUME_NONNULL_END

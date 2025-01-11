@@ -13,9 +13,6 @@
 #include "routing/routing_session.hpp"
 #include "routing/speed_camera_manager.hpp"
 
-#include "tracking/archival_reporter.hpp"
-#include "tracking/reporter.hpp"
-
 #include "storage/storage_defines.hpp"
 
 #include "drape_frontend/drape_engine_safe_ptr.hpp"
@@ -27,15 +24,12 @@
 
 #include "base/thread_checker.hpp"
 
-#include "std/target_os.hpp"
-
 #include <chrono>
 #include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <string>
-#include <utility>
 #include <vector>
 
 namespace storage
@@ -158,12 +152,12 @@ public:
   {
     m_routeSpeedCamShowCallback = speedCamShowCallback;
   }
-    
+
   void SetRouteSpeedCamsClearListener(RouteSpeedCamsClearCallback const & speedCamsClearCallback)
   {
     m_routeSpeedCamsClearCallback = speedCamsClearCallback;
   }
-  
+
   /// See warning above.
   void SetRouteProgressListener(routing::ProgressCallback const & progressCallback)
   {
@@ -226,12 +220,14 @@ public:
   /// \brief Adds to @param notifications strings - notifications, which are ready to be
   /// pronounced to end user right now.
   /// Adds notifications about turns and speed camera on the road.
+  /// \param announceStreets is true when TTS street names should be pronounced
   ///
   /// \note Current notifications will be deleted after call and second call
   /// will not return previous data, only newer.
-  void GenerateNotifications(std::vector<std::string> & notifications);
+  void GenerateNotifications(std::vector<std::string> & notifications, bool announceStreets);
 
   void AddRoutePoint(RouteMarkData && markData);
+  void ContinueRouteToPoint(RouteMarkData && markData);
   std::vector<RouteMarkData> GetRoutePoints() const;
   size_t GetRoutePointsCount() const;
   void RemoveRoutePoint(RouteMarkType type, size_t intermediateIndex = 0);
@@ -258,7 +254,7 @@ public:
   void OnLocationUpdate(location::GpsInfo const & info);
 
   routing::SpeedCameraManager & GetSpeedCamManager() { return m_routingSession.GetSpeedCamManager(); }
-  bool IsSpeedLimitExceeded() const;
+  bool IsSpeedCamLimitExceeded() const;
 
   void SetTurnNotificationsUnits(measurement_utils::Units const units)
   {
@@ -269,31 +265,40 @@ public:
   /// false otherwise.
   bool HasRouteAltitude() const;
 
+  struct DistanceAltitude
+  {
+    std::vector<double> m_distances;
+    geometry::Altitudes m_altitudes;
+
+    size_t GetSize() const
+    {
+      ASSERT_EQUAL(m_distances.size(), m_altitudes.size(), ());
+      return m_distances.size();
+    }
+
+    // Default altitudeDeviation ~ sqrt(2).
+    void Simplify(double altitudeDeviation = 1.415);
+
+    /// \brief Generates 4 bytes per point image (RGBA) and put the data to |imageRGBAData|.
+    /// \param width is width of chart shall be generated in pixels.
+    /// \param height is height of chart shall be generated in pixels.
+    /// \param imageRGBAData is bits of result image in RGBA.
+    /// \returns If there is valid route info and the chart was generated returns true
+    /// and false otherwise. If the method returns true it is guaranteed that the size of
+    /// |imageRGBAData| is not zero.
+    bool GenerateRouteAltitudeChart(uint32_t width, uint32_t height, std::vector<uint8_t> & imageRGBAData) const;
+
+    /// \param totalAscent is total ascent of the route in meters.
+    /// \param totalDescent is total descent of the route in meters.
+    void CalculateAscentDescent(uint32_t & totalAscentM, uint32_t & totalDescentM) const;
+
+    friend std::string DebugPrint(DistanceAltitude const & da);
+  };
+
   /// \brief Fills altitude of current route points and distance in meters form the beginning
   /// of the route point based on the route in RoutingSession.
-  bool GetRouteAltitudesAndDistancesM(std::vector<double> & routePointDistanceM,
-                                      geometry::Altitudes & altitudes) const;
-
-  /// \brief Generates 4 bytes per point image (RGBA) and put the data to |imageRGBAData|.
-  /// \param width is width of chart shall be generated in pixels.
-  /// \param height is height of chart shall be generated in pixels.
-  /// \param altitudes route points altitude.
-  /// \param routePointDistanceM distance in meters from route beginning to route points.
-  /// \param imageRGBAData is bits of result image in RGBA.
-  /// \param minRouteAltitude is min altitude along the route in altitudeUnits.
-  /// \param maxRouteAltitude is max altitude along the route in altitudeUnits.
-  /// \param altitudeUnits is units (meters or feet) which is used to pass min and max altitudes.
-  /// \returns If there is valid route info and the chart was generated returns true
-  /// and false otherwise. If the method returns true it is guaranteed that the size of
-  /// |imageRGBAData| is not zero.
-  /// \note If HasRouteAltitude() method returns true, GenerateRouteAltitudeChart(...)
-  /// could return false if route was deleted or rebuilt between the calls.
-  bool GenerateRouteAltitudeChart(uint32_t width, uint32_t height,
-                                  geometry::Altitudes const & altitudes,
-                                  std::vector<double> const & routePointDistanceM,
-                                  std::vector<uint8_t> & imageRGBAData, int32_t & minRouteAltitude,
-                                  int32_t & maxRouteAltitude,
-                                  measurement_utils::Units & altitudeUnits) const;
+  /// \return False if current route is invalid or doesn't have altitudes.
+  bool GetRouteAltitudesAndDistancesM(DistanceAltitude & da) const;
 
   uint32_t OpenRoutePointsTransaction();
   void ApplyRoutePointsTransaction(uint32_t transactionId);

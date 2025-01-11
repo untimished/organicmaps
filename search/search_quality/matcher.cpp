@@ -5,66 +5,18 @@
 
 #include "indexer/feature.hpp"
 #include "indexer/feature_algo.hpp"
+#include "indexer/road_shields_parser.hpp"
 #include "indexer/search_string_utils.hpp"
 
-#include "geometry/mercator.hpp"
-#include "geometry/parametrized_segment.hpp"
-#include "geometry/point2d.hpp"
-#include "geometry/polyline2d.hpp"
-#include "geometry/triangle2d.hpp"
-
-#include "base/assert.hpp"
 #include "base/control_flow.hpp"
-#include "base/stl_helpers.hpp"
 #include "base/string_utils.hpp"
 
 #include <algorithm>
 
+namespace search
+{
 namespace
 {
-double DistanceToFeature(m2::PointD const & pt, FeatureType & ft)
-{
-  if (ft.GetGeomType() == feature::GeomType::Point)
-    return mercator::DistanceOnEarth(pt, feature::GetCenter(ft));
-
-  if (ft.GetGeomType() == feature::GeomType::Line)
-  {
-    ft.ParseGeometry(FeatureType::BEST_GEOMETRY);
-    std::vector<m2::PointD> points(ft.GetPointsCount());
-    for (size_t i = 0; i < points.size(); ++i)
-      points[i] = ft.GetPoint(i);
-
-    auto const & [dummy, segId] = m2::CalcMinSquaredDistance(points.begin(), points.end(), pt);
-    CHECK_LESS(segId + 1, points.size(), ());
-    m2::ParametrizedSegment<m2::PointD> segment(points[segId], points[segId + 1]);
-
-    return mercator::DistanceOnEarth(pt, segment.ClosestPointTo(pt));
-  }
-
-  if (ft.GetGeomType() == feature::GeomType::Area)
-  {
-    // An approximation.
-    std::vector<m2::TriangleD> triangles;
-    bool inside = false;
-    auto fn = [&](m2::PointD const & a, m2::PointD const & b, m2::PointD const & c) {
-      inside = inside || IsPointInsideTriangle(pt, a, b, c);
-      if (!inside)
-        triangles.emplace_back(a, b, c);
-    };
-
-    ft.ForEachTriangle(fn, FeatureType::BEST_GEOMETRY);
-
-    if (inside)
-      return 0.0;
-
-    CHECK(!triangles.empty(), ());
-    auto proj = m2::ProjectPointToTriangles(pt, triangles);
-    return mercator::DistanceOnEarth(pt, proj);
-  }
-
-  UNREACHABLE();
-}
-
 template <typename Iter>
 bool StartsWithHouseNumber(Iter beg, Iter end)
 {
@@ -106,10 +58,19 @@ bool EndsWithHouseNumber(Iter beg, Iter end)
   return false;
 }
 
-bool StreetMatches(std::string const & name, std::vector<std::string> const & queryTokens)
+std::vector<std::string> NormalizeAndTokenizeAsUtf8(std::string_view str)
 {
-  auto const nameTokens = search::NormalizeAndTokenizeAsUtf8(name);
+  std::vector<std::string> res;
+  ForEachNormalizedToken(str, [&res](strings::UniString const & token)
+  {
+    res.push_back(strings::ToUtf8(token));
+  });
+  return res;
+}
 
+bool StreetMatches(std::string_view name, std::vector<std::string> const & queryTokens)
+{
+  auto const nameTokens = NormalizeAndTokenizeAsUtf8(name);
   if (nameTokens.empty())
     return false;
 
@@ -139,8 +100,6 @@ bool StreetMatches(std::string const & name, std::vector<std::string> const & qu
 }
 }  // namespace
 
-namespace search
-{
 Matcher::Matcher(FeatureLoader & loader) : m_loader(loader) {}
 
 void Matcher::Match(Sample const & goldenSample, std::vector<Result> const & actual,
@@ -193,10 +152,6 @@ bool Matcher::Matches(strings::UniString const & query, Sample::Result const & g
 bool Matcher::Matches(strings::UniString const & query, Sample::Result const & golden,
                       FeatureType & ft)
 {
-  static double constexpr kToleranceMeters = 50;
-
-  auto const houseNumber = ft.GetHouseNumber();
-
   auto const queryTokens = NormalizeAndTokenizeAsUtf8(ToUtf8(query));
 
   bool nameMatches = false;
@@ -208,7 +163,14 @@ bool Matcher::Matches(strings::UniString const & query, Sample::Result const & g
   {
     if (ft.GetGeomType() == feature::GeomType::Line)
     {
-      nameMatches = StreetMatches(ft.GetParams().ref, queryTokens);
+      for (auto const & name : ftypes::GetRoadShieldsNames(ft))
+      {
+        if (StreetMatches(name, queryTokens))
+        {
+          nameMatches = true;
+          break;
+        }
+      }
     }
     else
     {
@@ -218,29 +180,30 @@ bool Matcher::Matches(strings::UniString const & query, Sample::Result const & g
     }
   }
 
-  ft.ForEachName(
-      [&queryTokens, &ft, &golden, &nameMatches](int8_t /* lang */, std::string const & name) {
-        if (NormalizeAndSimplifyString(ToUtf8(golden.m_name)) == NormalizeAndSimplifyString(name))
-        {
-          nameMatches = true;
-          return base::ControlFlow::Break;
-        }
+  ft.ForEachName([&queryTokens, &ft, &golden, &nameMatches](int8_t /* lang */, std::string_view name)
+  {
+    if (NormalizeAndSimplifyString(ToUtf8(golden.m_name)) == NormalizeAndSimplifyString(name))
+    {
+      nameMatches = true;
+      return base::ControlFlow::Break;
+    }
 
-        if (golden.m_name.empty() && ft.GetGeomType() == feature::GeomType::Line &&
-            StreetMatches(name, queryTokens))
-        {
-          nameMatches = true;
-          return base::ControlFlow::Break;
-        }
+    if (golden.m_name.empty() && ft.GetGeomType() == feature::GeomType::Line &&
+        StreetMatches(name, queryTokens))
+    {
+      nameMatches = true;
+      return base::ControlFlow::Break;
+    }
 
-        return base::ControlFlow::Continue;
-      });
+    return base::ControlFlow::Continue;
+  });
 
   bool houseNumberMatches = true;
-  if (!golden.m_houseNumber.empty() && !houseNumber.empty())
-    houseNumberMatches = golden.m_houseNumber == houseNumber;
+  std::string const & hn = ft.GetHouseNumber();
+  if (!golden.m_houseNumber.empty() && !hn.empty())
+    houseNumberMatches = golden.m_houseNumber == hn;
 
-  return nameMatches && houseNumberMatches &&
-         DistanceToFeature(golden.m_pos, ft) < kToleranceMeters;
+  /// @todo Where are 50 meters came from?
+  return (nameMatches && houseNumberMatches && feature::GetMinDistanceMeters(ft, golden.m_pos) < 50.0);
 }
 }  // namespace search

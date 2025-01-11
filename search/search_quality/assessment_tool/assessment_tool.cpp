@@ -1,5 +1,7 @@
-#include "search/search_quality/assessment_tool/main_model.hpp"
-#include "search/search_quality/assessment_tool/main_view.hpp"
+#include "main_model.hpp"
+#include "main_view.hpp"
+
+#include "qt/qt_common/helpers.hpp"
 
 #include "map/framework.hpp"
 
@@ -11,7 +13,7 @@
 
 #include <QtWidgets/QApplication>
 
-#include "gflags/gflags.h"
+#include <gflags/gflags.h>
 
 DEFINE_string(resources_path, "", "Path to resources directory");
 DEFINE_string(data_path, "", "Path to data directory");
@@ -34,12 +36,14 @@ int main(int argc, char ** argv)
   Q_INIT_RESOURCE(resources_common);
   QApplication app(argc, argv);
 
+  qt::common::SetDefaultSurfaceFormat(app.platformName());
+
   FrameworkParams params;
   CHECK_GREATER(FLAGS_num_threads, 0, ());
   params.m_numSearchAPIThreads = FLAGS_num_threads;
 
   Framework framework(params);
-  MainView view(framework);
+  MainView view(framework, app.primaryScreen()->geometry());
   MainModel model(framework);
 
   model.SetView(view);

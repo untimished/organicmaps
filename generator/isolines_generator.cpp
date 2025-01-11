@@ -12,8 +12,9 @@ namespace
 std::vector<int> const kAltClasses = {1000, 500, 100, 50, 10};
 int const kNamedAltStep = 50;
 int const kNamedAltRange = 150;
+std::string_view const kIsoline = "isoline";
 std::string const kTypePrefix = "step_";
-std::string const kTypeZero = "zero";
+std::string_view const kTypeZero = "zero";
 
 std::string GetIsolineName(int altitude, int step, int minAltitude, int maxAltitude)
 {
@@ -31,12 +32,14 @@ IsolineFeaturesGenerator::IsolineFeaturesGenerator(std::string const & isolinesD
   : m_isolinesDir(isolinesDir)
 {
   ASSERT(std::is_sorted(kAltClasses.cbegin(), kAltClasses.cend(), std::greater<int>()), ());
+  Classificator const & c = classif();
+
   for (auto alt : kAltClasses)
   {
     auto const type = kTypePrefix + strings::to_string(alt);
-    m_altClassToType[alt] = classif().GetTypeByPath({"isoline", type});
+    m_altClassToType[alt] = c.GetTypeByPath({kIsoline, type});
   }
-  m_altClassToType[0] = classif().GetTypeByPath({"isoline", kTypeZero});
+  m_altClassToType[0] = c.GetTypeByPath({kIsoline, kTypeZero});
 }
 
 uint32_t IsolineFeaturesGenerator::GetIsolineType(int altitude) const
@@ -64,7 +67,7 @@ void IsolineFeaturesGenerator::GenerateIsolines(std::string const & countryName,
     return;
   }
   LOG(LINFO, ("Generating isolines for", countryName));
-  for (auto const & levelIsolines : countryIsolines.m_contours)
+  for (auto & levelIsolines : countryIsolines.m_contours)
   {
     auto const altitude = levelIsolines.first;
     auto const isolineName = GetIsolineName(altitude, countryIsolines.m_valueStep,
@@ -76,14 +79,15 @@ void IsolineFeaturesGenerator::GenerateIsolines(std::string const & countryName,
       continue;
     }
 
-    for (auto const & isoline : levelIsolines.second)
+    for (auto & isoline : levelIsolines.second)
     {
       feature::FeatureBuilder fb;
-      for (auto const & pt : isoline)
-        fb.AddPoint(pt);
+      fb.AssignPoints(std::move(isoline));
+
       fb.AddType(isolineType);
       if (!isolineName.empty())
-        fb.AddName("default", isolineName);
+        fb.SetName(StringUtf8Multilang::kDefaultCode, isolineName);
+
       fb.SetLinear();
       fn(std::move(fb));
     }

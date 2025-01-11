@@ -113,7 +113,7 @@ void CmdMatch(string const & logFile, string const & trackFile, string const & i
 {
   LOG(LINFO, ("Matching", logFile));
   Storage storage;
-  storage.RegisterAllLocalMaps(false /* enableDiffs */);
+  storage.RegisterAllLocalMaps();
   shared_ptr<NumMwmIds> numMwmIds = CreateNumMwmIds(storage);
 
   Stats stats;
@@ -125,7 +125,7 @@ void CmdMatch(string const & logFile, string const & trackFile, string const & i
 void UnzipAndMatch(Iter begin, Iter end, string const & trackExt, Stats & stats)
 {
   Storage storage;
-  storage.RegisterAllLocalMaps(false /* enableDiffs */);
+  storage.RegisterAllLocalMaps();
   shared_ptr<NumMwmIds> numMwmIds = CreateNumMwmIds(storage);
   for (auto it = begin; it != end; ++it)
   {
@@ -167,7 +167,7 @@ void CmdMatchDir(string const & logDir, string const & trackExt, string const & 
 {
   LOG(LINFO,
       ("Matching dir:", logDir, ". Input distribution will be saved to:", inputDistribution));
-  Platform::EFileType fileType = Platform::FILE_TYPE_UNKNOWN;
+  Platform::EFileType fileType = Platform::EFileType::Unknown;
   Platform::EError const result = Platform::GetFileType(logDir, fileType);
 
   if (result == Platform::ERR_FILE_DOES_NOT_EXIST)
@@ -182,7 +182,7 @@ void CmdMatchDir(string const & logDir, string const & trackExt, string const & 
     return;
   }
 
-  if (fileType != Platform::FILE_TYPE_DIRECTORY)
+  if (fileType != Platform::EFileType::Directory)
   {
     LOG(LINFO, (logDir, "is not a directory."));
     return;

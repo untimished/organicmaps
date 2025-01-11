@@ -199,9 +199,9 @@ IndicesRange Batcher::InsertLineRaw(ref_ptr<GraphicsContext> context, RenderStat
                                         0 /* vertexStride */, indices);
 }
 
-void Batcher::StartSession(TFlushFn const & flusher)
+void Batcher::StartSession(TFlushFn && flusher)
 {
-  m_flushInterface = flusher;
+  m_flushInterface = std::move(flusher);
 }
 
 void Batcher::EndSession(ref_ptr<GraphicsContext> context)
@@ -241,21 +241,18 @@ void Batcher::ChangeBuffer(ref_ptr<GraphicsContext> context, ref_ptr<CallbacksWr
 
 ref_ptr<RenderBucket> Batcher::GetBucket(RenderState const & state)
 {
-  auto const it = m_buckets.find(state);
-  if (it != m_buckets.end())
-    return make_ref(it->second);
+  auto res = m_buckets.insert({state, nullptr});
+  if (res.second)
+  {
+    drape_ptr<VertexArrayBuffer> vao = make_unique_dp<VertexArrayBuffer>(m_indexBufferSize,
+                                                                         m_vertexBufferSize,
+                                                                         m_batcherHash);
+    drape_ptr<RenderBucket> buffer = make_unique_dp<RenderBucket>(std::move(vao));
+    buffer->SetFeatureMinZoom(m_featureMinZoom);
+    res.first->second = std::move(buffer);
+  }
 
-  drape_ptr<VertexArrayBuffer> vao = make_unique_dp<VertexArrayBuffer>(m_indexBufferSize,
-                                                                       m_vertexBufferSize,
-                                                                       m_batcherHash);
-  drape_ptr<RenderBucket> buffer = make_unique_dp<RenderBucket>(std::move(vao));
-  ref_ptr<RenderBucket> result = make_ref(buffer);
-  result->SetFeatureMinZoom(m_featureMinZoom);
-
-  if (!m_buckets.emplace(state, std::move(buffer)).second)
-    CHECK(false, ());
-
-  return result;
+  return make_ref(res.first->second);
 }
 
 void Batcher::FinalizeBucket(ref_ptr<GraphicsContext> context, RenderState const & state)
@@ -263,8 +260,7 @@ void Batcher::FinalizeBucket(ref_ptr<GraphicsContext> context, RenderState const
   auto const it = m_buckets.find(state);
   CHECK(it != m_buckets.end(), ("Have no bucket for finalize with given state"));
   drape_ptr<RenderBucket> bucket = std::move(it->second);
-  if (m_buckets.erase(state) == 0)
-    CHECK(false, ());
+  m_buckets.erase(it);
 
   bucket->GetBuffer()->Preflush(context);
   m_flushInterface(state, std::move(bucket));
@@ -318,11 +314,11 @@ Batcher * BatcherFactory::GetNew() const
 }
 
 SessionGuard::SessionGuard(ref_ptr<GraphicsContext> context, Batcher & batcher,
-                           Batcher::TFlushFn const & flusher)
+                           Batcher::TFlushFn && flusher)
   : m_context(context)
   , m_batcher(batcher)
 {
-  m_batcher.StartSession(flusher);
+  m_batcher.StartSession(std::move(flusher));
 }
 
 SessionGuard::~SessionGuard()

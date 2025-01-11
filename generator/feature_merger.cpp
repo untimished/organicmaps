@@ -109,14 +109,14 @@ size_t MergedFeatureBuilder::GetKeyPointsCount() const
   return m_roundBounds[0].size() + m_roundBounds[1].size() + 2;
 }
 
-double MergedFeatureBuilder::GetPriority() const
+double MergedFeatureBuilder::GetSquaredLength() const
 {
   PointSeq const & poly = GetOuterGeometry();
 
-  double pr = 0.0;
+  double sqLen = 0.0;
   for (size_t i = 1; i < poly.size(); ++i)
-    pr += poly[i-1].SquaredLength(poly[i]);
-  return pr;
+    sqLen += poly[i-1].SquaredLength(poly[i]);
+  return sqLen;
 }
 
 
@@ -145,6 +145,8 @@ void FeatureMergeProcessor::operator() (MergedFeatureBuilder * p)
     m_map[k2].push_back(p);
   else
   {
+    // All of roundabout's points are considered for possible continuation of the line.
+    // Effectively a roundabout itself is discarded and is used only for merging adjoining lines together.
     ///@ todo Do it only for small round features!
     p->SetRound();
 
@@ -207,6 +209,7 @@ void FeatureMergeProcessor::DoMerge(FeatureEmitterIFace & emitter)
     curr.SetType(type);
 
     // Iterate through key points while merging.
+    // Key points are either ends of the line or any point on the "roundabout" if the line ends with it.
     size_t ind = 0;
     while (ind < curr.GetKeyPointsCount())  // GetKeyPointsCount() can be different on each iteration
     {
@@ -216,17 +219,19 @@ void FeatureMergeProcessor::DoMerge(FeatureEmitterIFace & emitter)
       MergedFeatureBuilder * pp = 0;
       if (it != m_map.end())
       {
-        // Find best feature to continue.
-        double bestPr = -1.0;
+        // Find the shortest connected line feature to continue,
+        // it helps to spread points more evenly between the features and to avoid producing too long lines.
+        double bestPr = std::numeric_limits<double>::max();
         for (size_t i = 0; i < it->second.size(); ++i)
         {
           MergedFeatureBuilder * pTest = it->second[i];
           if (pTest->HasType(type))
           {
-            double const pr = pTest->GetPriority();
+            double const pr = pTest->GetSquaredLength();
             // It's not necessery assert, because it's possible in source data
-//            ASSERT_GREATER ( pr, 0.0, () );
-            if (pr > bestPr)
+            // TODO(pastk) : likely caused by degenerate closed lines.
+            // ASSERT_GREATER(pr, 0.0, ());
+            if (pr < bestPr)
             {
               pp = pTest;
               bestPr = pr;
@@ -234,7 +239,7 @@ void FeatureMergeProcessor::DoMerge(FeatureEmitterIFace & emitter)
           }
         }
 
-        // Merge current feature with best feature.
+        // Merge the current feature with the best connected feature.
         if (pp)
         {
           bool const toBack = pt.second;
@@ -323,66 +328,103 @@ MergedFeatureBuilder * FeatureTypesProcessor::operator() (FeatureBuilder const &
   return p;
 }
 
-
-namespace feature
+class TypeCheckBase
 {
-
-class RemoveSolver
-{
-  int m_lowScale, m_upScale;
-  bool m_doNotRemoveSpecialTypes;
+protected:
+  static uint32_t GetRegionType()
+  {
+    static uint32_t regionType = classif().GetTypeByPath({"place", "region"});
+    return regionType;
+  }
 
 public:
-  RemoveSolver(int lowScale, int upScale, bool doNotRemoveSpecialTypes)
-    : m_lowScale(lowScale)
-    , m_upScale(upScale)
-    , m_doNotRemoveSpecialTypes(doNotRemoveSpecialTypes)
+  int m_lowScale, m_upScale;
+
+  TypeCheckBase(int lowScale, int upScale)
+    : m_lowScale(lowScale), m_upScale(upScale)
   {
   }
 
-  bool operator() (uint32_t type) const
+  using RangeT = std::pair<int, int>;
+  static RangeT GetScaleRange(uint32_t type)
   {
-    std::pair<int, int> const range = feature::GetDrawableScaleRange(type);
-    // We have feature types without any drawing rules.
-    // This case was processed before:
-    // - feature::TypeAlwaysExists;
-    // - FeatureBuilder::RemoveInvalidTypes;
-    // Don't delete them here.
-    if (m_doNotRemoveSpecialTypes && range.first == -1)
-    {
-      ASSERT(range.second == -1, ());
-      return false;
-    }
+    return feature::GetDrawableScaleRange(type);
+  }
 
-    // Remove when |type| is invisible.
-    return (range.first == -1 || (range.first > m_upScale || range.second < m_lowScale));
+  static bool IsEmptyRange(RangeT const & range) { return range.first == -1; }
+  bool IsBadRange(RangeT const & range) const
+  {
+    return (range.first > m_upScale || range.second < m_lowScale);
   }
 };
 
-bool PreprocessForWorldMap(FeatureBuilder & fb)
+class TypeCheckWorld : public TypeCheckBase
 {
-  int const upperScale = scales::GetUpperWorldScale();
+public:
+  bool m_isRegion = false;
 
-  if (fb.RemoveTypesIf(RemoveSolver(0, upperScale, false /* doNotRemoveSpecialTypes */)))
+  TypeCheckWorld() : TypeCheckBase(0, scales::GetUpperWorldScale())
   {
-    return false;
   }
 
-  fb.RemoveNameIfInvisible(0, upperScale);
+  /// @return true If |type| should be removed.
+  bool operator() (uint32_t type)
+  {
+    // Keep place=region types in World.mwm for search, even when they are not visible.
+    if (type == GetRegionType())
+    {
+      m_isRegion = true;
+      return false;
+    }
+
+    auto const range = GetScaleRange(type);
+    return IsEmptyRange(range) || IsBadRange(range);
+  }
+};
+
+class TypeCheckCountry : public TypeCheckBase
+{
+public:
+  TypeCheckCountry() : TypeCheckBase(scales::GetUpperWorldScale() + 1, scales::GetUpperStyleScale())
+  {
+  }
+
+  /// @return true If |type| should be removed.
+  bool operator() (uint32_t type) const
+  {
+    // Do not keep place=region in countries.
+    if (type == GetRegionType())
+      return true;
+
+    auto const range = GetScaleRange(type);
+
+    // Don't remove non-drawable types here, since this case is processed before
+    // feature::TypeAlwaysExists or FeatureBuilder::RemoveInvalidTypes.
+    if (IsEmptyRange(range))
+      return false;
+
+    return IsBadRange(range);
+  }
+};
+
+namespace feature
+{
+bool PreprocessForWorldMap(FeatureBuilder & fb)
+{
+  TypeCheckWorld checker;
+  if (fb.RemoveTypesIf(checker))
+    return false;
+
+  if (!checker.m_isRegion)
+    fb.RemoveNameIfInvisible(checker.m_lowScale, checker.m_upScale);
+
+  /// @todo Do we need all Metadata for point/area World features? We delete meta for linear in ZeroParams.
 
   return true;
 }
 
 bool PreprocessForCountryMap(FeatureBuilder & fb)
 {
-  using namespace scales;
-
-  if (fb.RemoveTypesIf(RemoveSolver(GetUpperWorldScale() + 1, GetUpperStyleScale(),
-                                    true /* doNotRemoveSpecialTypes */)))
-  {
-    return false;
-  }
-
-  return true;
+  return !fb.RemoveTypesIf(TypeCheckCountry());
 }
-}
+} // namespace feature

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "search/bookmarks/types.hpp"
-
+#include "search/filtering_params.hpp"
 #include "search/mode.hpp"
 
 #include "geometry/point2d.hpp"
@@ -21,18 +21,15 @@ class Tracer;
 
 struct SearchParams
 {
-  inline static size_t const kDefaultNumBookmarksResults = 1000;
-  inline static size_t const kDefaultBatchSizeEverywhere = 10;
-  inline static size_t const kDefaultNumResultsEverywhere = 30;
-  inline static size_t const kDefaultNumResultsInViewport = 200;
-  inline static size_t const kPreResultsCount = 200;
-  inline static double const kDefaultStreetSearchRadiusM = 8e4;
-  inline static double const kDefaultVillageSearchRadiusM = 2e5;
-  // TODO: Short timeouts leads to a non-working search on slow devices. Design a better solution.
-  inline static std::chrono::steady_clock::duration const kDefaultTimeout =
-      std::chrono::seconds(8);
-  inline static std::chrono::steady_clock::duration const kDefaultDesktopTimeout =
-      std::chrono::seconds(8);
+  static size_t constexpr kDefaultNumBookmarksResults = 1000;
+  static size_t constexpr kDefaultBatchSizeEverywhere = 10;
+  static size_t constexpr kDefaultNumResultsEverywhere = 30;
+  static size_t constexpr kDefaultNumResultsInViewport = 200;
+  static size_t constexpr kPreResultsCount = 200;
+
+  using TimeDurationT = base::Timer::DurationT;
+  /// @todo Short timeouts lead to a non-working search on slow devices. Design a better solution.
+  static TimeDurationT constexpr kDefaultTimeout = std::chrono::seconds(8);
 
   using OnStarted = std::function<void()>;
   using OnResults = std::function<void(Results const &)>;
@@ -71,15 +68,17 @@ struct SearchParams
   size_t m_batchSize = kDefaultBatchSizeEverywhere;
   size_t m_maxNumResults = kDefaultNumResultsEverywhere;
 
-  // Minimal distance between search results in mercators, needed for
-  // pre-ranking of viewport search results.
-  double m_minDistanceOnMapBetweenResultsX = 0.0;
-  double m_minDistanceOnMapBetweenResultsY = 0.0;
+  // Minimal distance between search results (by x,y axes in mercator), needed for filtering of viewport search results.
+  m2::PointD m_minDistanceOnMapBetweenResults{0, 0};
 
-  // Street search radius from pivot or matched city center for everywhere search mode.
-  double m_streetSearchRadiusM = kDefaultStreetSearchRadiusM;
-  // Street search radius from pivot for everywhere search mode.
-  double m_villageSearchRadiusM = kDefaultVillageSearchRadiusM;
+  RecommendedFilteringParams m_filteringParams;
+
+  bookmarks::GroupId m_bookmarksGroupId = bookmarks::kInvalidGroupId;
+
+  // Amount of time after which the search is aborted.
+  TimeDurationT m_timeout = kDefaultTimeout;
+
+  std::shared_ptr<Tracer> m_tracer;
 
   Mode m_mode = Mode::Everywhere;
 
@@ -92,12 +91,15 @@ struct SearchParams
   // Needed to highlight matching parts of search result names.
   bool m_needHighlighting = false;
 
-  bookmarks::GroupId m_bookmarksGroupId = bookmarks::kInvalidGroupId;
+  // True if you need *pure* category results only, without names/addresses/etc matching.
+  bool m_categorialRequest = false;
 
-  // Amount of time after which the search is aborted.
-  std::chrono::steady_clock::duration m_timeout = kDefaultTimeout;
-
-  std::shared_ptr<Tracer> m_tracer;
+  // Set to true for debug logs and tests.
+#ifdef DEBUG
+  bool m_useDebugInfo = true;
+#else   // RELEASE
+  bool m_useDebugInfo = false;
+#endif  // DEBUG
 };
 
 std::string DebugPrint(SearchParams const & params);

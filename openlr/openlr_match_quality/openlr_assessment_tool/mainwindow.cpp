@@ -10,6 +10,7 @@
 
 #include "drape_frontend/drape_api.hpp"
 
+#include "routing/data_source.hpp"
 #include "routing/features_road_graph.hpp"
 #include "routing/road_graph.hpp"
 
@@ -37,8 +38,8 @@
 #include <memory>
 #include <vector>
 
-using namespace openlr;
-
+namespace openlr
+{
 namespace
 {
 class TrafficDrawerDelegate : public TrafficDrawerDelegateBase
@@ -125,7 +126,7 @@ class PointsControllerDelegate : public PointsControllerDelegateBase
 public:
   explicit PointsControllerDelegate(Framework & framework)
     : m_framework(framework)
-    , m_dataSource(framework.GetDataSource())
+    , m_dataSource(const_cast<DataSource &>(GetDataSource()), nullptr /* numMwmIDs */)
     , m_roadGraph(m_dataSource, routing::IRoadGraph::Mode::ObeyOnewayTag,
                   std::make_unique<routing::CarModelFactory>(storage::CountryParentGetter{}))
   {
@@ -135,7 +136,8 @@ public:
   {
     std::vector<m2::PointD> points;
     auto const & rect = m_framework.GetCurrentViewport();
-    auto const pushPoint = [&points, &rect](m2::PointD const & point) {
+    auto const pushPoint = [&points, &rect](m2::PointD const & point)
+    {
       if (!rect.IsPointInside(point))
         return;
       for (auto const & p : points)
@@ -146,11 +148,14 @@ public:
       points.push_back(point);
     };
 
-    auto const pushFeaturePoints = [&pushPoint](FeatureType & ft) {
+    auto const pushFeaturePoints = [&pushPoint](FeatureType & ft)
+    {
       if (ft.GetGeomType() != feature::GeomType::Line)
         return;
+
+      /// @todo Transported (railway=rail) are also present here :)
       auto const roadClass = ftypes::GetHighwayClass(feature::TypesHolder(ft));
-      if (roadClass == ftypes::HighwayClass::Error ||
+      if (roadClass == ftypes::HighwayClass::Undefined ||
           roadClass == ftypes::HighwayClass::Pedestrian)
       {
         return;
@@ -158,7 +163,7 @@ public:
       ft.ForEachPoint(pushPoint, scales::GetUpperScale());
     };
 
-    m_dataSource.ForEachInRect(pushFeaturePoints, rect, scales::GetUpperScale());
+    GetDataSource().ForEachInRect(pushFeaturePoints, rect, scales::GetUpperScale());
     return points;
   }
 
@@ -169,34 +174,34 @@ public:
 
     std::vector<FeaturePoint> points;
     m2::PointD pointOnFt;
-    indexer::ForEachFeatureAtPoint(m_dataSource, [&points, &p, &pointOnFt](FeatureType & ft) {
-        if (ft.GetGeomType() != feature::GeomType::Line)
-          return;
+    indexer::ForEachFeatureAtPoint(GetDataSource(), [&points, &p, &pointOnFt](FeatureType & ft)
+    {
+      if (ft.GetGeomType() != feature::GeomType::Line)
+        return;
 
-        ft.ParseGeometry(FeatureType::BEST_GEOMETRY);
+      ft.ParseGeometry(FeatureType::BEST_GEOMETRY);
 
-        auto minDistance = std::numeric_limits<double>::max();
-        auto bestPointIndex = kInvalidIndex;
-        for (size_t i = 0; i < ft.GetPointsCount(); ++i)
+      auto minDistance = std::numeric_limits<double>::max();
+      auto bestPointIndex = kInvalidIndex;
+      for (size_t i = 0; i < ft.GetPointsCount(); ++i)
+      {
+        auto const & fp = ft.GetPoint(i);
+        auto const distance = mercator::DistanceOnEarth(fp, p);
+        if (PointsMatch(fp, p) && distance < minDistance)
         {
-          auto const & fp = ft.GetPoint(i);
-          auto const distance = mercator::DistanceOnEarth(fp, p);
-          if (PointsMatch(fp, p) && distance < minDistance)
-          {
-            bestPointIndex = i;
-            minDistance = distance;
-          }
+          bestPointIndex = i;
+          minDistance = distance;
         }
+      }
 
-        if (bestPointIndex != kInvalidIndex)
-        {
-          points.emplace_back(ft.GetID(), bestPointIndex);
-          pointOnFt = ft.GetPoint(bestPointIndex);
-        }
-      },
-      p);
+      if (bestPointIndex != kInvalidIndex)
+      {
+        points.emplace_back(ft.GetID(), bestPointIndex);
+        pointOnFt = ft.GetPoint(bestPointIndex);
+      }
+    }, p);
+
     return std::make_pair(points, pointOnFt);
-
   }
 
   std::vector<m2::PointD> GetReachablePoints(m2::PointD const & p) const override
@@ -228,20 +233,19 @@ public:
   }
 
 private:
+  DataSource const & GetDataSource() const { return m_framework.GetDataSource(); }
+
   Framework & m_framework;
-  DataSource const & m_dataSource;
+  routing::MwmDataSource m_dataSource;
   routing::FeaturesRoadGraph m_roadGraph;
 };
 }  // namespace
 
-namespace openlr
-{
+
 MainWindow::MainWindow(Framework & framework)
   : m_framework(framework)
 {
-  m_mapWidget = new MapWidget(
-      m_framework, false /* apiOpenGLES3 */, this /* parent */
-  );
+  m_mapWidget = new MapWidget(m_framework, this /* parent */);
 
   m_layout = new QHBoxLayout();
   m_layout->addWidget(m_mapWidget);
@@ -252,50 +256,45 @@ MainWindow::MainWindow(Framework & framework)
 
   setCentralWidget(window);
 
-  // setWindowTitle(tr("OMaps"));
-  // setWindowIcon(QIcon(":/ui/logo.png"));
+  setWindowTitle(tr("Organic Maps"));
+  setWindowIcon(QIcon(":/ui/logo.png"));
 
   QMenu * fileMenu = new QMenu("File", this);
   menuBar()->addMenu(fileMenu);
 
-  fileMenu->addAction("Open sample", this, &MainWindow::OnOpenTrafficSample,
-                      QKeySequence("Ctrl+O"));
+  fileMenu->addAction("Open sample", QKeySequence("Ctrl+O"), this, &MainWindow::OnOpenTrafficSample);
 
-  m_closeTrafficSampleAction = fileMenu->addAction(
-      "Close sample", this, &MainWindow::OnCloseTrafficSample, QKeySequence("Ctrl+W"));
-  m_saveTrafficSampleAction = fileMenu->addAction(
-      "Save sample", this, &MainWindow::OnSaveTrafficSample, QKeySequence("Ctrl+S"));
+  m_closeTrafficSampleAction = fileMenu->addAction("Close sample", QKeySequence("Ctrl+W"), this, &MainWindow::OnCloseTrafficSample);
+  m_saveTrafficSampleAction = fileMenu->addAction("Save sample", QKeySequence("Ctrl+S"), this, &MainWindow::OnSaveTrafficSample);
 
   fileMenu->addSeparator();
 
-  m_goldifyMatchedPathAction = fileMenu->addAction(
-      "Goldify", [this] { m_trafficMode->GoldifyMatchedPath(); }, QKeySequence("Ctrl+G"));
-  m_startEditingAction = fileMenu->addAction("Edit",
+  m_goldifyMatchedPathAction = fileMenu->addAction("Goldify", QKeySequence("Ctrl+G"), [this] { m_trafficMode->GoldifyMatchedPath(); });
+  m_startEditingAction = fileMenu->addAction("Edit", QKeySequence("Ctrl+E"),
                                              [this] {
                                                m_trafficMode->StartBuildingPath();
                                                m_mapWidget->SetMode(MapWidget::Mode::TrafficMarkup);
                                                m_commitPathAction->setEnabled(true /* enabled */);
                                                m_cancelPathAction->setEnabled(true /* enabled */);
-                                             },
-                                             QKeySequence("Ctrl+E"));
+                                             });
   m_commitPathAction = fileMenu->addAction("Accept path",
+                                           QKeySequence("Ctrl+A"),
                                            [this] {
                                              m_trafficMode->CommitPath();
                                              m_mapWidget->SetMode(MapWidget::Mode::Normal);
-                                           },
-                                           QKeySequence("Ctrl+A"));
+                                           });
   m_cancelPathAction = fileMenu->addAction("Revert path",
+                                           QKeySequence("Ctrl+R"),
                                            [this] {
                                              m_trafficMode->RollBackPath();
                                              m_mapWidget->SetMode(MapWidget::Mode::Normal);
-                                           },
-                                           QKeySequence("Ctrl+R"));
+                                           });
   m_ignorePathAction = fileMenu->addAction("Ignore path",
+                                           QKeySequence("Ctrl+I"),
                                            [this] {
                                              m_trafficMode->IgnorePath();
                                              m_mapWidget->SetMode(MapWidget::Mode::Normal);
-                                           },
-                                           QKeySequence("Ctrl+I"));
+                                           });
 
   m_goldifyMatchedPathAction->setEnabled(false /* enabled */);
   m_closeTrafficSampleAction->setEnabled(false /* enabled */);

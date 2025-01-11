@@ -22,12 +22,12 @@
 #include <string>
 #include <vector>
 
+namespace speed_camera_notifications_tests
+{
 using namespace routing;
 using namespace routing::turns;
 using namespace std;
 
-namespace
-{
 string const kCameraOnTheWay = "Speed camera on the way";
 
 location::GpsInfo MoveTo(ms::LatLon const & coords, double speed = -1)
@@ -39,13 +39,13 @@ location::GpsInfo MoveTo(ms::LatLon const & coords, double speed = -1)
   info.m_verticalAccuracy = kGpsAccuracy;
   info.m_latitude = coords.m_lat;
   info.m_longitude = coords.m_lon;
-  info.m_speedMpS = speed;
+  info.m_speed = speed;
   return info;
 }
 
 void ChangePosition(ms::LatLon const & coords, double speedKmPH, RoutingSession & routingSession)
 {
-  routingSession.OnLocationPositionChanged(MoveTo({coords.m_lat, coords.m_lon}, KMPH2MPS(speedKmPH)));
+  routingSession.OnLocationPositionChanged(MoveTo({coords.m_lat, coords.m_lon}, measurement_utils::KmphToMps(speedKmPH)));
 }
 
 void InitRoutingSession(ms::LatLon const & from, ms::LatLon const & to, RoutingSession & routingSession,
@@ -76,7 +76,7 @@ void InitRoutingSession(ms::LatLon const & from, ms::LatLon const & to, RoutingS
 bool CheckVoiceNotification(RoutingSession & routingSession)
 {
   vector<string> notifications;
-  routingSession.GenerateNotifications(notifications);
+  routingSession.GenerateNotifications(notifications, false);
   return any_of(notifications.begin(), notifications.end(), [](auto const & item) {
     return item == kCameraOnTheWay;
   });
@@ -92,7 +92,7 @@ SpeedCameraManager::Interval CheckZone(RoutingSession const & routingSession, do
   SpeedCameraOnRoute const & closestCamera = routingSession.GetSpeedCamManager().GetClosestCamForTests();
   TEST(closestCamera.IsValid(), ("No speed camera found."));
 
-  double const speedMpS = routing::KMPH2MPS(speedKmPH);
+  double const speedMpS = measurement_utils::KmphToMps(speedKmPH);
   double const passedDist = routingSession.GetRouteForTests()->GetCurrentDistanceFromBeginMeters();
   double const distToCamera = closestCamera.m_distFromBeginMeters - passedDist;
 
@@ -108,16 +108,15 @@ bool NoCameraFound(RoutingSession & routingSession)
 // Mode: Auto/Always
 // ____Notification___|___beep____|_____(exceed speed limit here) Impact camera zone_____|
 // Expected: Beep signal.
+/* Camera was (temporary) removed from OSM.
 UNIT_TEST(SpeedCameraNotification_AutoAlwaysMode_1)
 {
   vector<SpeedCameraManagerMode> modes = {SpeedCameraManagerMode::Auto, SpeedCameraManagerMode::Always};
   for (auto const mode : modes)
   {
     RoutingSession routingSession;
-    InitRoutingSession({55.67931, 37.53268} /* from */,
-                       {55.68764, 37.54508} /* to   */,
-                       routingSession,
-                       mode);
+    InitRoutingSession({55.67931, 37.53268}, {55.68764, 37.54508},
+                       routingSession, mode);
 
     {
       double const speedKmPH = 100.0;
@@ -128,6 +127,7 @@ UNIT_TEST(SpeedCameraNotification_AutoAlwaysMode_1)
     }
   }
 }
+*/
 
 // Mode: Auto/Always
 // ____Notification___|___beep____|_____(exceed speed limit here) Impact camera zone_____|
@@ -350,12 +350,12 @@ UNIT_TEST(SpeedCameraNotification_AutoAlwaysMode_7)
 //                          We should here beep signal.
 UNIT_TEST(SpeedCameraNotification_AutoAlwaysMode_8)
 {
-  vector<SpeedCameraManagerMode> modes = {SpeedCameraManagerMode::Auto, SpeedCameraManagerMode::Always};
-  for (auto const mode : modes)
+  for (auto const mode : {SpeedCameraManagerMode::Auto, SpeedCameraManagerMode::Always})
   {
+    // On "Leningradskiy" from East to West direction.
     RoutingSession routingSession;
-    InitRoutingSession({55.67547, 37.52662} /* from */,
-                       {55.67052, 37.51893}   /* to   */,
+    InitRoutingSession({55.6755737, 37.5264126},  // from
+                       {55.67052, 37.51893},      // to
                        routingSession,
                        mode);
 
@@ -483,4 +483,4 @@ UNIT_TEST(SpeedCameraNotification_CameraOnMiniRoundabout)
   ChangePosition({41.201998, 69.109587}, speedKmPH, routingSession);
   TEST(!NoCameraFound(routingSession), ());
 }
-}  // namespace
+}  // namespace speed_camera_notifications_tests

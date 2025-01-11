@@ -1,14 +1,14 @@
 #pragma once
 
-#include "routing/base/astar_algorithm.hpp"
+#include "routing/base/astar_graph.hpp"
 #include "routing/base/routing_result.hpp"
 
 #include "routing/road_graph.hpp"
-#include "routing/router.hpp"
+
+#include "routing_common/vehicle_model.hpp"
 
 #include "geometry/point_with_altitude.hpp"
 
-#include <cstdint>
 #include <map>
 #include <string>
 
@@ -26,6 +26,23 @@ struct SimpleEdge
 
   uint32_t m_to;
   double m_weight;
+};
+
+class RoadGraphIFace : public IRoadGraph
+{
+public:
+  virtual RoadInfo GetRoadInfo(FeatureID const & f, SpeedParams const & speedParams) const = 0;
+  virtual double GetSpeedKMpH(FeatureID const & featureId, SpeedParams const & speedParams) const = 0;
+  virtual double GetMaxSpeedKMpH() const = 0;
+
+  double GetSpeedKMpH(Edge const & edge, SpeedParams const & speedParams) const
+  {
+    double const speedKMpH =
+        (edge.IsFake() ? GetMaxSpeedKMpH()
+                       : GetSpeedKMpH(edge.GetFeatureId(), speedParams));
+    ASSERT_LESS_OR_EQUAL(speedKMpH, GetMaxSpeedKMpH(), ());
+    return speedKMpH;
+  }
 };
 
 class UndirectedGraph : public AStarGraph<uint32_t, SimpleEdge, double>
@@ -68,10 +85,7 @@ private:
   std::map<uint32_t, EdgeListT> m_outgoing;
   std::map<uint32_t, EdgeListT> m_ingoing;
 };
-}  // namespace routing_tests
 
-namespace routing
-{
 class TestAStarBidirectionalAlgo
 {
 public:
@@ -82,10 +96,10 @@ public:
     Cancelled
   };
 
-  Result CalculateRoute(IRoadGraph const & graph, geometry::PointWithAltitude const & startPos,
+  Result CalculateRoute(RoadGraphIFace const & graph, geometry::PointWithAltitude const & startPos,
                         geometry::PointWithAltitude const & finalPos,
                         RoutingResult<IRoadGraph::Vertex, IRoadGraph::Weight> & path);
 };
 
 std::string DebugPrint(TestAStarBidirectionalAlgo::Result const & result);
-}  // namespace routing
+}  // namespace routing_tests

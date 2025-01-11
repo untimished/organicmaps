@@ -1,24 +1,24 @@
 #pragma once
+
 #include "base/assert.hpp"
 #include "base/checked_cast.hpp"
-#include "base/stl_iterator.hpp"
 
 #include <algorithm>
-#include <cstring>       // for memcpy
-#include <type_traits>
-#include <utility>
+#include <iterator>
 #include <vector>
 
 // Calls swap() function using argument dependant lookup.
 // // Do NOT override this function, but override swap() function instead!
-template <typename T> inline void Swap(T & a, T & b)
+template <typename T>
+void Swap(T & a, T & b)
 {
   using std::swap;
   swap(a, b);
 }
 
 
-template <class T, size_t N> class buffer_vector
+template <class T, size_t N>
+class buffer_vector
 {
 private:
   enum { USE_DYNAMIC = N + 1 };
@@ -27,12 +27,27 @@ private:
   size_t m_size;
   std::vector<T> m_dynamic;
 
-  inline bool IsDynamic() const { return m_size == USE_DYNAMIC; }
+  bool IsDynamic() const { return m_size == USE_DYNAMIC; }
 
-  void MoveStatic(buffer_vector<T, N> & rhs)
+  void MoveStatic(buffer_vector & rhs) noexcept
   {
+    static_assert(std::is_nothrow_move_assignable<T>::value);
+
     std::move(rhs.m_static, rhs.m_static + rhs.m_size, m_static);
   }
+
+  void SetStaticSize(size_t newSize)
+  {
+    if constexpr (std::is_destructible<T>::value)
+    {
+      // Call destructors for old elements.
+      for (size_t i = newSize; i < m_size; ++i)
+        m_static[i] = T();
+    }
+    m_size = newSize;
+  }
+
+  static constexpr size_t SwitchCapacity() { return 3*N/2 + 1; }
 
 public:
   typedef T value_type;
@@ -43,14 +58,14 @@ public:
   typedef T * iterator;
 
   buffer_vector() : m_size(0) {}
-  explicit buffer_vector(size_t n, T c = T()) : m_size(0)
+  explicit buffer_vector(size_t n) : m_size(0)
   {
-    resize(n, c);
+    resize(n);
   }
 
-  buffer_vector(std::initializer_list<T> const & initList) : m_size(0)
+  buffer_vector(std::initializer_list<T> init) : m_size(0)
   {
-    assign(initList.begin(), initList.end());
+    assign(std::make_move_iterator(init.begin()), std::make_move_iterator(init.end()));
   }
 
   template <typename TIt>
@@ -61,7 +76,7 @@ public:
 
   buffer_vector(buffer_vector const &) = default;
 
-  buffer_vector(buffer_vector && rhs) : m_size(rhs.m_size), m_dynamic(move(rhs.m_dynamic))
+  buffer_vector(buffer_vector && rhs) noexcept : m_size(rhs.m_size), m_dynamic(std::move(rhs.m_dynamic))
   {
     if (!IsDynamic())
       MoveStatic(rhs);
@@ -71,15 +86,18 @@ public:
 
   buffer_vector & operator=(buffer_vector const & rhs) = default;
 
-  buffer_vector & operator=(buffer_vector && rhs)
+  buffer_vector & operator=(buffer_vector && rhs) noexcept
   {
-    m_size = rhs.m_size;
-    m_dynamic = move(rhs.m_dynamic);
+    if (this != &rhs)
+    {
+      m_size = rhs.m_size;
+      m_dynamic = std::move(rhs.m_dynamic);
 
-    if (!IsDynamic())
-      MoveStatic(rhs);
+      if (!IsDynamic())
+        MoveStatic(rhs);
 
-    rhs.m_size = 0;
+      rhs.m_size = 0;
+    }
     return *this;
   }
 
@@ -145,7 +163,7 @@ public:
       m_dynamic.reserve(n);
   }
 
-  void resize_no_init(size_t n)
+  void resize(size_t n)
   {
     if (IsDynamic())
     {
@@ -155,7 +173,7 @@ public:
 
     if (n <= N)
     {
-      m_size = n;
+      SetStaticSize(n);
     }
     else
     {
@@ -165,7 +183,7 @@ public:
     }
   }
 
-  void resize(size_t n, T c = T())
+  void resize(size_t n, T c)
   {
     if (IsDynamic())
     {
@@ -175,9 +193,10 @@ public:
 
     if (n <= N)
     {
-      for (size_t i = m_size; i < n; ++i)
-        m_static[i] = c;
-      m_size = n;
+      if (n > m_size)
+        std::fill_n(&m_static[m_size], n - m_size, c);
+
+      SetStaticSize(n);
     }
     else
     {
@@ -196,10 +215,7 @@ public:
       return;
     }
 
-    // here we have to call destructors of objects inside
-    for (size_t i = 0; i < m_size; ++i)
-      m_static[i] = T();
-    m_size = 0;
+    SetStaticSize(0);
   }
 
   /// @todo Here is some inconsistencies:
@@ -241,16 +257,19 @@ public:
     ASSERT(!empty(), ());
     return *begin();
   }
+
   T & front()
   {
     ASSERT(!empty(), ());
     return *begin();
   }
+
   T const & back() const
   {
     ASSERT(!empty(), ());
     return *(end() - 1);
   }
+
   T & back()
   {
     ASSERT(!empty(), ());
@@ -262,6 +281,7 @@ public:
     ASSERT_LESS(i, size(), ());
     return *(begin() + i);
   }
+
   T & operator[](size_t i)
   {
     ASSERT_LESS(i, size(), ());
@@ -283,11 +303,12 @@ public:
     {
       if (m_size < N)
       {
-        Swap(m_static[m_size++], t);
+        m_static[m_size] = std::move(t);
+        ++m_size; // keep basic exception safety here
         return;
       }
       else
-        SwitchToDynamic(N + 1);
+        SwitchToDynamic(SwitchCapacity());
     }
 
     m_dynamic.push_back(std::move(t));
@@ -314,16 +335,17 @@ public:
     }
     else
     {
-      // Construct value first in case of reallocation and m_vec.emplace_back(m_vec[0]).
-      value_type v(std::forward<Args>(args)...);
       if (m_size < N)
       {
-        Swap(v, m_static[m_size++]);
+        m_static[m_size] = value_type(std::forward<Args>(args)...);
+        ++m_size; // keep basic exception safety here
       }
       else
       {
-        SwitchToDynamic(N + 1);
-        m_dynamic.push_back(std::move(v));
+        // Construct value first in case of reallocation and m_vec.emplace_back(m_vec[0]).
+        value_type value(std::forward<Args>(args)...);
+        SwitchToDynamic(SwitchCapacity());
+        m_dynamic.push_back(std::move(value));
       }
     }
   }
@@ -350,7 +372,7 @@ public:
 
       m_size += n;
       T * writableWhere = &m_static[0] + pos;
-      ASSERT_EQUAL(where, writableWhere, ());
+      ASSERT(where == writableWhere, ());
       while (beg != end)
         *(writableWhere++) = *(beg++);
     }
@@ -361,7 +383,7 @@ public:
     }
   }
 
-  inline void insert(const_iterator where, value_type const & value)
+  void insert(const_iterator where, value_type const & value)
   {
     insert(where, &value, &value + 1);
   }
@@ -411,31 +433,31 @@ void swap(buffer_vector<T, N> & r1, buffer_vector<T, N> & r2)
 }
 
 template <typename T, size_t N>
-inline std::string DebugPrint(buffer_vector<T, N> const & v)
+std::string DebugPrint(buffer_vector<T, N> const & v)
 {
   return DebugPrintSequence(v.data(), v.data() + v.size());
 }
 
 template <typename T, size_t N1, size_t N2>
-inline bool operator==(buffer_vector<T, N1> const & v1, buffer_vector<T, N2> const & v2)
+bool operator==(buffer_vector<T, N1> const & v1, buffer_vector<T, N2> const & v2)
 {
   return (v1.size() == v2.size() && std::equal(v1.begin(), v1.end(), v2.begin()));
 }
 
 template <typename T, size_t N1, size_t N2>
-inline bool operator!=(buffer_vector<T, N1> const & v1, buffer_vector<T, N2> const & v2)
+bool operator!=(buffer_vector<T, N1> const & v1, buffer_vector<T, N2> const & v2)
 {
   return !(v1 == v2);
 }
 
 template <typename T, size_t N1, size_t N2>
-inline bool operator<(buffer_vector<T, N1> const & v1, buffer_vector<T, N2> const & v2)
+bool operator<(buffer_vector<T, N1> const & v1, buffer_vector<T, N2> const & v2)
 {
   return std::lexicographical_compare(v1.begin(), v1.end(), v2.begin(), v2.end());
 }
 
 template <typename T, size_t N1, size_t N2>
-inline bool operator>(buffer_vector<T, N1> const & v1, buffer_vector<T, N2> const & v2)
+bool operator>(buffer_vector<T, N1> const & v1, buffer_vector<T, N2> const & v2)
 {
   return v2 < v1;
 }
@@ -460,3 +482,8 @@ typename buffer_vector<T, N>::const_iterator end(buffer_vector<T, N> const & v)
   return v.end();
 }
 }  // namespace std
+
+template <class Dest, class Src> void assign_range(Dest & dest, Src const & src)
+{
+  dest.assign(std::begin(src), std::end(src));
+}

@@ -22,7 +22,7 @@ using namespace std;
 
 Platform::Platform()
 {
-  /// @see initialization routine in android/jni/com/.../Platform.hpp
+  /// @see initialization routine in android/app/src/main/cpp/com/.../Platform.hpp
 }
 
 #ifdef DEBUG
@@ -49,7 +49,8 @@ private:
 
 unique_ptr<ModelReader> Platform::GetReader(string const & file, string searchScope) const
 {
-  string const ext = base::GetFileExtension(file);
+  string ext = base::GetFileExtension(file);
+  strings::AsciiToLower(ext);
   ASSERT(!ext.empty(), ());
 
   uint32_t const logPageSize = (ext == DATA_FILE_EXTENSION) ? READER_CHUNK_LOG_SIZE : 10;
@@ -61,15 +62,15 @@ unique_ptr<ModelReader> Platform::GetReader(string const & file, string searchSc
       searchScope = "f";
     else
     {
+      ASSERT(ext != ".kml" && ext != ".kmb" && ext != ".kmz", ("BookmarkManager is responsible for that"));
+
       if (ext == DATA_FILE_EXTENSION)
       {
-        if (strings::StartsWith(file, WORLD_COASTS_FILE_NAME) || strings::StartsWith(file, WORLD_FILE_NAME))
+        if (file.starts_with(WORLD_COASTS_FILE_NAME) || file.starts_with(WORLD_FILE_NAME))
           searchScope = "wsr";
         else
           searchScope = "w";
       }
-      else if (ext == BOOKMARKS_FILE_EXTENSION)
-        searchScope = "w";
       else if (file == SETTINGS_FILE_NAME)
         searchScope = "s";
       else
@@ -91,7 +92,7 @@ unique_ptr<ModelReader> Platform::GetReader(string const & file, string searchSc
     {
     case 'w':
     {
-      string const path = m_writableDir + file;
+      string const path = base::JoinPath(m_writableDir, file);
       if (IsFileExistsByFullPath(path))
         return make_unique<FileReader>(path, logPageSize, logPageCount);
       break;
@@ -99,7 +100,7 @@ unique_ptr<ModelReader> Platform::GetReader(string const & file, string searchSc
 
     case 's':
     {
-      string const path = m_settingsDir + file;
+      string const path = base::JoinPath(m_settingsDir, file);
       if (IsFileExistsByFullPath(path))
         return make_unique<FileReader>(path, logPageSize, logPageCount);
       break;
@@ -162,15 +163,9 @@ void Platform::GetFilesByRegExp(string const & directory, string const & regexp,
     pl::EnumerateFilesByRegExp(directory, regexp, res);
 }
 
-int Platform::VideoMemoryLimit() const
-{
-  return 10 * 1024 * 1024;
-}
+int Platform::VideoMemoryLimit() const { return 10 * 1024 * 1024; }
 
-int Platform::PreCachingDepth() const
-{
-  return 3;
-}
+int Platform::PreCachingDepth() const { return 3; }
 
 bool Platform::GetFileSizeByName(string const & fileName, uint64_t & size) const
 {
@@ -214,7 +209,7 @@ void Platform::GetSystemFontNames(FilesList & res) const
     string name(entry);
     if (name != "Roboto-Medium.ttf" && name != "Roboto-Regular.ttf")
     {
-      if (!strings::StartsWith(name, "NotoNaskh") && !strings::StartsWith(name, "NotoSans"))
+      if (!name.starts_with("NotoNaskh") && !name.starts_with("NotoSans"))
         return;
 
       if (name.find("-Regular") == string::npos)
@@ -223,7 +218,6 @@ void Platform::GetSystemFontNames(FilesList & res) const
     else
       wasRoboto = true;
 
-    LOG(LINFO, ("Found usable system font", name));
     res.push_back(path + name);
   });
 
@@ -231,9 +225,24 @@ void Platform::GetSystemFontNames(FilesList & res) const
   {
     string droidSans = path + "DroidSans.ttf";
     if (IsFileExistsByFullPath(droidSans))
-    {
-      LOG(LINFO, ("Found usable system font", droidSans));
       res.push_back(std::move(droidSans));
-    }
   }
+}
+
+// static
+time_t Platform::GetFileCreationTime(std::string const & path)
+{
+  struct stat st;
+  if (0 == stat(path.c_str(), &st))
+    return st.st_atim.tv_sec;
+  return 0;
+}
+
+// static
+time_t Platform::GetFileModificationTime(std::string const & path)
+{
+  struct stat st;
+  if (0 == stat(path.c_str(), &st))
+    return st.st_mtim.tv_sec;
+  return 0;
 }

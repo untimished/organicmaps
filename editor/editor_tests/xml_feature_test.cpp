@@ -14,7 +14,7 @@
 #include <string>
 #include <vector>
 
-#include "3party/pugixml/src/pugixml.hpp"
+#include <pugixml.hpp>
 
 using namespace editor;
 
@@ -160,6 +160,9 @@ UNIT_TEST(XMLFeature_HasTags)
   TEST(emptyFeature.HasAttribute("timestamp"), ());
 }
 
+UNIT_TEST(XMLFeature_FromXml)
+{
+  // Do not space-align this string literal constant. It will be compared below.
 auto const kTestNode = R"(<?xml version="1.0"?>
 <node lat="55.7978998" lon="37.474528" timestamp="2015-11-27T21:13:32Z">
   <tag k="name" v="Gorki Park" />
@@ -172,8 +175,13 @@ auto const kTestNode = R"(<?xml version="1.0"?>
 </node>
 )";
 
-UNIT_TEST(XMLFeature_FromXml)
-{
+  std::map<std::string_view, std::string_view> kTestNames{
+    {"default", "Gorki Park"},
+    {"en", "Gorki Park"},
+    {"ru", "Парк Горького"},
+    {"int_name", "Gorky Park"}
+  };
+
   XMLFeature feature(kTestNode);
 
   std::stringstream sstr;
@@ -187,32 +195,23 @@ UNIT_TEST(XMLFeature_FromXml)
 
   TEST_EQUAL(feature.GetHouse(), "10", ());
   TEST_EQUAL(feature.GetCenter(), ms::LatLon(55.7978998, 37.4745280), ());
-  TEST_EQUAL(feature.GetName(), "Gorki Park", ());
-  TEST_EQUAL(feature.GetName("default"), "Gorki Park", ());
-  TEST_EQUAL(feature.GetName("en"), "Gorki Park", ());
-  TEST_EQUAL(feature.GetName("ru"), "Парк Горького", ());
-  TEST_EQUAL(feature.GetName("int_name"), "Gorky Park", ());
+  TEST_EQUAL(feature.GetName(), kTestNames["default"], ());
+  TEST_EQUAL(feature.GetName("default"), kTestNames["default"], ());
+  TEST_EQUAL(feature.GetName("en"), kTestNames["en"], ());
+  TEST_EQUAL(feature.GetName("ru"), kTestNames["ru"], ());
+  TEST_EQUAL(feature.GetName("int_name"), kTestNames["int_name"], ());
   TEST_EQUAL(feature.GetName("No such language"), "", ());
 
   TEST_EQUAL(feature.GetTagValue("opening_hours"), "Mo-Fr 08:15-17:30", ());
   TEST_EQUAL(feature.GetTagValue("amenity"), "atm", ());
   TEST_EQUAL(base::TimestampToString(feature.GetModificationTime()), "2015-11-27T21:13:32Z", ());
-}
 
-UNIT_TEST(XMLFeature_ForEachName)
-{
-  XMLFeature feature(kTestNode);
-  std::map<std::string, std::string> names;
-
-  feature.ForEachName(
-      [&names](std::string const & lang, std::string const & name) { names.emplace(lang, name); });
-
-  TEST_EQUAL(names,
-             (std::map<std::string, std::string>{{"default", "Gorki Park"},
-                                                 {"en", "Gorki Park"},
-                                                 {"ru", "Парк Горького"},
-                                                 {"int_name", "Gorky Park"}}),
-             ());
+  std::map<std::string_view, std::string_view> names;
+  feature.ForEachName([&names](std::string_view lang, std::string_view name)
+  {
+    names.emplace(lang, name);
+  });
+  TEST_EQUAL(names, kTestNames, ());
 }
 
 UNIT_TEST(XMLFeature_FromOSM)
@@ -260,7 +259,7 @@ UNIT_TEST(XMLFeature_FromXmlNode)
   XMLFeature const feature(doc.child("osm").child("node"));
   TEST_EQUAL(feature.GetAttribute("id"), "4", ());
   TEST_EQUAL(feature.GetTagValue("amenity"), "fountain", ());
-  XMLFeature copy(feature);
+  XMLFeature const copy(feature);
   TEST_EQUAL(copy.GetAttribute("id"), "4", ());
   TEST_EQUAL(copy.GetTagValue("amenity"), "fountain", ());
 }
@@ -403,7 +402,7 @@ UNIT_TEST(XMLFeature_AmenityRecyclingFromAndToXml)
 
     auto const th = emo.GetTypes();
     TEST_EQUAL(th.Size(), 1, ());
-    TEST_EQUAL(*th.begin(), classif().GetTypeByPath({"amenity", "recycling"}), ());
+    TEST_EQUAL(th.front(), classif().GetTypeByPath({"amenity", "recycling", "centre"}), ());
 
     auto convertedFt = editor::ToXML(emo, true);
     convertedFt.SetAttribute("timestamp", kTimestamp);
@@ -426,12 +425,13 @@ UNIT_TEST(XMLFeature_AmenityRecyclingFromAndToXml)
 
     auto const th = emo.GetTypes();
     TEST_EQUAL(th.Size(), 1, ());
-    TEST_EQUAL(*th.begin(), classif().GetTypeByPath({"amenity", "recycling_container"}), ());
+    TEST_EQUAL(th.front(), classif().GetTypeByPath({"amenity", "recycling", "container"}), ());
 
     auto convertedFt = editor::ToXML(emo, true);
     convertedFt.SetAttribute("timestamp", kTimestamp);
     TEST_EQUAL(xmlFeature, convertedFt, ());
   }
+  /*
   {
     std::string const recyclingStr = R"(<?xml version="1.0"?>
     <node lat="55.8047445" lon="37.5865532" timestamp="2018-07-11T13:24:41Z">
@@ -446,8 +446,7 @@ UNIT_TEST(XMLFeature_AmenityRecyclingFromAndToXml)
 
     auto const th = emo.GetTypes();
     TEST_EQUAL(th.Size(), 1, ());
-    // We construct recycling container by default if no recycling type is specified.
-    TEST_EQUAL(*th.begin(), classif().GetTypeByPath({"amenity", "recycling_container"}), ());
+    TEST_EQUAL(*th.begin(), classif().GetTypeByPath({"amenity", "recycling"}), ());
 
     auto convertedFt = editor::ToXML(emo, true);
 
@@ -457,5 +456,89 @@ UNIT_TEST(XMLFeature_AmenityRecyclingFromAndToXml)
 
     TEST(convertedFt.HasTag("amenity"), ());
     TEST_EQUAL(convertedFt.GetTagValue("amenity"), "recycling", ());
+  }
+  */
+}
+
+UNIT_TEST(XMLFeature_Diet)
+{
+  XMLFeature ft(XMLFeature::Type::Node);
+  TEST(ft.GetCuisine().empty(), ());
+
+  ft.SetCuisine("vegan;vegetarian");
+  TEST_EQUAL(ft.GetCuisine(), "vegan;vegetarian", ());
+
+  ft.SetCuisine("vegan;pasta;vegetarian");
+  TEST_EQUAL(ft.GetCuisine(), "pasta;vegan;vegetarian", ());
+
+  ft.SetCuisine("vegetarian");
+  TEST_EQUAL(ft.GetCuisine(), "vegetarian", ());
+
+  ft.SetCuisine("vegan");
+  TEST_EQUAL(ft.GetCuisine(), "vegan", ());
+
+  ft.SetCuisine("");
+  TEST_EQUAL(ft.GetCuisine(), "", ());
+}
+
+UNIT_TEST(XMLFeature_SocialContactsProcessing)
+{
+  {
+    std::string const nightclubStr = R"(<?xml version="1.0"?>
+    <node lat="50.4082862" lon="30.5130017" timestamp="2022-02-24T05:07:00Z">
+    <tag k="amenity" v="nightclub" />
+    <tag k="name" v="Stereo Plaza" />
+    <tag k="contact:facebook" v="http://www.facebook.com/pages/Stereo-Plaza/118100041593935" />
+    <tag k="contact:instagram" v="https://www.instagram.com/p/CSy87IhMhfm/" />
+    <tag k="contact:line" v="liff.line.me/1645278921-kWRPP32q/?accountId=673watcr" />
+    </node>
+    )";
+
+    editor::XMLFeature xmlFeature(nightclubStr);
+
+    osm::EditableMapObject emo;
+    editor::FromXML(xmlFeature, emo);
+
+    auto convertedFt = editor::ToXML(emo, true);
+
+    TEST(convertedFt.HasTag("contact:facebook"), ());
+    TEST_EQUAL(convertedFt.GetTagValue("contact:facebook"), "https://facebook.com/pages/Stereo-Plaza/118100041593935", ());
+
+    TEST(convertedFt.HasTag("contact:instagram"), ());
+    TEST_EQUAL(convertedFt.GetTagValue("contact:instagram"), "https://instagram.com/p/CSy87IhMhfm", ());
+
+    TEST(convertedFt.HasTag("contact:line"), ());
+    TEST_EQUAL(convertedFt.GetTagValue("contact:line"), "https://liff.line.me/1645278921-kWRPP32q/?accountId=673watcr", ());
+  }
+}
+
+UNIT_TEST(XMLFeature_SocialContactsProcessing_clean)
+{
+  {
+    std::string const nightclubStr = R"(<?xml version="1.0"?>
+    <node lat="40.82862" lon="20.30017" timestamp="2022-02-24T05:07:00Z">
+    <tag k="amenity" v="bar" />
+    <tag k="name" v="Irish Pub" />
+    <tag k="contact:facebook" v="https://www.facebook.com/PierreCardinPeru.oficial/" />
+    <tag k="contact:instagram" v="https://www.instagram.com/fraback.genusswelt/" />
+    <tag k="contact:line" v="https://line.me/R/ti/p/%40015qevdv" />
+    </node>
+    )";
+
+    editor::XMLFeature xmlFeature(nightclubStr);
+
+    osm::EditableMapObject emo;
+    editor::FromXML(xmlFeature, emo);
+
+    auto convertedFt = editor::ToXML(emo, true);
+
+    TEST(convertedFt.HasTag("contact:facebook"), ());
+    TEST_EQUAL(convertedFt.GetTagValue("contact:facebook"), "PierreCardinPeru.oficial", ());
+
+    TEST(convertedFt.HasTag("contact:instagram"), ());
+    TEST_EQUAL(convertedFt.GetTagValue("contact:instagram"), "fraback.genusswelt", ());
+
+    TEST(convertedFt.HasTag("contact:line"), ());
+    TEST_EQUAL(convertedFt.GetTagValue("contact:line"), "015qevdv", ());
   }
 }

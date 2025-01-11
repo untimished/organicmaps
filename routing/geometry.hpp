@@ -1,23 +1,17 @@
 #pragma once
 
-#include "routing/city_roads.hpp"
 #include "routing/latlon_with_altitude.hpp"
-#include "routing/maxspeeds.hpp"
-#include "routing/road_graph.hpp"
 #include "routing/road_point.hpp"
 #include "routing/routing_options.hpp"
 
-#include "routing_common/maxspeed_conversion.hpp"
 #include "routing_common/vehicle_model.hpp"
 
-#include "indexer/feature_altitude.hpp"
+#include "indexer/mwm_set.hpp"
 
 #include "geometry/latlon.hpp"
 
-#include "base/buffer_vector.hpp"
 #include "base/fifo_cache.hpp"
 
-#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -30,29 +24,37 @@ namespace routing
 {
 // @TODO(bykoianko) Consider setting cache size based on available memory.
 // Maximum road geometry cache size in items.
-size_t constexpr kRoadsCacheSize = 5000;
+size_t constexpr kRoadsCacheSize = 10000;
+
+class RoadAttrsGetter;
 
 class RoadGeometry final
 {
 public:
-  using Points = buffer_vector<m2::PointD, 32>;
+  RoadGeometry() : m_isOneWay(false), m_valid(false), m_isPassThroughAllowed(false), m_inCity(false) {}
 
-  RoadGeometry() = default;
+  /// Used in tests.
+  using Points = std::vector<m2::PointD>;
   RoadGeometry(bool oneWay, double weightSpeedKMpH, double etaSpeedKMpH, Points const & points);
 
+  /// @param[in] altitudes May be nullptr.
   void Load(VehicleModelInterface const & vehicleModel, FeatureType & feature,
-            geometry::Altitudes const * altitudes, bool inCity, Maxspeed const & maxspeed);
+            geometry::Altitudes const * altitudes, RoadAttrsGetter & attrs);
 
-  bool IsOneWay() const { return m_isOneWay; }
   SpeedKMpH const & GetSpeed(bool forward) const;
-  HighwayType GetHighwayType() const { return *m_highwayType; }
+  std::optional<HighwayType> GetHighwayType() const { return m_highwayType; }
+  bool IsOneWay() const { return m_isOneWay; }
   bool IsPassThroughAllowed() const { return m_isPassThroughAllowed; }
+  bool IsInCity() const { return m_inCity; }
 
   LatLonWithAltitude const & GetJunction(uint32_t junctionId) const
   {
     ASSERT_LESS(junctionId, m_junctions.size(), ());
     return m_junctions[junctionId];
   }
+
+  double GetDistance(uint32_t segmendIdx) const;
+  double GetRoadLengthM() const;
 
   ms::LatLon const & GetPoint(uint32_t pointId) const { return GetJunction(pointId).GetLatLon(); }
 
@@ -83,28 +85,17 @@ public:
   RoutingOptions GetRoutingOptions() const { return m_routingOptions; }
 
 private:
+  std::vector<LatLonWithAltitude> m_junctions;
+  mutable std::vector<double> m_distances;    ///< as cache, @see GetDistance()
 
-  double GetRoadLengthM() const;
-
-  buffer_vector<LatLonWithAltitude, 32> m_junctions;
   SpeedKMpH m_forwardSpeed;
   SpeedKMpH m_backwardSpeed;
   std::optional<HighwayType> m_highwayType;
-  bool m_isOneWay = false;
-  bool m_valid = false;
-  bool m_isPassThroughAllowed = false;
   RoutingOptions m_routingOptions;
-};
-
-struct AttrLoader
-{
-  AttrLoader(DataSource const & dataSource, MwmSet::MwmHandle const & handle)
-    : m_cityRoads(LoadCityRoads(dataSource, handle)), m_maxspeeds(LoadMaxspeeds(dataSource, handle))
-  {
-  }
-
-  std::unique_ptr<CityRoads> m_cityRoads;
-  std::unique_ptr<Maxspeeds> m_maxspeeds;
+  bool m_isOneWay : 1;
+  bool m_valid : 1;
+  bool m_isPassThroughAllowed : 1;
+  bool m_inCity : 1;
 };
 
 class GeometryLoader
@@ -114,17 +105,20 @@ public:
 
   virtual void Load(uint32_t featureId, RoadGeometry & road) = 0;
 
-  // handle should be alive: it is caller responsibility to check it.
-  static std::unique_ptr<GeometryLoader> Create(DataSource const & dataSource,
-                                                MwmSet::MwmHandle const & handle,
-                                                std::shared_ptr<VehicleModelInterface> vehicleModel,
-                                                AttrLoader && attrLoader,
+  /// Used in client-app only for the final route preparation.
+  virtual SpeedInUnits GetSavedMaxspeed(uint32_t featureId, bool forward);
+
+  using VehicleModelPtrT = std::shared_ptr<VehicleModelInterface>;
+
+  /// @param[in] handle should be alive, its caller responsibility to check it.
+  static std::unique_ptr<GeometryLoader> Create(MwmSet::MwmHandle const & handle,
+                                                VehicleModelPtrT const & vehicleModel,
                                                 bool loadAltitudes);
 
   /// This is for stand-alone work.
   /// Use in generator_tool and unit tests.
   static std::unique_ptr<GeometryLoader> CreateFromFile(
-      std::string const & fileName, std::shared_ptr<VehicleModelInterface> vehicleModel);
+      std::string const & filePath, VehicleModelPtrT const & vehicleModel);
 };
 
 /// \brief This class supports loading geometry of roads for routing.
@@ -154,11 +148,16 @@ public:
     return GetRoad(rp.GetFeatureId()).GetPoint(rp.GetPointId());
   }
 
+  SpeedInUnits GetSavedMaxspeed(uint32_t featureId, bool forward)
+  {
+    return m_loader->GetSavedMaxspeed(featureId, forward);
+  }
+
 private:
-  using RoutingFifoCache =
-      FifoCache<uint32_t, RoadGeometry, ska::bytell_hash_map<uint32_t, RoadGeometry>>;
+  /// @todo Use LRU cache?
+  using RoutingCacheT = FifoCache<uint32_t, RoadGeometry, ska::bytell_hash_map<uint32_t, RoadGeometry>>;
 
   std::unique_ptr<GeometryLoader> m_loader;
-  std::unique_ptr<RoutingFifoCache> m_featureIdToRoad;
+  std::unique_ptr<RoutingCacheT> m_featureIdToRoad;
 };
 }  // namespace routing

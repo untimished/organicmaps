@@ -15,6 +15,7 @@ namespace routing
 {
 using NumMwmId = std::uint16_t;
 NumMwmId constexpr kFakeNumMwmId = std::numeric_limits<NumMwmId>::max();
+NumMwmId constexpr kGeneratorMwmId = 0;
 
 class NumMwmIds final
 {
@@ -30,7 +31,7 @@ public:
     m_idToFile.push_back(file);
     m_fileToId[file] = id;
 
-    LOG(LDEBUG, ("MWM:", file.GetName(), "=", id));
+    //LOG(LDEBUG, ("MWM:", file.GetName(), "=", id));
   }
 
   bool ContainsFile(platform::CountryFile const & file) const

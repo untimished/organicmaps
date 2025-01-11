@@ -18,13 +18,10 @@ public:
     PointD m_avrDir;
 
     iterator();
-    iterator(iterator const & other);
-    iterator & operator=(iterator const & other);
 
     void Attach(Spline const & spl);
     void Advance(double step);
     bool BeginAgain() const;
-    double GetLength() const;
     double GetFullLength() const;
 
     size_t GetIndex() const;
@@ -49,15 +46,13 @@ public:
   explicit Spline(size_t reservedSize);
   explicit Spline(std::vector<PointD> const & path);
   explicit Spline(std::vector<PointD> && path);
-  Spline const & operator = (Spline const & spl);
 
   void AddPoint(PointD const & pt);
   void ReplacePoint(PointD const & pt);
-  bool IsPrelonging(PointD const & pt);
+  bool IsProlonging(PointD const & pt) const;
+
   size_t GetSize() const;
   std::vector<PointD> const & GetPath() const { return m_position; }
-  std::vector<double> const & GetLengths() const { return m_length; }
-  std::vector<PointD> const & GetDirections() const { return m_direction; }
   void Clear();
 
   iterator GetPoint(double step) const;
@@ -80,14 +75,25 @@ public:
   bool IsValid() const;
 
   double GetLength() const;
+  double GetLastLength() const;
+  /// @return for (i) -> (i + 1) section.
+  std::pair<PointD, double> GetTangentAndLength(size_t i) const;
 
-private:
-  template <typename T>
-  void Init(T && path);
+protected:
+  void InitDirections();
 
   std::vector<PointD> m_position;
   std::vector<PointD> m_direction;
   std::vector<double> m_length;
+};
+
+class SplineEx : public Spline
+{
+public:
+  explicit SplineEx(size_t reservedSize = 2);
+
+  std::vector<double> const & GetLengths() const { return m_length; }
+  std::vector<PointD> const & GetDirections() const { return m_direction; }
 };
 
 class SharedSpline
@@ -96,12 +102,10 @@ public:
   SharedSpline() = default;
   explicit SharedSpline(std::vector<PointD> const & path);
   explicit SharedSpline(std::vector<PointD> && path);
-  SharedSpline(SharedSpline const & other);
-  SharedSpline const & operator= (SharedSpline const & spl);
 
   bool IsNull() const;
   void Reset(Spline * spline);
-  void Reset(std::vector<PointD> const & path);
+  //void Reset(std::vector<PointD> const & path);
 
   Spline::iterator CreateIterator() const;
 

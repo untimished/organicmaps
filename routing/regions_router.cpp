@@ -7,8 +7,6 @@
 #include "routing/regions_sparse_graph.hpp"
 #include "routing/routing_helpers.hpp"
 
-#include "routing_common/car_model.hpp"
-
 #include "base/scope_guard.hpp"
 
 namespace routing
@@ -60,7 +58,7 @@ RouterResultCode RegionsRouter::CalculateSubrouteNoLeapsMode(IndexGraphStarter &
   Visitor visitor(starter, m_delegate, kVisitPeriod, progress);
 
   AStarAlgorithm<Vertex, Edge, Weight>::Params<Visitor, AStarLengthChecker> params(
-      starter, starter.GetStartSegment(), starter.GetFinishSegment(), nullptr /* prevRoute */,
+      starter, starter.GetStartSegment(), starter.GetFinishSegment(),
       m_delegate.GetCancellable(), std::move(visitor), AStarLengthChecker(starter));
 
   params.m_badReducedWeight = [](Weight const & reduced, Weight const & current)
@@ -92,8 +90,6 @@ void RegionsRouter::Do()
   sparseGraph->LoadRegionsSparseGraph();
 
   std::unique_ptr<WorldGraph> graph = std::make_unique<DummyWorldGraph>();
-
-  std::unique_ptr<IndexGraphStarter> starter;
 
   for (size_t i = 0; i < m_checkpoints.GetNumSubroutes(); ++i)
   {

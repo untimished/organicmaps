@@ -2,6 +2,8 @@
 
 #include "base/logging.hpp"
 
+#include "std/target_os.hpp"
+
 #include <chrono>
 #include <exception>
 
@@ -62,7 +64,7 @@ bool Thread::Create(std::unique_ptr<IRoutine> && routine)
     m_routine.reset();
     return false;
   }
-  m_thread = move(routineThread);
+  m_thread = std::move(routineThread);
   return true;
 }
 
@@ -97,6 +99,11 @@ void SimpleThread::ThreadFunc(std::function<void()> && fn)
 #endif  // defined(OMIM_OS_ANDROID)
 
   fn();
+
+  // https://github.com/organicmaps/organicmaps/issues/9397
+  // https://github.com/organicmaps/organicmaps/issues/6139
+  // Manually clear function object to free possible captured data/resources/lambdas _inside_ Attach/Detach context.
+  fn = {};
 
 #if defined(OMIM_OS_ANDROID)
   AndroidThreadDetachFromJVM();

@@ -1,4 +1,5 @@
 #include "generator/affiliation.hpp"
+#include "generator/cells_merger.hpp"
 
 #include "platform/platform.hpp"
 
@@ -6,23 +7,20 @@
 
 #include "base/thread_pool_computational.hpp"
 
-#include <cmath>
 #include <functional>
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wcomma"
-#include <boost/geometry.hpp>
-#pragma clang diagnostic pop
+#include "std/boost_geometry.hpp"
 #include <boost/geometry/geometries/register/ring.hpp>
 #include <boost/geometry/geometries/register/point.hpp>
 
-BOOST_GEOMETRY_REGISTER_POINT_2D(m2::PointD, double, boost::geometry::cs::cartesian, x, y);
-BOOST_GEOMETRY_REGISTER_RING(std::vector<m2::PointD>);
 
-namespace
+BOOST_GEOMETRY_REGISTER_POINT_2D(m2::PointD, double, boost::geometry::cs::cartesian, x, y)
+BOOST_GEOMETRY_REGISTER_RING(std::vector<m2::PointD>)
+
+namespace feature
 {
-using namespace feature;
-
+namespace affiliation
+{
 template <typename T>
 struct RemoveCvref
 {
@@ -38,6 +36,13 @@ m2::RectD GetLimitRect(T && t)
   using Type = RemoveCvrefT<T>;
   if constexpr(std::is_same_v<Type, FeatureBuilder>)
     return t.GetLimitRect();
+  if constexpr(std::is_same_v<Type, std::vector<m2::PointD>>)
+  {
+    m2::RectD r;
+    for (auto const & p : t)
+      r.Add(p);
+    return r;
+  }
   if constexpr(std::is_same_v<Type, m2::PointD>)
     return m2::RectD(t, t);
 
@@ -49,9 +54,11 @@ bool ForAnyPoint(T && t, F && f)
 {
   using Type = RemoveCvrefT<T>;
   if constexpr(std::is_same_v<Type, FeatureBuilder>)
-    return t.ForAnyPoint(std::forward<F>(f));
+    return t.ForAnyPoint(f);
+  if constexpr(std::is_same_v<Type, std::vector<m2::PointD>>)
+    return base::AnyOf(t, f);
   if constexpr(std::is_same_v<Type, m2::PointD>)
-    return f(std::forward<T>(t));
+    return f(t);
 
   UNREACHABLE();
 }
@@ -70,13 +77,14 @@ void ForEachPoint(T && t, F && f)
 
 // An implementation for CountriesFilesAffiliation class.
 template <typename T>
-std::vector<std::string> GetAffiliations(T && t,
+std::vector<std::string> GetAffiliations(T const & t,
                                          borders::CountryPolygonsCollection const & countryPolygonsTree,
                                          bool haveBordersForWholeWorld)
 {
   std::vector<std::string> countries;
   std::vector<std::reference_wrapper<borders::CountryPolygons const>> countriesContainer;
-  countryPolygonsTree.ForEachCountryInRect(GetLimitRect(t), [&](auto const & countryPolygons) {
+  countryPolygonsTree.ForEachCountryInRect(GetLimitRect(t), [&](auto const & countryPolygons)
+  {
     countriesContainer.emplace_back(countryPolygons);
   });
 
@@ -91,7 +99,8 @@ std::vector<std::string> GetAffiliations(T && t,
 
   for (borders::CountryPolygons const & countryPolygons : countriesContainer)
   {
-    auto const need = ForAnyPoint(t, [&](auto const & point) {
+    auto const need = ForAnyPoint(t, [&](auto const & point)
+    {
       return countryPolygons.Contains(point);
     });
 
@@ -168,10 +177,8 @@ std::vector<std::string> GetAffiliations(T && t, IndexSharedPtr const & index)
   auto const oneCountry = IsOneCountryForLimitRect(GetLimitRect(t), index);
   return oneCountry ? std::vector<std::string>{*oneCountry} : GetHonestAffiliations(t, index);
 }
-}  // namespace
+}  // namespace affiliation
 
-namespace feature
-{
 CountriesFilesAffiliation::CountriesFilesAffiliation(std::string const & borderPath, bool haveBordersForWholeWorld)
   : m_countryPolygonsTree(borders::GetOrCreateCountryPolygonsTree(borderPath))
   , m_haveBordersForWholeWorld(haveBordersForWholeWorld)
@@ -180,13 +187,17 @@ CountriesFilesAffiliation::CountriesFilesAffiliation(std::string const & borderP
 
 std::vector<std::string> CountriesFilesAffiliation::GetAffiliations(FeatureBuilder const & fb) const
 {
-  return ::GetAffiliations(fb, m_countryPolygonsTree, m_haveBordersForWholeWorld);
+  return affiliation::GetAffiliations(fb, m_countryPolygonsTree, m_haveBordersForWholeWorld);
 }
 
-std::vector<std::string>
-CountriesFilesAffiliation::GetAffiliations(m2::PointD const & point) const
+std::vector<std::string> CountriesFilesAffiliation::GetAffiliations(m2::PointD const & point) const
 {
-  return ::GetAffiliations(point, m_countryPolygonsTree, m_haveBordersForWholeWorld);
+  return affiliation::GetAffiliations(point, m_countryPolygonsTree, m_haveBordersForWholeWorld);
+}
+
+std::vector<std::string> CountriesFilesAffiliation::GetAffiliations(std::vector<m2::PointD> const & points) const
+{
+  return affiliation::GetAffiliations(points, m_countryPolygonsTree, m_haveBordersForWholeWorld);
 }
 
 bool CountriesFilesAffiliation::HasCountryByName(std::string const & name) const
@@ -221,12 +232,12 @@ CountriesFilesIndexAffiliation::CountriesFilesIndexAffiliation(std::string const
 
 std::vector<std::string> CountriesFilesIndexAffiliation::GetAffiliations(FeatureBuilder const & fb) const
 {
-  return ::GetAffiliations(fb, m_index);
+  return affiliation::GetAffiliations(fb, m_index);
 }
 
 std::vector<std::string> CountriesFilesIndexAffiliation::GetAffiliations(m2::PointD const & point) const
 {
-  return ::GetAffiliations(point, m_index);
+  return affiliation::GetAffiliations(point, m_index);
 }
 
 std::shared_ptr<CountriesFilesIndexAffiliation::Tree>
@@ -238,7 +249,7 @@ CountriesFilesIndexAffiliation::BuildIndex(const std::vector<m2::RectD> & net)
   std::mutex treeCellsMutex;
   auto const numThreads = GetPlatform().CpuCores();
   {
-    base::thread_pool::computational::ThreadPool pool(numThreads);
+    base::ComputationalThreadPool pool(numThreads);
     for (auto const & rect : net)
     {
       pool.SubmitWork([&, rect]() {
@@ -254,7 +265,7 @@ CountriesFilesIndexAffiliation::BuildIndex(const std::vector<m2::RectD> & net)
         }
         else
         {
-          auto const box = MakeBox(rect);
+          auto const box = affiliation::MakeBox(rect);
           std::vector<std::reference_wrapper<borders::CountryPolygons const>> interCountries;
           for (borders::CountryPolygons const & cp : countries)
           {
@@ -283,7 +294,7 @@ CountriesFilesIndexAffiliation::BuildIndex(const std::vector<m2::RectD> & net)
     }
   }
   {
-    base::thread_pool::computational::ThreadPool pool(numThreads);
+    base::ComputationalThreadPool pool(numThreads);
     for (auto & pair : countriesRects)
     {
       pool.SubmitWork([&, countryPtr{pair.first}, rects{std::move(pair.second)}]() mutable {
@@ -293,7 +304,7 @@ CountriesFilesIndexAffiliation::BuildIndex(const std::vector<m2::RectD> & net)
         {
           std::vector<std::reference_wrapper<borders::CountryPolygons const>> interCountries{*countryPtr};
           std::lock_guard<std::mutex> lock(treeCellsMutex);
-          treeCells.emplace_back(MakeBox(rect), std::move(interCountries));
+          treeCells.emplace_back(affiliation::MakeBox(rect), std::move(interCountries));
         }
       });
     }

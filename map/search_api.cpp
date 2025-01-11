@@ -3,21 +3,16 @@
 #include "map/bookmarks_search_params.hpp"
 #include "map/everywhere_search_params.hpp"
 
-
-#include "search/bookmarks/processor.hpp"
 #include "search/geometry_utils.hpp"
-#include "search/tracer.hpp"
 #include "search/utils.hpp"
 
 #include "storage/downloader_search_params.hpp"
 
 #include "platform/preferred_languages.hpp"
-#include "platform/safe_callback.hpp"
 
 #include "geometry/mercator.hpp"
 
 #include "base/checked_cast.hpp"
-#include "base/string_utils.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -35,8 +30,6 @@ using BookmarkIdDoc = pair<bookmarks::Id, bookmarks::Doc>;
 
 double const kDistEqualQueryMeters = 100.0;
 double const kDistEqualQueryMercator = mercator::MetersToMercator(kDistEqualQueryMeters);
-
-size_t const kMaximumPossibleNumberOfBookmarksToIndex = 5000;
 
 // Cancels search query by |handle|.
 void CancelQuery(weak_ptr<ProcessorHandle> & handle)
@@ -100,7 +93,10 @@ class BookmarksSearchCallback
 public:
   using OnResults = BookmarksSearchParams::OnResults;
 
-  explicit BookmarksSearchCallback(OnResults const & onResults) : m_onResults(onResults) {}
+  BookmarksSearchCallback(SearchAPI::Delegate & delegate, OnResults onResults)
+    : m_delegate(delegate), m_onResults(std::move(onResults))
+  {
+  }
 
   void operator()(Results const & results)
   {
@@ -126,13 +122,18 @@ public:
 
     for (size_t i = m_results.size(); i < rs.size(); ++i)
       m_results.emplace_back(SearchBookmarkIdToKmlMarkId(rs[i].m_id));
-    if (m_onResults)
-      m_onResults(m_results, m_status);
+
+    m_delegate.RunUITask([onResults = m_onResults, results = m_results, status = m_status]() mutable
+    {
+      onResults(std::move(results), status);
+    });
   }
 
 private:
   BookmarksSearchParams::Results m_results;
   BookmarksSearchParams::Status m_status = BookmarksSearchParams::Status::InProgress;
+
+  SearchAPI::Delegate & m_delegate;
   OnResults m_onResults;
 };
 }  // namespace
@@ -145,7 +146,7 @@ SearchAPI::SearchAPI(DataSource & dataSource, storage::Storage const & storage,
   , m_infoGetter(infoGetter)
   , m_delegate(delegate)
   , m_engine(m_dataSource, GetDefaultCategories(), m_infoGetter,
-             Engine::Params(languages::GetCurrentTwine() /* locale */, numThreads))
+             Engine::Params(languages::GetCurrentMapTwine() /* locale */, numThreads))
 {
 }
 
@@ -172,11 +173,11 @@ void SearchAPI::OnViewportChanged(m2::RectD const & viewport)
   PokeSearchInViewport(forceSearchInViewport);
 }
 
-bool SearchAPI::SearchEverywhere(EverywhereSearchParams const & params)
+bool SearchAPI::SearchEverywhere(EverywhereSearchParams params)
 {
   SearchParams p;
-  p.m_query = params.m_query;
-  p.m_inputLocale = params.m_inputLocale;
+  p.m_query = std::move(params.m_query);
+  p.m_inputLocale = std::move(params.m_inputLocale);
   p.m_mode = Mode::Everywhere;
   p.m_position = m_delegate.GetCurrentPosition();
   SetViewportIfPossible(p);  // Search request will be delayed if viewport is not available.
@@ -184,26 +185,23 @@ bool SearchAPI::SearchEverywhere(EverywhereSearchParams const & params)
   p.m_suggestsEnabled = true;
   p.m_needAddress = true;
   p.m_needHighlighting = true;
+  p.m_categorialRequest = params.m_isCategory;
   if (params.m_timeout)
     p.m_timeout = *params.m_timeout;
 
-  p.m_onResults = EverywhereSearchCallback(
-      static_cast<ProductInfo::Delegate &>(*this),
-      [this, params](Results const & results, vector<ProductInfo> const & productInfo) {
-        if (params.m_onResults)
-          RunUITask([params, results, productInfo] {
-            params.m_onResults(results, productInfo);
-          });
-      });
+  p.m_onResults = EverywhereSearchCallback(*this, std::move(params.m_onResults));
 
-  return Search(p, true /* forceSearch */);
+  return Search(std::move(p), true /* forceSearch */);
 }
 
-bool SearchAPI::SearchInViewport(ViewportSearchParams const & params)
+bool SearchAPI::SearchInViewport(ViewportSearchParams params)
 {
+  // Save params first for the PokeSearchInViewport function.
+  m_viewportParams = params;
+
   SearchParams p;
-  p.m_query = params.m_query;
-  p.m_inputLocale = params.m_inputLocale;
+  p.m_query = std::move(params.m_query);
+  p.m_inputLocale = std::move(params.m_inputLocale);
   p.m_position = m_delegate.GetCurrentPosition();
   SetViewportIfPossible(p);  // Search request will be delayed if viewport is not available.
   p.m_maxNumResults = SearchParams::kDefaultNumResultsInViewport;
@@ -211,27 +209,25 @@ bool SearchAPI::SearchInViewport(ViewportSearchParams const & params)
   p.m_suggestsEnabled = false;
   p.m_needAddress = false;
   p.m_needHighlighting = false;
+  p.m_categorialRequest = params.m_isCategory;
+
   if (params.m_timeout)
     p.m_timeout = *params.m_timeout;
 
-  p.m_onStarted = [this, params] {
-    if (params.m_onStarted)
-      RunUITask([params]() { params.m_onStarted(); });
-  };
+  if (params.m_onStarted)
+  {
+    p.m_onStarted = [this, onStarted = std::move(params.m_onStarted)]() mutable
+    {
+      RunUITask([onStarted = std::move(onStarted)]() { onStarted(); });
+    };
+  }
 
-  p.m_onResults = ViewportSearchCallback(
-    m_viewport,
-    static_cast<ViewportSearchCallback::Delegate &>(*this),
-      [this, params](Results const & results) {
-        if (results.IsEndMarker() && params.m_onCompleted)
-          RunUITask([params, results] { params.m_onCompleted(results); });
-      });
+  p.m_onResults = ViewportSearchCallback(m_viewport, *this, std::move(params.m_onCompleted));
 
-  m_viewportParams = params;
-  return Search(p, false /* forceSearch */);
+  return Search(std::move(p), false /* forceSearch */);
 }
 
-bool SearchAPI::SearchInDownloader(storage::DownloaderSearchParams const & params)
+bool SearchAPI::SearchInDownloader(storage::DownloaderSearchParams params)
 {
   SearchParams p;
   p.m_query = params.m_query;
@@ -244,16 +240,15 @@ bool SearchAPI::SearchInDownloader(storage::DownloaderSearchParams const & param
   p.m_needAddress = false;
   p.m_needHighlighting = false;
 
-  p.m_onResults = DownloaderSearchCallback(static_cast<DownloaderSearchCallback::Delegate &>(*this),
-                                           m_dataSource, m_infoGetter, m_storage, params);
+  p.m_onResults = DownloaderSearchCallback(*this, m_dataSource, m_infoGetter, m_storage, std::move(params));
 
-  return Search(p, true /* forceSearch */);
+  return Search(std::move(p), true /* forceSearch */);
 }
 
-bool SearchAPI::SearchInBookmarks(search::BookmarksSearchParams const & params)
+bool SearchAPI::SearchInBookmarks(search::BookmarksSearchParams params)
 {
   SearchParams p;
-  p.m_query = params.m_query;
+  p.m_query = std::move(params.m_query);
   p.m_position = m_delegate.GetCurrentPosition();
   SetViewportIfPossible(p);  // Search request will be delayed if viewport is not available.
   p.m_maxNumResults = SearchParams::kDefaultNumBookmarksResults;
@@ -261,22 +256,10 @@ bool SearchAPI::SearchInBookmarks(search::BookmarksSearchParams const & params)
   p.m_suggestsEnabled = false;
   p.m_needAddress = false;
 
-  auto const onStarted = params.m_onStarted;
-  p.m_onStarted = [this, onStarted]() {
-    if (onStarted)
-      RunUITask([onStarted]() { onStarted(); });
-  };
-
   p.m_bookmarksGroupId = params.m_groupId;
+  p.m_onResults = BookmarksSearchCallback(m_delegate, std::move(params.m_onResults));
 
-  auto const onResults = params.m_onResults;
-  p.m_onResults = BookmarksSearchCallback([this, onResults](
-      BookmarksSearchParams::Results const & results, BookmarksSearchParams::Status status) {
-    if (onResults)
-      RunUITask([onResults, results, status]() { onResults(results, status); });
-  });
-
-  return Search(p, true /* forceSearch */);
+  return Search(std::move(p), true /* forceSearch */);
 }
 
 void SearchAPI::PokeSearchInViewport(bool forceSearch)
@@ -288,14 +271,9 @@ void SearchAPI::PokeSearchInViewport(bool forceSearch)
   auto params = m_searchIntents[static_cast<size_t>(Mode::Viewport)].m_params;
   SetViewportIfPossible(params);
   params.m_position = m_delegate.GetCurrentPosition();
-  params.m_onResults = ViewportSearchCallback(
-    m_viewport,
-    static_cast<ViewportSearchCallback::Delegate &>(*this),
-    [this](Results const & results) {
-      if (results.IsEndMarker() && m_viewportParams.m_onCompleted)
-        RunUITask([p = m_viewportParams, results] { p.m_onCompleted(results); });
-    });
-  Search(params, forceSearch);
+  params.m_onResults = ViewportSearchCallback(m_viewport, *this, m_viewportParams.m_onCompleted);
+
+  Search(std::move(params), forceSearch);
 }
 
 void SearchAPI::CancelSearch(Mode mode)
@@ -318,7 +296,7 @@ void SearchAPI::CancelAllSearches()
     CancelSearch(static_cast<Mode>(i));
 }
 
-void SearchAPI::RunUITask(function<void()> fn) { return m_delegate.RunUITask(fn); }
+void SearchAPI::RunUITask(function<void()> fn) { return m_delegate.RunUITask(std::move(fn)); }
 
 bool SearchAPI::IsViewportSearchActive() const
 {
@@ -341,12 +319,6 @@ void SearchAPI::EnableIndexingOfBookmarksDescriptions(bool enable)
   m_engine.EnableIndexingOfBookmarksDescriptions(enable);
 }
 
-// static
-size_t SearchAPI::GetMaximumPossibleNumberOfBookmarksToIndex()
-{
-  return kMaximumPossibleNumberOfBookmarksToIndex;
-}
-
 void SearchAPI::EnableIndexingOfBookmarkGroup(kml::MarkGroupId const & groupId, bool enable)
 {
   if (enable)
@@ -355,11 +327,6 @@ void SearchAPI::EnableIndexingOfBookmarkGroup(kml::MarkGroupId const & groupId, 
     m_indexableGroups.erase(groupId);
 
   m_engine.EnableIndexingOfBookmarkGroup(KmlGroupIdToSearchGroupId(groupId), enable);
-}
-
-bool SearchAPI::IsIndexingOfBookmarkGroupEnabled(kml::MarkGroupId const & groupId)
-{
-  return m_indexableGroups.count(groupId) > 0;
 }
 
 unordered_set<kml::MarkGroupId> const & SearchAPI::GetIndexableGroups() const
@@ -414,7 +381,7 @@ void SearchAPI::OnBookmarksDetached(vector<BookmarkGroupInfo> const & groupInfos
   }
 }
 
-bool SearchAPI::Search(SearchParams const & params, bool forceSearch)
+bool SearchAPI::Search(SearchParams params, bool forceSearch)
 {
   if (m_delegate.ParseSearchQueryCommand(params))
     return false;
@@ -425,15 +392,12 @@ bool SearchAPI::Search(SearchParams const & params, bool forceSearch)
   if (!forceSearch && QueryMayBeSkipped(intent.m_params, params))
     return false;
 
-  intent.m_params = params;
+  intent.m_params = std::move(params);
 
-  // Cancels previous search request (if any) and initiates a new
-  // search request.
+  // Cancels previous search request (if any) and initiates a new search request.
   CancelQuery(intent.m_handle);
 
-  auto const minDistanceBetweenResults = m_delegate.GetMinDistanceBetweenResults();
-  intent.m_params.m_minDistanceOnMapBetweenResultsX = minDistanceBetweenResults.x;
-  intent.m_params.m_minDistanceOnMapBetweenResultsY = minDistanceBetweenResults.y;
+  intent.m_params.m_minDistanceOnMapBetweenResults = m_delegate.GetMinDistanceBetweenResults();
 
   Search(intent);
 
@@ -456,6 +420,11 @@ void SearchAPI::SetViewportIfPossible(SearchParams & params)
 {
   if (m_isViewportInitialized)
     params.m_viewport = m_viewport;
+}
+
+void SearchAPI::SetLocale(std::string const & locale)
+{
+  m_engine.SetLocale(locale);
 }
 
 bool SearchAPI::QueryMayBeSkipped(SearchParams const & prevParams,

@@ -33,6 +33,23 @@ namespace stats
     double m_area;
   };
 
+  struct GeomInfo
+  {
+    void Add(uint64_t szBytes, uint32_t elements)
+    {
+      if (szBytes > 0)
+      {
+        ++m_count;
+        m_size += szBytes;
+        m_elements += elements;
+      }
+    }
+
+    uint64_t m_count = 0, m_size = 0, m_elements = 0;
+  };
+
+  using GeomStats = GeomInfo[feature::DataHeader::kMaxScalesCount];
+
   template <class T, int Tag>
   struct IntegralType
   {
@@ -47,17 +64,31 @@ namespace stats
 
   struct MapInfo
   {
+    explicit MapInfo(int geomMinDiff, double geomMinFactor)
+      : m_geomMinDiff(geomMinDiff)
+      , m_geomMinFactor(geomMinFactor)
+    {}
+
+    size_t m_geomMinDiff;
+    double m_geomMinFactor;
+
     std::map<feature::GeomType, GeneralInfo> m_byGeomType;
     std::map<ClassifType, GeneralInfo> m_byClassifType;
     std::map<CountType, GeneralInfo> m_byPointsCount, m_byTrgCount;
     std::map<AreaType, GeneralInfo> m_byAreaSize;
 
-    GeneralInfo m_inner[3];
+    GeomStats m_byLineGeom, m_byAreaGeom,
+              m_byLineGeomComparedS, m_byLineGeomComparedD,
+              m_byAreaGeomComparedS, m_byAreaGeomComparedD,
+              m_byLineGeomDup, m_byAreaGeomDup;
+
+    GeneralInfo m_innerPoints, m_innerFirstPoints, m_innerStrips, m_innerSize;
   };
 
-  void FileContainerStatistic(std::ostream & os, std::string const & fPath);
+  void PrintFileContainerStats(std::ostream & os, std::string const & fPath);
 
-  void CalcStatistic(std::string const & fPath, MapInfo & info);
-  void PrintStatistic(std::ostream & os, MapInfo & info);
-  void PrintTypeStatistic(std::ostream & os, MapInfo & info);
+  void CalcStats(std::string const & fPath, MapInfo & info);
+  void PrintStats(std::ostream & os, MapInfo & info);
+  void PrintTypeStats(std::ostream & os, MapInfo & info);
+  void PrintOuterGeometryStats(std::ostream & os, MapInfo & info);
 }

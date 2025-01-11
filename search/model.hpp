@@ -1,22 +1,12 @@
 #pragma once
 
-#include "indexer/ftypes_matcher.hpp"
-
-#include "base/macros.hpp"
-
+#include <cstdint>
 #include <string>
 
 class FeatureType;
 
 namespace search
 {
-/// Describes 2-level POI-exception types that don't belong to any POI-common classes
-/// (amenity, shop, tourism, ...). Used in search algo and search categories index generation.
-class TwoLevelPOIChecker : public ftypes::BaseChecker
-{
-public:
-  TwoLevelPOIChecker();
-};
 
 // This class is used to map feature types to a restricted set of
 // different search classes (do not confuse these classes with search
@@ -24,13 +14,13 @@ public:
 class Model
 {
 public:
-  // WARNING: after modifications to the enum below, re-check all methods in the class.
-  enum Type
+  /// @note Check ranking_info.cpp constants (kType) before changing this enum.
+  enum Type : uint8_t
   {
     // Low-level features such as amenities, offices, shops, buildings without house number, etc.
     // Can be stand-alone or located inside COMPLEX_POIs. E.g. cafes/shops inside
     // airports/universities/museums.
-    TYPE_SUBPOI,
+    TYPE_SUBPOI = 0,
 
     // Big pois which can contain SUBPOIs. E.g. airports, train stations, malls, parks.
     TYPE_COMPLEX_POI,
@@ -58,6 +48,7 @@ public:
   }
 
   static bool IsPoi(Type const type) { return type == TYPE_SUBPOI || type == TYPE_COMPLEX_POI; }
+  static bool IsPoiOrBuilding(Type const type) { return IsPoi(type) || type == TYPE_BUILDING; }
 
   Type GetType(FeatureType & feature) const;
 };

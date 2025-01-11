@@ -20,6 +20,7 @@ let alpha100: CGFloat = 1.0
   var secondary: UIColor { get }
   var primaryLight: UIColor { get }
   var menuBackground:  UIColor { get }
+  var tabBarButtonBackground:  UIColor { get }
   var downloadBadgeBackground: UIColor { get }
   var pressBackground: UIColor { get }
   var red: UIColor { get }
@@ -47,11 +48,6 @@ let alpha100: CGFloat = 1.0
   var statusBarBackground: UIColor { get }
   var searchPromoBackground: UIColor { get }
   var border: UIColor { get }
-  var discountBackground: UIColor { get }
-  var discountText: UIColor { get }
-  var bookmarkSubscriptionBackground: UIColor { get }
-  var bookmarkSubscriptionScrollBackground: UIColor { get }
-  var bookmarkSubscriptionFooterBackground: UIColor { get }
   var bookingBackground: UIColor { get }
   var opentableBackground: UIColor { get }
   var transparentGreen: UIColor { get }
@@ -62,14 +58,6 @@ let alpha100: CGFloat = 1.0
   var ratingGreen: UIColor { get }
   var facebookButtonBackground: UIColor { get }
   var facebookButtonBackgroundDisabled: UIColor { get }
-  var allPassSubscriptionTitle: UIColor { get }
-  var allPassSubscriptionSubTitle: UIColor { get }
-  var allPassSubscriptionDescription: UIColor { get }
-  var allPassSubscriptionMonthlyBackground: UIColor { get }
-  var allPassSubscriptionYearlyBackground: UIColor { get }
-  var allPassSubscriptionMonthlyTitle: UIColor { get }
-  var allPassSubscriptionDiscountBackground: UIColor { get }
-  var allPassSubscriptionTermsTitle: UIColor { get }
   var fadeBackground: UIColor { get }
   var blackStatusBarBackground: UIColor { get }
   var elevationPreviewSelector: UIColor { get }
@@ -80,4 +68,7 @@ let alpha100: CGFloat = 1.0
   var cityColor: UIColor { get }
   var outdoorColor: UIColor { get }
   var lonelyPlanetLogoColor: UIColor { get }
+  var carplayPlaceholderBackground: UIColor { get }
+  var iconOpaqueGrayTint: UIColor { get }
+  var iconOpaqueGrayBackground: UIColor { get }
 }

@@ -1,26 +1,13 @@
 #pragma once
 
-#include "indexer/cell_id.hpp"
-#include "indexer/feature.hpp"
 #include "indexer/feature_covering.hpp"
-#include "indexer/features_offsets_table.hpp"
 #include "indexer/feature_source.hpp"
-#include "indexer/features_vector.hpp"
 #include "indexer/mwm_set.hpp"
-#include "indexer/scale_index.hpp"
-#include "indexer/unique_index.hpp"
 
-#include "coding/files_container.hpp"
-
-#include "base/macros.hpp"
-
-#include <cstdint>
 #include <functional>
 #include <memory>
 #include <utility>
 #include <vector>
-
-#include "defines.hpp"
 
 class DataSource : public MwmSet
 {
@@ -28,8 +15,6 @@ public:
   using FeatureCallback = std::function<void(FeatureType &)>;
   using FeatureIdCallback = std::function<void(FeatureID const &)>;
   using StopSearchCallback = std::function<bool(void)>;
-
-  ~DataSource() override = default;
 
   /// Registers a new map.
   std::pair<MwmId, RegResult> RegisterMap(platform::LocalCountryFile const & localFile);
@@ -41,7 +26,8 @@ public:
   ///         now, returns false.
   bool DeregisterMap(platform::CountryFile const & countryFile);
 
-  void ForEachFeatureIDInRect(FeatureIdCallback const & f, m2::RectD const & rect, int scale) const;
+  void ForEachFeatureIDInRect(FeatureIdCallback const & f, m2::RectD const & rect, int scale,
+                              covering::CoveringMode mode = covering::ViewportWithLowLevels) const;
   void ForEachInRect(FeatureCallback const & f, m2::RectD const & rect, int scale) const;
   // Calls |f| for features closest to |center| until |stopCallback| returns true or distance
   // |sizeM| from has been reached. Then for EditableDataSource calls |f| for each edited feature
@@ -60,6 +46,11 @@ public:
     return ReadFeatures(fn, {feature});
   }
 
+  std::unique_ptr<FeatureSource> CreateFeatureSource(DataSource::MwmHandle const & handle) const
+  {
+    return (*m_factory)(handle);
+  }
+
 protected:
   using ReaderCallback = std::function<void(MwmSet::MwmHandle const & handle,
                                             covering::CoveringGetter & cov, int scale)>;
@@ -69,13 +60,13 @@ protected:
   void ForEachInIntervals(ReaderCallback const & fn, covering::CoveringMode mode,
                           m2::RectD const & rect, int scale) const;
 
-  /// MwmSet overrides:
+  /// @name MwmSet overrides
+  /// @{
   std::unique_ptr<MwmInfo> CreateInfo(platform::LocalCountryFile const & localFile) const override;
   std::unique_ptr<MwmValue> CreateValue(MwmInfo & info) const override;
+  /// @}
 
 private:
-  friend class FeaturesLoaderGuard;
-
   std::unique_ptr<FeatureSourceFactory> m_factory;
 };
 
@@ -88,21 +79,25 @@ public:
 };
 
 /// Guard for loading features from particular MWM by demand.
-/// @note This guard is suitable when mwm is loaded.
 /// @note If you need to work with FeatureType from different threads you need to use
-/// a unique FeaturesLoaderGuard instance for every thread. But construction of instances of
-/// FeaturesLoaderGuard should be serialized. For an example of concurrent extracting feature
-/// details please see ConcurrentFeatureParsingTest.
+/// a unique FeaturesLoaderGuard instance for every thread.
+/// For an example of concurrent extracting feature details please see ConcurrentFeatureParsingTest.
 class FeaturesLoaderGuard
 {
 public:
   FeaturesLoaderGuard(DataSource const & dataSource, DataSource::MwmId const & id)
-    : m_handle(dataSource.GetMwmHandleById(id)), m_source((*dataSource.m_factory)(m_handle))
+    : m_handle(dataSource.GetMwmHandleById(id)), m_source(dataSource.CreateFeatureSource(m_handle))
   {
+    // FeaturesLoaderGuard is always created in-place, so MWM should always be alive.
+    ASSERT(id.IsAlive(), ());
   }
 
   MwmSet::MwmId const & GetId() const { return m_handle.GetId(); }
+  MwmSet::MwmHandle const & GetHandle() const { return m_handle; }
+
   std::string GetCountryFileName() const;
+  int64_t GetVersion() const;
+
   bool IsWorld() const;
   /// Editor core only method, to get 'untouched', original version of feature.
   std::unique_ptr<FeatureType> GetOriginalFeatureByIndex(uint32_t index) const;
@@ -112,6 +107,6 @@ public:
   size_t GetNumFeatures() const { return m_source->GetNumFeatures(); }
 
 private:
-  DataSource::MwmHandle m_handle;
+  MwmSet::MwmHandle m_handle;
   std::unique_ptr<FeatureSource> m_source;
 };

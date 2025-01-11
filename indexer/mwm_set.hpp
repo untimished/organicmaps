@@ -1,16 +1,16 @@
 #pragma once
+#include "indexer/data_factory.hpp"
+#include "indexer/house_to_street_iface.hpp"
 
-#include "platform/country_file.hpp"
 #include "platform/local_country_file.hpp"
 #include "platform/mwm_version.hpp"
 
 #include "geometry/rect2d.hpp"
 
 #include "base/macros.hpp"
+#include "base/observer_list.hpp"
 
-#include "indexer/data_factory.hpp"
-#include "indexer/feature_meta.hpp"
-#include "indexer/features_offsets_table.hpp"
+#include "defines.hpp"
 
 #include <atomic>
 #include <deque>
@@ -21,7 +21,7 @@
 #include <utility>
 #include <vector>
 
-#include "base/observer_list.hpp"
+namespace feature { class FeaturesOffsetsTable; }
 
 /// Information about stored mwm.
 class MwmInfo
@@ -47,8 +47,12 @@ public:
   MwmInfo();
   virtual ~MwmInfo() = default;
 
-  m2::RectD m_bordersRect;        ///< Rect around region border. Features which cross region border may
-                                  ///< cross this rect.
+  /// @obsolete Rect around region border. Features which cross region border may cross this rect.
+  /// @todo VNG: Not true. This rect accumulates all features in MWM. Since we don't crop features by border,
+  /// the rect defines _bigger_ area (in general) that MWM is responsible for.
+  /// Take into account this fact, or you can get fair rect with CountryInfoGetter.
+  m2::RectD m_bordersRect;
+
   uint8_t m_minScale;             ///< Min zoom level of mwm.
   uint8_t m_maxScale;             ///< Max zoom level of mwm.
   version::MwmVersion m_version;  ///< Mwm file version.
@@ -115,13 +119,12 @@ public:
     friend class MwmSet;
 
     MwmId() = default;
-    MwmId(std::shared_ptr<MwmInfo> const & info) : m_info(info) {}
+    explicit MwmId(std::shared_ptr<MwmInfo> const & info) : m_info(info) {}
 
     void Reset() { m_info.reset(); }
     bool IsAlive() const { return (m_info && m_info->GetStatus() != MwmInfo::STATUS_DEREGISTERED); }
     bool IsDeregistered(platform::LocalCountryFile const & deregisteredCountryFile) const;
 
-    std::shared_ptr<MwmInfo> & GetInfo() { return m_info; }
     std::shared_ptr<MwmInfo> const & GetInfo() const { return m_info; }
 
     bool operator==(MwmId const & rhs) const { return GetInfo() == rhs.GetInfo(); }
@@ -148,7 +151,7 @@ public:
     ~MwmHandle();
 
     // Returns a non-owning ptr.
-    MwmValue const * GetValue() const { return m_value.get(); }
+    MwmValue * GetValue() const { return m_value.get(); }
 
     bool IsAlive() const { return m_value.get() != nullptr; }
     MwmId const & GetId() const { return m_mwmId; }
@@ -156,14 +159,11 @@ public:
 
     MwmHandle & operator=(MwmHandle && handle);
 
-  protected:
-    MwmId m_mwmId;
-
   private:
     friend class MwmSet;
-
     MwmHandle(MwmSet & mwmSet, MwmId const & mwmId, std::unique_ptr<MwmValue> && value);
 
+    MwmId m_mwmId;
     MwmSet * m_mwmSet;
     std::unique_ptr<MwmValue> m_value;
 
@@ -287,6 +287,7 @@ public:
 
   /// Get ids of all mwms. Some of them may be with not active status.
   /// In that case, LockValue returns NULL.
+  /// @todo In fact, std::shared_ptr<MwmInfo> is a MwmId. Seems like better to make vector<MwmId> interface.
   void GetMwmsInfo(std::vector<std::shared_ptr<MwmInfo>> & info) const;
 
   // Clears caches and mwm's registry. All known mwms won't be marked as DEREGISTERED.
@@ -378,6 +379,8 @@ public:
   platform::LocalCountryFile const m_file;
 
   std::shared_ptr<feature::FeaturesOffsetsTable> m_table;
+  std::unique_ptr<indexer::MetadataDeserializer> m_metaDeserializer;
+  std::unique_ptr<HouseToStreetTable> m_house2street, m_house2place;
 
   explicit MwmValue(platform::LocalCountryFile const & localFile);
   void SetTable(MwmInfoEx & info);
@@ -385,7 +388,7 @@ public:
   feature::DataHeader const & GetHeader() const  { return m_factory.GetHeader(); }
   feature::RegionData const & GetRegionData() const { return m_factory.GetRegionData(); }
   version::MwmVersion const & GetMwmVersion() const { return m_factory.GetMwmVersion(); }
-  std::string const & GetCountryFileName() const { return m_file.GetCountryFile().GetName(); }
+  std::string const & GetCountryFileName() const { return m_file.GetCountryName(); }
 
   bool HasSearchIndex() const { return m_cont.IsExist(SEARCH_INDEX_FILE_TAG); }
   bool HasGeometryIndex() const { return m_cont.IsExist(INDEX_FILE_TAG); }
@@ -395,3 +398,14 @@ public:
 std::string DebugPrint(MwmSet::RegResult result);
 std::string DebugPrint(MwmSet::Event::Type type);
 std::string DebugPrint(MwmSet::Event const & event);
+
+namespace std
+{
+template <> struct hash<MwmSet::MwmId>
+{
+  size_t operator()(MwmSet::MwmId const & id) const
+  {
+    return std::hash<std::shared_ptr<MwmInfo>>()(id.GetInfo());
+  }
+};
+}  // namespace std

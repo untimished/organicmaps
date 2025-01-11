@@ -3,14 +3,12 @@
 #include "indexer/tree_structure.hpp"
 
 #include "base/logging.hpp"
-#include "base/macros.hpp"
 #include "base/string_utils.hpp"
 
 #include <algorithm>
-#include <functional>
-#include <iterator>
 
-using namespace std;
+
+using std::string;
 
 namespace
 {
@@ -30,7 +28,7 @@ ClassifObject * ClassifObject::AddImpl(string const & s)
 {
   if (m_objs.empty()) m_objs.reserve(30);
 
-  m_objs.push_back(ClassifObject(s));
+  m_objs.emplace_back(s);
   return &(m_objs.back());
 }
 
@@ -46,31 +44,36 @@ ClassifObject * ClassifObject::Find(string const & s)
     if (obj.m_name == s)
       return &obj;
 
-  return 0;
+  return nullptr;
 }
 
 void ClassifObject::AddDrawRule(drule::Key const & k)
 {
-  auto i = lower_bound(m_drawRule.begin(), m_drawRule.end(), k.m_scale, less_scales());
-  for (; i != m_drawRule.end() && i->m_scale == k.m_scale; ++i)
+  auto i = std::lower_bound(m_drawRules.begin(), m_drawRules.end(), k.m_scale, less_scales());
+  for (; i != m_drawRules.end() && i->m_scale == k.m_scale; ++i)
     if (k == *i)
       return; // already exists
-  m_drawRule.insert(i, k);
+  m_drawRules.insert(i, k);
+
+  if (k.m_priority > m_maxOverlaysPriority &&
+      (k.m_type == drule::symbol || k.m_type == drule::caption ||
+       k.m_type == drule::shield || k.m_type == drule::pathtext))
+    m_maxOverlaysPriority = k.m_priority;
 }
 
-ClassifObjectPtr ClassifObject::BinaryFind(string const & s) const
+ClassifObjectPtr ClassifObject::BinaryFind(std::string_view const s) const
 {
-  auto const i = lower_bound(m_objs.begin(), m_objs.end(), s, less_name_t());
+  auto const i = std::lower_bound(m_objs.begin(), m_objs.end(), s, LessName());
   if ((i == m_objs.end()) || ((*i).m_name != s))
-    return ClassifObjectPtr(0, 0);
+    return {nullptr, 0};
   else
-    return ClassifObjectPtr(&(*i), distance(m_objs.begin(), i));
+    return {&(*i), static_cast<size_t>(std::distance(m_objs.begin(), i))};
 }
 
 void ClassifObject::LoadPolicy::Start(size_t i)
 {
   ClassifObject * p = Current();
-  p->m_objs.push_back(ClassifObject());
+  p->m_objs.emplace_back();
 
   base_type::Start(i);
 }
@@ -84,15 +87,16 @@ void ClassifObject::LoadPolicy::EndChilds()
 
 void ClassifObject::Sort()
 {
-  sort(m_drawRule.begin(), m_drawRule.end(), less_scales());
-  sort(m_objs.begin(), m_objs.end(), less_name_t());
-  for_each(m_objs.begin(), m_objs.end(), bind(&ClassifObject::Sort, placeholders::_1));
+  sort(m_drawRules.begin(), m_drawRules.end(), less_scales());
+  sort(m_objs.begin(), m_objs.end(), LessName());
+  for (auto & obj : m_objs)
+    obj.Sort();
 }
 
 void ClassifObject::Swap(ClassifObject & r)
 {
   swap(m_name, r.m_name);
-  swap(m_drawRule, r.m_drawRule);
+  swap(m_drawRules, r.m_drawRules);
   swap(m_objs, r.m_objs);
   swap(m_visibility, r.m_visibility);
 }
@@ -104,18 +108,7 @@ ClassifObject const * ClassifObject::GetObject(size_t i) const
   else
   {
     LOG(LINFO, ("Map contains object that has no classificator entry", i, m_name));
-    return 0;
-  }
-}
-
-void ClassifObject::ConcatChildNames(string & s) const
-{
-  s.clear();
-  size_t const count = m_objs.size();
-  for (size_t i = 0; i < count; ++i)
-  {
-    s += m_objs[i].GetName();
-    if (i != count-1) s += '|';
+    return nullptr;
   }
 }
 
@@ -123,18 +116,11 @@ void ClassifObject::ConcatChildNames(string & s) const
 // Classificator implementation
 /////////////////////////////////////////////////////////////////////////////////////////
 
-namespace
-{
-Classificator & classif(MapStyle mapStyle)
-{
-  static Classificator c[MapStyleCount];
-  return c[mapStyle];
-}
-} // namespace
-
 Classificator & classif()
 {
-  return classif(GetStyleReader().GetCurrentStyle());
+  static Classificator c[MapStyleCount];
+  MapStyle const mapStyle = GetStyleReader().GetCurrentStyle();
+  return c[mapStyle];
 }
 
 namespace ftype
@@ -196,14 +182,9 @@ namespace ftype
     set_value(type, cl+1, 1);
   }
 
-  bool GetValue(uint32_t type, uint8_t level, uint8_t & value)
+  uint8_t GetValue(uint32_t type, uint8_t level)
   {
-    if (level < get_control_level(type))
-    {
-      value = get_value(type, level);
-      return true;
-    }
-    return false;
+    return get_value(type, level);
   }
 
   void PopValue(uint32_t & type)
@@ -245,27 +226,24 @@ namespace
 {
   class suitable_getter
   {
-    typedef vector<drule::Key> vec_t;
+    typedef std::vector<drule::Key> vec_t;
     typedef vec_t::const_iterator iter_t;
 
     vec_t const & m_rules;
     drule::KeysT & m_keys;
 
-    bool m_added = false;
-
     void add_rule(int ft, iter_t i)
     {
+      // Define which drule types are applicable to which feature geom types.
       static const int visible[3][drule::count_of_rules] = {
+        //{ line, area, symbol, caption, circle, pathtext, waymarker, shield }, see drule::Key::rule_type_t
         { 0, 0, 1, 1, 1, 0, 0, 0 },   // fpoint
         { 1, 0, 0, 0, 0, 1, 0, 1 },   // fline
-        { 1, 1, 1, 1, 1, 0, 0, 0 }    // farea
+        { 0, 1, 1, 1, 1, 0, 0, 0 }    // farea (!!! different from IsDrawableLike(): here area feature can use point styles)
       };
 
       if (visible[ft][i->m_type] == 1)
-      {
         m_keys.push_back(*i);
-        m_added = true;
-      }
     }
 
   public:
@@ -276,7 +254,7 @@ namespace
 
     void find(int ft, int scale)
     {
-      iter_t i = lower_bound(m_rules.begin(), m_rules.end(), scale, less_scales());
+      auto i = std::lower_bound(m_rules.begin(), m_rules.end(), scale, less_scales());
       while (i != m_rules.end() && i->m_scale == scale)
         add_rule(ft, i++);
     }
@@ -292,7 +270,7 @@ void ClassifObject::GetSuitable(int scale, feature::GeomType gt, drule::KeysT & 
     return;
 
   // find rules for 'scale'
-  suitable_getter rulesGetter(m_drawRule, keys);
+  suitable_getter rulesGetter(m_drawRules, keys);
   rulesGetter.find(static_cast<int>(gt), scale);
 }
 
@@ -303,7 +281,7 @@ bool ClassifObject::IsDrawable(int scale) const
 
 bool ClassifObject::IsDrawableAny() const
 {
-  return (m_visibility != VisibleMask() && !m_drawRule.empty());
+  return (m_visibility != VisibleMask() && !m_drawRules.empty());
 }
 
 bool ClassifObject::IsDrawableLike(feature::GeomType gt, bool emptyName) const
@@ -314,13 +292,15 @@ bool ClassifObject::IsDrawableLike(feature::GeomType gt, bool emptyName) const
   if (!IsDrawableAny())
     return false;
 
+  // Define which feature geom types can use which drule types for rendering.
   static const int visible[3][drule::count_of_rules] = {
+    //{ line, area, symbol, caption, circle, pathtext, waymarker, shield }, see drule::Key::rule_type_t
     {0, 0, 1, 1, 1, 0, 0, 0},   // fpoint
     {1, 0, 0, 0, 0, 1, 0, 1},   // fline
-    {0, 1, 0, 0, 0, 0, 0, 0}    // farea (!!! key difference with GetSuitable !!!)
+    {0, 1, 0, 0, 0, 0, 0, 0}    // farea (!!! key difference with GetSuitable, see suitable_getter::add_rule())
   };
 
-  for (auto const & k : m_drawRule)
+  for (auto const & k : m_drawRules)
   {
     ASSERT_LESS(k.m_type, drule::count_of_rules, ());
 
@@ -335,10 +315,10 @@ bool ClassifObject::IsDrawableLike(feature::GeomType gt, bool emptyName) const
   return false;
 }
 
-pair<int, int> ClassifObject::GetDrawScaleRange() const
+std::pair<int, int> ClassifObject::GetDrawScaleRange() const
 {
   if (!IsDrawableAny())
-    return make_pair(-1, -1);
+    return {-1, -1};
 
   int const count = static_cast<int>(m_visibility.size());
 
@@ -360,10 +340,10 @@ pair<int, int> ClassifObject::GetDrawScaleRange() const
       break;
     }
 
-  return make_pair(left, right);
+  return {left, right};
 }
 
-void Classificator::ReadClassificator(istream & s)
+void Classificator::ReadClassificator(std::istream & s)
 {
   ClassifObject::LoadPolicy policy(&m_root);
   tree::LoadTreeAsText(s, policy);
@@ -371,6 +351,7 @@ void Classificator::ReadClassificator(istream & s)
   m_root.Sort();
 
   m_coastType = GetTypeByPath({ "natural", "coastline" });
+  m_stubType = GetTypeByPath({ "mapswithme" });
 }
 
 template <typename Iter>
@@ -384,7 +365,7 @@ uint32_t Classificator::GetTypeByPathImpl(Iter beg, Iter end) const
   {
     ClassifObjectPtr ptr = p->BinaryFind(*beg++);
     if (!ptr)
-      return 0;
+      return INVALID_TYPE;
 
     ftype::PushValue(type, ptr.GetIndex());
     p = ptr.get();
@@ -393,32 +374,39 @@ uint32_t Classificator::GetTypeByPathImpl(Iter beg, Iter end) const
   return type;
 }
 
-uint32_t Classificator::GetTypeByPathSafe(vector<string> const & path) const
+uint32_t Classificator::GetTypeByPathSafe(std::vector<std::string_view> const & path) const
 {
   return GetTypeByPathImpl(path.begin(), path.end());
 }
 
-uint32_t Classificator::GetTypeByPath(vector<string> const & path) const
+uint32_t Classificator::GetTypeByPath(std::vector<std::string> const & path) const
 {
   uint32_t const type = GetTypeByPathImpl(path.cbegin(), path.cend());
-  ASSERT_NOT_EQUAL(type, 0, (path));
+  ASSERT_NOT_EQUAL(type, INVALID_TYPE, (path));
   return type;
 }
 
-uint32_t Classificator::GetTypeByPath(initializer_list<char const *> const & lst) const
+uint32_t Classificator::GetTypeByPath(std::vector<std::string_view> const & path) const
+{
+  uint32_t const type = GetTypeByPathImpl(path.cbegin(), path.cend());
+  ASSERT_NOT_EQUAL(type, INVALID_TYPE, (path));
+  return type;
+}
+
+uint32_t Classificator::GetTypeByPath(base::StringIL const & lst) const
 {
   uint32_t const type = GetTypeByPathImpl(lst.begin(), lst.end());
-  ASSERT_NOT_EQUAL(type, 0, (lst));
+  ASSERT_NOT_EQUAL(type, INVALID_TYPE, (lst));
   return type;
 }
 
-uint32_t Classificator::GetTypeByReadableObjectName(string const & name) const
+uint32_t Classificator::GetTypeByReadableObjectName(std::string const & name) const
 {
   ASSERT(!name.empty(), ());
   return GetTypeByPathSafe(strings::Tokenize(name, "-"));
 }
 
-void Classificator::ReadTypesMapping(istream & s)
+void Classificator::ReadTypesMapping(std::istream & s)
 {
   m_mapping.Load(s);
 }
@@ -427,6 +415,47 @@ void Classificator::Clear()
 {
   ClassifObject("world").Swap(m_root);
   m_mapping.Clear();
+}
+
+template <class ToDo> void Classificator::ForEachPathObject(uint32_t type, ToDo && toDo) const
+{
+  ClassifObject const * p = &m_root;
+  uint8_t const level = ftype::GetLevel(type);
+  for (uint8_t i = 0; i < level; ++i)
+  {
+    p = p->GetObject(ftype::GetValue(type, i));
+    toDo(p);
+  }
+}
+
+ClassifObject const * Classificator::GetObject(uint32_t type) const
+{
+  ClassifObject const * res = nullptr;
+  ForEachPathObject(type, [&res](ClassifObject const * p)
+  {
+    res = p;
+  });
+  return res;
+}
+
+std::string Classificator::GetFullObjectName(uint32_t type) const
+{
+  std::string res;
+  ForEachPathObject(type, [&res](ClassifObject const * p)
+  {
+    res = res + p->GetName() + '|';
+  });
+  return res;
+}
+
+std::vector<std::string> Classificator::GetFullObjectNamePath(uint32_t type) const
+{
+  std::vector<std::string> res;
+  ForEachPathObject(type, [&res](ClassifObject const * p)
+  {
+    res.push_back(p->GetName());
+  });
+  return res;
 }
 
 string Classificator::GetReadableObjectName(uint32_t type) const

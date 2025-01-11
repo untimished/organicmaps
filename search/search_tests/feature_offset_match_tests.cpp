@@ -3,27 +3,26 @@
 #include "search/feature_offset_match.hpp"
 
 #include "indexer/trie.hpp"
+#include "indexer/search_string_utils.hpp"
 
-#include "base/dfa_helpers.hpp"
 #include "base/mem_trie.hpp"
 #include "base/string_utils.hpp"
 
-#include <cstdint>
 #include <map>
 #include <string>
 #include <vector>
 
-using namespace base;
+namespace feature_offset_match_tests
+{
+using namespace strings;
 using namespace std;
 
-namespace
-{
-using Key = strings::UniString;
+using Key = UniString;
 using Value = uint32_t;
-using ValueList = VectorValues<Value>;
-using Trie = MemTrie<Key, ValueList>;
-using DFA = strings::LevenshteinDFA;
-using PrefixDFA = strings::PrefixDFAModifier<DFA>;
+using ValueList = base::VectorValues<Value>;
+using Trie = base::MemTrie<Key, ValueList>;
+using DFA = LevenshteinDFA;
+using PrefixDFA = PrefixDFAModifier<DFA>;
 
 UNIT_TEST(MatchInTrieTest)
 {
@@ -32,7 +31,7 @@ UNIT_TEST(MatchInTrieTest)
   vector<pair<string, uint32_t>> const data = {{"hotel", 1}, {"homel", 2}, {"hotel", 3}};
 
   for (auto const & kv : data)
-    trie.Add(strings::MakeUniString(kv.first), kv.second);
+    trie.Add(MakeUniString(kv.first), kv.second);
 
   trie::MemTrieIterator<Key, ValueList> const rootIterator(trie.GetRootIterator());
   map<uint32_t, bool> vals;
@@ -50,6 +49,12 @@ UNIT_TEST(MatchInTrieTest)
   TEST(vals.at(2), (vals));
   TEST(!vals.at(1), (vals));
   TEST(!vals.at(3), (vals));
+
+  vals.clear();
+  auto const hoDFA = search::BuildLevenshteinDFA(MakeUniString("ho"));
+  // If somebody cares about return value - it indicates existing of node in trie, but not the actual values.
+  TEST(search::impl::MatchInTrie(rootIterator, nullptr, 0 /* prefixSize */, hoDFA, saveResult), ());
+  TEST(vals.empty(), (vals));
 }
 
 UNIT_TEST(MatchPrefixInTrieTest)
@@ -59,7 +64,7 @@ UNIT_TEST(MatchPrefixInTrieTest)
   vector<pair<string, uint32_t>> const data = {{"лермонтовъ", 1}, {"лермонтово", 2}};
 
   for (auto const & kv : data)
-    trie.Add(strings::MakeUniString(kv.first), kv.second);
+    trie.Add(MakeUniString(kv.first), kv.second);
 
   trie::MemTrieIterator<Key, ValueList> const rootIterator(trie.GetRootIterator());
   map<uint32_t, bool> vals;
@@ -94,4 +99,4 @@ UNIT_TEST(MatchPrefixInTrieTest)
     TEST(vals.at(1), (vals));
   }
 }
-}  // namespace
+} // namespace feature_offset_match_tests

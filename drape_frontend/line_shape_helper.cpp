@@ -90,7 +90,9 @@ void ConstructLineSegments(std::vector<m2::PointD> const & path, std::vector<gls
   ASSERT_LESS(1, path.size(), ());
 
   if (!segmentsColors.empty())
+  {
     ASSERT_EQUAL(segmentsColors.size() + 1, path.size(), ());
+  }
 
   m2::PointD prevPoint = path[0];
   for (size_t i = 1; i < path.size(); ++i)
@@ -128,28 +130,26 @@ void UpdateNormals(LineSegment * segment, LineSegment * prevSegment, LineSegment
     UpdateNormalBetweenSegments(segment, nextSegment);
 }
 
-void GenerateJoinNormals(dp::LineJoin joinType, glsl::vec2 const & normal1, glsl::vec2 const & normal2,
-                         float halfWidth, bool isLeft, float widthScalar, std::vector<glsl::vec2> & normals,
-                         std::vector<glsl::vec2> * uv)
+std::vector<glsl::vec2> GenerateJoinNormals(
+    dp::LineJoin joinType, glsl::vec2 const & normal1, glsl::vec2 const & normal2,
+    float halfWidth, bool isLeft, float widthScalar, std::vector<glsl::vec2> * uv)
 {
+  std::vector<glsl::vec2> normals;
   float const eps = 1e-5;
   if (fabs(glsl::dot(normal1, normal2) - 1.0f) < eps)
-    return;
+    return normals;
 
   if (joinType == dp::LineJoin::BevelJoin)
   {
     glsl::vec2 const n1 = halfWidth * normal1;
     glsl::vec2 const n2 = halfWidth * normal2;
 
-    normals.push_back(glsl::vec2(0.0f, 0.0f));
-    normals.push_back(isLeft ? n1 : n2);
-    normals.push_back(isLeft ? n2 : n1);
+    normals = { glsl::vec2(0.0f, 0.0f), isLeft ? n1 : n2, isLeft ? n2 : n1 };
 
-    if (uv != nullptr)
+    if (uv)
     {
-      uv->push_back(glsl::vec2(0.5f, 0.5f));
-      uv->push_back(isLeft ? glsl::vec2(0.5f, 0.0f) : glsl::vec2(0.5f, 1.0f));
-      uv->push_back(isLeft ? glsl::vec2(0.5f, 0.0f) : glsl::vec2(0.5f, 1.0f));
+      *uv = { glsl::vec2(0.5f, 0.5f), isLeft ? glsl::vec2(0.5f, 0.0f) : glsl::vec2(0.5f, 1.0f),
+                                      isLeft ? glsl::vec2(0.5f, 0.0f) : glsl::vec2(0.5f, 1.0f) };
     }
   }
   else if (joinType == dp::LineJoin::MiterJoin)
@@ -159,23 +159,16 @@ void GenerateJoinNormals(dp::LineJoin joinType, glsl::vec2 const & normal1, glsl
     glsl::vec2 const n1 = halfWidth * normal1;
     glsl::vec2 const n2 = halfWidth * normal2;
 
-    normals.push_back(glsl::vec2(0.0f, 0.0f));
-    normals.push_back(isLeft ? n1 : averageNormal);
-    normals.push_back(isLeft ? averageNormal : n1);
+    normals = { glsl::vec2(0.0f, 0.0f), isLeft ? n1 : averageNormal, isLeft ? averageNormal : n1,
+                glsl::vec2(0.0f, 0.0f), isLeft ? averageNormal : n2, isLeft ? n2 : averageNormal };
 
-    normals.push_back(glsl::vec2(0.0f, 0.0f));
-    normals.push_back(isLeft ? averageNormal : n2);
-    normals.push_back(isLeft ? n2 : averageNormal);
-
-    if (uv != nullptr)
+    if (uv)
     {
-      uv->push_back(glsl::vec2(0.5f, 0.5f));
-      uv->push_back(isLeft ? glsl::vec2(0.5f, 0.0f) : glsl::vec2(0.5f, 1.0f));
-      uv->push_back(isLeft ? glsl::vec2(0.5f, 0.0f) : glsl::vec2(0.5f, 1.0f));
+      *uv = { glsl::vec2(0.5f, 0.5f), isLeft ? glsl::vec2(0.5f, 0.0f) : glsl::vec2(0.5f, 1.0f),
+                                      isLeft ? glsl::vec2(0.5f, 0.0f) : glsl::vec2(0.5f, 1.0f),
 
-      uv->push_back(glsl::vec2(0.5f, 0.5f));
-      uv->push_back(isLeft ? glsl::vec2(0.5f, 0.0f) : glsl::vec2(0.5f, 1.0f));
-      uv->push_back(isLeft ? glsl::vec2(0.5f, 0.0f) : glsl::vec2(0.5f, 1.0f));
+              glsl::vec2(0.5f, 0.5f), isLeft ? glsl::vec2(0.5f, 0.0f) : glsl::vec2(0.5f, 1.0f),
+                                      isLeft ? glsl::vec2(0.5f, 0.0f) : glsl::vec2(0.5f, 1.0f) };
     }
   }
   else
@@ -190,6 +183,10 @@ void GenerateJoinNormals(dp::LineJoin joinType, glsl::vec2 const & normal1, glsl
     glsl::vec2 const normalizedNormal = glsl::normalize(normal1);
     m2::PointD const startNormal(normalizedNormal.x, normalizedNormal.y);
 
+    normals.reserve(segmentsCount * 3);
+    if (uv)
+      uv->reserve(segmentsCount * 3);
+
     for (int i = 0; i < segmentsCount; i++)
     {
       m2::PointD n1 = m2::Rotate(startNormal, i * angle) * halfWidth;
@@ -199,7 +196,7 @@ void GenerateJoinNormals(dp::LineJoin joinType, glsl::vec2 const & normal1, glsl
       normals.push_back(isLeft ? glsl::vec2(n1.x, n1.y) : glsl::vec2(n2.x, n2.y));
       normals.push_back(isLeft ? glsl::vec2(n2.x, n2.y) : glsl::vec2(n1.x, n1.y));
 
-      if (uv != nullptr)
+      if (uv)
       {
         uv->push_back(glsl::vec2(0.5f, 0.5f));
         uv->push_back(isLeft ? glsl::vec2(0.5f, 0.0f) : glsl::vec2(0.5f, 1.0f));
@@ -207,14 +204,17 @@ void GenerateJoinNormals(dp::LineJoin joinType, glsl::vec2 const & normal1, glsl
       }
     }
   }
+
+  return normals;
 }
 
-void GenerateCapNormals(dp::LineCap capType, glsl::vec2 const & normal1, glsl::vec2 const & normal2,
-                        glsl::vec2 const & direction, float halfWidth, bool isStart,
-                        std::vector<glsl::vec2> & normals, int segmentsCount)
+std::vector<glsl::vec2> GenerateCapNormals(
+    dp::LineCap capType, glsl::vec2 const & normal1, glsl::vec2 const & normal2,
+    glsl::vec2 const & direction, float halfWidth, bool isStart, int segmentsCount)
 {
+  std::vector<glsl::vec2> normals;
   if (capType == dp::ButtCap)
-    return;
+    return normals;
 
   if (capType == dp::SquareCap)
   {
@@ -223,13 +223,8 @@ void GenerateCapNormals(dp::LineCap capType, glsl::vec2 const & normal1, glsl::v
     glsl::vec2 const n3 = halfWidth * (normal1 + direction);
     glsl::vec2 const n4 = halfWidth * (normal2 + direction);
 
-    normals.push_back(n2);
-    normals.push_back(isStart ? n4 : n1);
-    normals.push_back(isStart ? n1 : n4);
-
-    normals.push_back(n1);
-    normals.push_back(isStart ? n4 : n3);
-    normals.push_back(isStart ? n3 : n4);
+    normals = { n2, isStart ? n4 : n1, isStart ? n1 : n4,
+                n1, isStart ? n4 : n3, isStart ? n3 : n4 };
   }
   else
   {
@@ -237,6 +232,7 @@ void GenerateCapNormals(dp::LineCap capType, glsl::vec2 const & normal1, glsl::v
     glsl::vec2 const normalizedNormal = glsl::normalize(normal2);
     m2::PointD const startNormal(normalizedNormal.x, normalizedNormal.y);
 
+    normals.reserve(segmentsCount * 3);
     for (int i = 0; i < segmentsCount; i++)
     {
       m2::PointD n1 = m2::Rotate(startNormal, i * segmentSize) * halfWidth;
@@ -247,6 +243,8 @@ void GenerateCapNormals(dp::LineCap capType, glsl::vec2 const & normal1, glsl::v
       normals.push_back(isStart ? glsl::vec2(n2.x, n2.y) : glsl::vec2(n1.x, n1.y));
     }
   }
+
+  return normals;
 }
 
 glsl::vec2 GetNormal(LineSegment const & segment, bool isLeft, ENormalType normalType)

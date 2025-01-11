@@ -28,19 +28,18 @@ omim_link_libraries(
   base
   opening_hours
   freetype
-  expat
-  icu
-  jansson
+  expat::expat
+  ICU::i18n
+  cppjansson
   protobuf
   bsdiff
   minizip
   succinct
   pugixml
   tess2
-  oauthcpp
   sqlite3
   ${CMAKE_DL_LIBS}
-  ${LIBZ}
+  ZLIB::ZLIB
   ${Boost_LIBRARIES}
 )
 

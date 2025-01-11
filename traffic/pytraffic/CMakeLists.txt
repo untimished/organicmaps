@@ -12,7 +12,7 @@ omim_add_library(${PROJECT_NAME} MODULE ${SRC})
 if (PLATFORM_MAC)
   omim_link_libraries(
     ${PROJECT_NAME}
-    ${Qt5Widgets_LIBRARIES}
+    Qt5::Widgets
     "-framework QuartzCore"
     "-Wl,-undefined,dynamic_lookup"
   )
@@ -21,7 +21,7 @@ endif()
 if (PLATFORM_WIN OR PLATFORM_LINUX)
   omim_link_libraries(
     ${PROJECT_NAME}
-    ${Qt5Widgets_LIBRARIES}
+    Qt5::Widgets
   )
 endif()
 
@@ -36,15 +36,14 @@ omim_link_libraries(
   geometry
   coding
   base
-  jansson
-  oauthcpp
+  cppjansson
   protobuf
   pugixml
   opening_hours
   succinct
-  icu
+  ICU::i18n
   ${Boost_LIBRARIES}
-  ${LIBZ}
+  ZLIB::ZLIB
 )
 
 set_target_properties(${PROJECT_NAME} PROPERTIES PREFIX "")

@@ -11,7 +11,7 @@
 namespace dp
 {
 size_t constexpr kMaxBindingDecl = 8;
-size_t constexpr kMaxBindingInfo = 2;
+size_t constexpr kMaxBindingInfo = 3;
 
 struct BindingDecl
 {
@@ -31,7 +31,6 @@ class BindingInfo
 public:
   BindingInfo();
   explicit BindingInfo(uint8_t count, uint8_t id = 0);
-  ~BindingInfo() = default;
 
   uint8_t GetCount() const;
   uint8_t GetID() const;

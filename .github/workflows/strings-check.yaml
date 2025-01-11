@@ -1,23 +1,31 @@
-name: strings.txt check
+name: Validate translation strings
 on:
   workflow_dispatch: # Manual trigger
   pull_request:
     paths:
-      - 'data/strings/strings.txt'
+      - .github/workflows/strings-check.yaml  # Run check on self change
+      - data/strings/strings.txt
+      - data/strings/types_strings.txt
+      - data/strings/sound.txt
+      - data/countries_names.txt
+      - iphone/plist.txt
+      - tools/python/strings_utils.py
 
 jobs:
-  check-strings-txt:
-    name: Check strings.txt format
+  validate-translation-strings:
+    name: Validate translation strings
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-python@v2
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3'
 
-      - name: Check strings.txt
+      - name: Validate string files
         shell: bash
         run: |
-          ./tools/python/clean_strings_txt.py -s
-          git diff --quiet HEAD
+          for f in data/strings/strings.txt data/strings/types_strings.txt data/strings/sound.txt data/countries_names.txt iphone/plist.txt; do
+            ./tools/python/strings_utils.py --validate $f -o
+          done;
+          git diff --exit-code

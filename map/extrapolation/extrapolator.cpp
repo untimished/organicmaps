@@ -76,7 +76,7 @@ location::GpsInfo LinearExtrapolation(location::GpsInfo const & gpsInfo1,
   // look nice when the road changes its direction.
 
   if (gpsInfo1.HasSpeed() && gpsInfo2.HasSpeed())
-    result.m_speedMpS = e.Extrapolate(gpsInfo1.m_speedMpS, gpsInfo2.m_speedMpS);
+    result.m_speed = e.Extrapolate(gpsInfo1.m_speed, gpsInfo2.m_speed);
 
   return result;
 }
@@ -200,17 +200,19 @@ void Extrapolator::RunTaskOnBackgroundThread(bool delayed)
 
   if (delayed)
   {
-    auto constexpr kExtrapolationPeriod = std::chrono::milliseconds(kExtrapolationPeriodMs);
-    GetPlatform().RunDelayedTask(Platform::Thread::Background, kExtrapolationPeriod,
-                                 [this, locationUpdateCounter] {
-                                   ExtrapolatedLocationUpdate(locationUpdateCounter);
-                                 });
-    return;
+    auto constexpr period = std::chrono::milliseconds(kExtrapolationPeriodMs);
+    GetPlatform().RunDelayedTask(Platform::Thread::Background, period, [this, locationUpdateCounter]
+    {
+      ExtrapolatedLocationUpdate(locationUpdateCounter);
+    });
   }
-
-  GetPlatform().RunTask(Platform::Thread::Background, [this, locationUpdateCounter] {
-    ExtrapolatedLocationUpdate(locationUpdateCounter);
-  });
+  else
+  {
+    GetPlatform().RunTask(Platform::Thread::Background, [this, locationUpdateCounter]
+    {
+      ExtrapolatedLocationUpdate(locationUpdateCounter);
+    });
+  }
 }
 
 bool Extrapolator::DoesExtrapolationWork() const

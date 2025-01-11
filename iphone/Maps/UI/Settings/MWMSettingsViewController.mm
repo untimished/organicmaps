@@ -2,12 +2,15 @@
 #import "MWMAuthorizationCommon.h"
 #import "MWMTextToSpeech+CPP.h"
 #import "SwiftBridge.h"
+#import "MWMActivityViewController.h"
 
-#import <CoreApi/CoreApi.h>
+#import <CoreApi/Framework.h>
 
 #include "map/gps_tracker.hpp"
 
 using namespace power_management;
+
+static NSString * const kUDDidShowICloudSynchronizationEnablingAlert = @"kUDDidShowICloudSynchronizationEnablingAlert";
 
 @interface MWMSettingsViewController ()<SettingsTableViewSwitchCellDelegate>
 
@@ -19,7 +22,6 @@ using namespace power_management;
 @property(weak, nonatomic) IBOutlet SettingsTableViewSwitchCell *autoDownloadCell;
 @property(weak, nonatomic) IBOutlet SettingsTableViewLinkCell *mobileInternetCell;
 @property(weak, nonatomic) IBOutlet SettingsTableViewLinkCell *powerManagementCell;
-@property(weak, nonatomic) IBOutlet SettingsTableViewLinkCell *recentTrackCell;
 @property(weak, nonatomic) IBOutlet SettingsTableViewSwitchCell *fontScaleCell;
 @property(weak, nonatomic) IBOutlet SettingsTableViewSwitchCell *transliterationCell;
 @property(weak, nonatomic) IBOutlet SettingsTableViewSwitchCell *compassCalibrationCell;
@@ -29,9 +31,8 @@ using namespace power_management;
 @property(weak, nonatomic) IBOutlet SettingsTableViewSwitchCell *autoZoomCell;
 @property(weak, nonatomic) IBOutlet SettingsTableViewLinkCell *voiceInstructionsCell;
 @property(weak, nonatomic) IBOutlet SettingsTableViewLinkCell *drivingOptionsCell;
-
-@property(weak, nonatomic) IBOutlet SettingsTableViewLinkCell *helpCell;
-@property(weak, nonatomic) IBOutlet SettingsTableViewLinkCell *aboutCell;
+@property(weak, nonatomic) IBOutlet SettingsTableViewiCloudSwitchCell *iCloudSynchronizationCell;
+@property(weak, nonatomic) IBOutlet SettingsTableViewDetailedSwitchCell *enableLoggingCell;
 
 @end
 
@@ -47,20 +48,45 @@ using namespace power_management;
   [self configCells];
 }
 
+- (void)viewDidAppear:(BOOL)animated {
+  [super viewDidAppear:animated];
+  [self highlightFeatureIfNeeded];
+}
+
+- (void)highlightFeatureIfNeeded {
+  UITableViewCell * cell = nil;
+  DeepLinkInAppFeatureHighlightData * featureToHighlight = [DeepLinkHandler.shared getInAppFeatureHighlightData];
+  if (!featureToHighlight || featureToHighlight.urlType != DeeplinkUrlTypeSettings)
+    return;
+  switch (featureToHighlight.feature) {
+    case InAppFeatureHighlightTypeNone:
+    case InAppFeatureHighlightTypeTrackRecorder:
+      // Еhere is no options for the track recorder yet.
+      break;
+    case InAppFeatureHighlightTypeICloud:
+      cell = self.iCloudSynchronizationCell;
+      break;
+  }
+  NSIndexPath * indexPath = [self.tableView indexPathForCell:cell];
+  if (!cell || !indexPath)
+    return;
+  [self.tableView scrollToRowAtIndexPath:indexPath atScrollPosition:UITableViewScrollPositionMiddle animated:YES];
+  [cell highlight];
+}
+
 - (void)configCells {
   [self configProfileSection];
   [self configCommonSection];
   [self configNavigationSection];
-  [self configInfoSection];
 }
 
 - (void)configProfileSection {
-  NSString *userName = osm_auth_ios::OSMUserName();
+  NSString * userName = osm_auth_ios::OSMUserName();
   [self.profileCell configWithTitle:L(@"profile") info:userName.length != 0 ? userName : @""];
 }
 
 - (void)configCommonSection {
-  NSString *units = nil;
+  NSString * units = nil;
   switch ([MWMSettings measurementUnits]) {
     case MWMUnitsMetric:
       units = L(@"kilometres");
@@ -75,13 +101,27 @@ using namespace power_management;
 
   bool on = true, _ = true;
   GetFramework().Load3dMode(_, on);
-  [self.is3dCell configWithDelegate:self title:L(@"pref_map_3d_buildings_title") isOn:on];
+  if (GetFramework().GetPowerManager().GetScheme() == Scheme::EconomyMaximum)
+  {
+    self.is3dCell.isEnabled = false;
+    [self.is3dCell configWithDelegate:self title:L(@"pref_map_3d_buildings_title") isOn:false];
+    UITapGestureRecognizer * tapRecogniser = [[UITapGestureRecognizer alloc] initWithTarget:self
+                                                                                     action:@selector(show3dBuildingsAlert:)];
+
+    self.is3dCell.gestureRecognizers = @[tapRecogniser];
+  }
+  else
+  {
+    self.is3dCell.isEnabled = true;
+    [self.is3dCell configWithDelegate:self title:L(@"pref_map_3d_buildings_title") isOn:on];
+    self.is3dCell.gestureRecognizers = nil;
+  }
 
   [self.autoDownloadCell configWithDelegate:self
                                       title:L(@"autodownload")
                                        isOn:[MWMSettings autoDownloadEnabled]];
 
-  NSString *mobileInternet = nil;
+  NSString * mobileInternet = nil;
   switch ([MWMNetworkPolicy sharedPolicy].permission) {
     case MWMNetworkPolicyPermissionAlways:
       mobileInternet = L(@"mobile_data_option_always");
@@ -97,7 +137,7 @@ using namespace power_management;
   }
   [self.mobileInternetCell configWithTitle:L(@"mobile_data") info:mobileInternet];
 
-  NSString *powerManagement = nil;
+  NSString * powerManagement = nil;
   switch (GetFramework().GetPowerManager().GetScheme()) {
     case Scheme::None:
       break;
@@ -115,33 +155,6 @@ using namespace power_management;
   }
   [self.powerManagementCell configWithTitle:L(@"power_managment_title") info:powerManagement];
 
-  NSString *recentTrack = nil;
-  if (!GpsTracker::Instance().IsEnabled()) {
-    recentTrack = L(@"duration_disabled");
-  } else {
-    switch (GpsTracker::Instance().GetDuration().count()) {
-      case 1:
-        recentTrack = L(@"duration_1_hour");
-        break;
-      case 2:
-        recentTrack = L(@"duration_2_hours");
-        break;
-      case 6:
-        recentTrack = L(@"duration_6_hours");
-        break;
-      case 12:
-        recentTrack = L(@"duration_12_hours");
-        break;
-      case 24:
-        recentTrack = L(@"duration_1_day");
-        break;
-      default:
-        NSAssert(false, @"Incorrect hours value");
-        break;
-    }
-  }
-  [self.recentTrackCell configWithTitle:L(@"pref_track_record_title") info:recentTrack];
-
   [self.fontScaleCell configWithDelegate:self title:L(@"big_font") isOn:[MWMSettings largeFontSize]];
 
   [self.transliterationCell configWithDelegate:self
@@ -151,27 +164,60 @@ using namespace power_management;
   [self.compassCalibrationCell configWithDelegate:self
                                             title:L(@"pref_calibration_title")
                                              isOn:[MWMSettings compassCalibrationEnabled]];
-}
 
-- (void)configNavigationSection {
-  NSString *nightMode = nil;
+  NSString * nightMode = nil;
   switch ([MWMSettings theme]) {
     case MWMThemeVehicleDay:
       NSAssert(false, @"Invalid case");
     case MWMThemeDay:
-      nightMode = L(@"pref_map_style_default");
+      nightMode = L(@"pref_appearance_light");
       break;
     case MWMThemeVehicleNight:
       NSAssert(false, @"Invalid case");
     case MWMThemeNight:
-      nightMode = L(@"pref_map_style_night");
+      nightMode = L(@"pref_appearance_dark");
       break;
     case MWMThemeAuto:
-      nightMode = L(@"pref_map_style_auto");
+      nightMode = L(@"auto");
       break;
   }
-  [self.nightModeCell configWithTitle:L(@"pref_map_style_title") info:nightMode];
+  [self.nightModeCell configWithTitle:L(@"pref_appearance_title") info:nightMode];
 
+  [self.iCloudSynchronizationCell configWithDelegate:self
+                                               title:@"iCloud Synchronization (Beta)"
+                                                isOn:[MWMSettings iCLoudSynchronizationEnabled]];
+
+  __weak __typeof(self) weakSelf = self;
+  [iCloudSynchronizaionManager.shared addObserver:self synchronizationStateDidChangeHandler:^(SynchronizationManagerState * state) {
+    __strong auto strongSelf = weakSelf;
+    [strongSelf.iCloudSynchronizationCell updateWithSynchronizationState:state];
+  }];
+
+  [self.enableLoggingCell configWithDelegate:self title:L(@"enable_logging") isOn:MWMSettings.isFileLoggingEnabled];
+  [self updateLogFileSize];
+}
+
+- (void)updateLogFileSize {
+  uint64_t logFileSize = [Logger getLogFileSize];
+  NSString * detailString = logFileSize == 0 ? nil : [NSString stringWithFormat:L(@"log_file_size"), formattedSize(logFileSize)];
+  [self.enableLoggingCell setDetail:detailString];
+}
+
+- (void)show3dBuildingsAlert:(UITapGestureRecognizer *)recognizer {
+  UIAlertController * alert =
+    [UIAlertController alertControllerWithTitle:L(@"pref_map_3d_buildings_title")
+                                      message:L(@"pref_map_3d_buildings_disabled_summary")
+                               preferredStyle:UIAlertControllerStyleAlert];
+
+  UIAlertAction * okButton = [UIAlertAction actionWithTitle:@"OK"
+                                                      style:UIAlertActionStyleDefault
+                                                    handler:nil];
+  [alert addAction:okButton];
+
+  [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)configNavigationSection {
   bool _ = true, on = true;
   auto &f = GetFramework();
   f.Load3dMode(on, _);
@@ -179,14 +225,72 @@ using namespace power_management;
 
   [self.autoZoomCell configWithDelegate:self title:L(@"pref_map_auto_zoom") isOn:GetFramework().LoadAutoZoom()];
 
-  NSString *ttsEnabledString = [MWMTextToSpeech isTTSEnabled] ? L(@"on") : L(@"off");
+  NSString * ttsEnabledString = [MWMTextToSpeech isTTSEnabled] ? L(@"on") : L(@"off");
   [self.voiceInstructionsCell configWithTitle:L(@"pref_tts_enable_title") info:ttsEnabledString];
   [self.drivingOptionsCell configWithTitle:L(@"driving_options_title") info:@""];
 }
 
-- (void)configInfoSection {
-  [self.helpCell configWithTitle:L(@"help") info:nil];
-  [self.aboutCell configWithTitle:L(@"about_menu_title") info:nil];
+- (void)showICloudSynchronizationEnablingAlert:(void (^)(BOOL))isEnabled {
+  UIAlertController * alertController = [UIAlertController alertControllerWithTitle:L(@"enable_icloud_synchronization_title")
+                                                                           message:L(@"enable_icloud_synchronization_message")
+                                                                    preferredStyle:UIAlertControllerStyleAlert];
+  UIAlertAction * enableButton = [UIAlertAction actionWithTitle:L(@"enable")
+                                                     style:UIAlertActionStyleDefault
+                                                   handler:^(UIAlertAction * action) {
+    [self setICloudSynchronizationEnablingAlertIsShown];
+    isEnabled(YES);
+  }];
+  UIAlertAction * backupButton = [UIAlertAction actionWithTitle:L(@"backup")
+                                                         style:UIAlertActionStyleDefault
+                                                       handler:^(UIAlertAction * action) {
+    [MWMBookmarksManager.sharedManager shareAllCategoriesWithCompletion:^(MWMBookmarksShareStatus status, NSURL * _Nonnull url) {
+      switch (status) {
+        case MWMBookmarksShareStatusSuccess: {
+          MWMActivityViewController * shareController = [MWMActivityViewController shareControllerForURL:url message:L(@"share_bookmarks_email_body") completionHandler:^(UIActivityType  _Nullable activityType, BOOL completed, NSArray * _Nullable returnedItems, NSError * _Nullable activityError) {
+            [self setICloudSynchronizationEnablingAlertIsShown];
+            isEnabled(completed);
+          }];
+          [shareController presentInParentViewController:self anchorView:self.iCloudSynchronizationCell];
+          break;
+        }
+        case MWMBookmarksShareStatusEmptyCategory:
+          [[MWMToast toastWithText:L(@"bookmarks_error_title_share_empty")] show];
+          isEnabled(NO);
+          break;
+        case MWMBookmarksShareStatusArchiveError:
+        case MWMBookmarksShareStatusFileError:
+          [[MWMToast toastWithText:L(@"dialog_routing_system_error")] show];
+          isEnabled(NO);
+          break;
+      }
+    }];
+  }];
+  UIAlertAction * cancelButton = [UIAlertAction actionWithTitle:L(@"cancel")
+                                                         style:UIAlertActionStyleCancel
+                                                       handler:^(UIAlertAction * action) {
+    isEnabled(NO);
+  }];
+
+  [alertController addAction:cancelButton];
+  if (![MWMBookmarksManager.sharedManager areAllCategoriesEmpty])
+    [alertController addAction:backupButton];
+  [alertController addAction:enableButton];
+  [self presentViewController:alertController animated:YES completion:nil];
+}
+
+- (void)setICloudSynchronizationEnablingAlertIsShown {
+  [NSUserDefaults.standardUserDefaults setBool:YES forKey:kUDDidShowICloudSynchronizationEnablingAlert];
+}
+
+- (void)showICloudIsDisabledAlert {
+  UIAlertController * alertController = [UIAlertController alertControllerWithTitle:L(@"icloud_disabled_title")
+                                                                            message:L(@"icloud_disabled_message")
+                                                                     preferredStyle:UIAlertControllerStyleAlert];
+  UIAlertAction * okButton = [UIAlertAction actionWithTitle:L(@"ok")
+                                                      style:UIAlertActionStyleCancel
+                                                    handler:nil];
+  [alertController addAction:okButton];
+  [self presentViewController:alertController animated:YES completion:nil];
 }
 
 #pragma mark - SettingsTableViewSwitchCellDelegate
@@ -220,12 +324,24 @@ using namespace power_management;
     auto &f = GetFramework();
     f.AllowAutoZoom(value);
     f.SaveAutoZoom(value);
+  } else if (cell == self.iCloudSynchronizationCell) {
+    if (![NSUserDefaults.standardUserDefaults boolForKey:kUDDidShowICloudSynchronizationEnablingAlert]) {
+      [self showICloudSynchronizationEnablingAlert:^(BOOL isEnabled) {
+        [MWMSettings setICLoudSynchronizationEnabled:isEnabled];
+      }];
+    } else {
+      [MWMSettings setICLoudSynchronizationEnabled:value];
+    }
+  } else if (cell == self.enableLoggingCell) {
+    [MWMSettings setFileLoggingEnabled:value];
+    [self updateLogFileSize];
   }
 }
 
 #pragma mark - UITableViewDelegate
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+  [tableView deselectRowAtIndexPath:indexPath animated:true];
   auto cell = [tableView cellForRowAtIndexPath:indexPath];
   if (cell == self.profileCell) {
     [self performSegueWithIdentifier:@"SettingsToProfileSegue" sender:nil];
@@ -235,18 +351,19 @@ using namespace power_management;
     [self performSegueWithIdentifier:@"SettingsToMobileInternetSegue" sender:nil];
   } else if (cell == self.powerManagementCell) {
     [self performSegueWithIdentifier:@"SettingsToPowerManagementSegue" sender:nil];
-  } else if (cell == self.recentTrackCell) {
-    [self performSegueWithIdentifier:@"SettingsToRecentTrackSegue" sender:nil];
   } else if (cell == self.nightModeCell) {
     [self performSegueWithIdentifier:@"SettingsToNightMode" sender:nil];
   } else if (cell == self.voiceInstructionsCell) {
     [self performSegueWithIdentifier:@"SettingsToTTSSegue" sender:nil];
   } else if (cell == self.drivingOptionsCell) {
     [self performSegueWithIdentifier:@"settingsToDrivingOptionsSegue" sender:nil];
-  } else if (cell == self.helpCell) {
-    [self performSegueWithIdentifier:@"SettingsToHelp" sender:nil];
-  } else if (cell == self.aboutCell) {
-    [self performSegueWithIdentifier:@"SettingsToAbout" sender:nil];
+  }
+}
+
+- (void)tableView:(UITableView *)tableView accessoryButtonTappedForRowWithIndexPath:(NSIndexPath *)indexPath {
+  auto cell = [tableView cellForRowAtIndexPath:indexPath];
+  if (cell == self.iCloudSynchronizationCell) {
+    [self showICloudIsDisabledAlert];
   }
 }
 
@@ -260,6 +377,15 @@ using namespace power_management;
       return L(@"prefs_group_route");
     case 3:
       return L(@"info");
+    default:
+      return nil;
+  }
+}
+
+- (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
+  switch (section) {
+    case 1:
+      return L(@"enable_logging_warning_message");
     default:
       return nil;
   }

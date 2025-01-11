@@ -16,13 +16,13 @@
 
 namespace
 {
-std::set<std::string> const kMapFiles = {"Russia_Moscow"};
+std::set<std::string> const kCarMapFiles = {"Russia_Moscow"};
 
 class CarTest : public RoutingTest
 {
 public:
   CarTest()
-    : RoutingTest(routing::IRoadGraph::Mode::ObeyOnewayTag, routing::VehicleType::Car, kMapFiles)
+    : RoutingTest(routing::IRoadGraph::Mode::ObeyOnewayTag, routing::VehicleType::Car, kCarMapFiles)
   {
   }
 
@@ -38,13 +38,6 @@ public:
   }
 
 protected:
-  // RoutingTest overrides:
-  std::unique_ptr<routing::DirectionsEngine> CreateDirectionsEngine(
-      std::shared_ptr<routing::NumMwmIds> numMwmIds) override
-  {
-    return std::make_unique<routing::CarDirectionsEngine>(m_dataSource, numMwmIds);
-  }
-
   std::unique_ptr<routing::VehicleModelFactoryInterface> CreateModelFactory() override
   {
     return std::make_unique<SimplifiedModelFactory<routing::CarModel>>();

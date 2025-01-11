@@ -1,16 +1,7 @@
 class PlacePageCommonLayout: NSObject, IPlacePageLayout {
-  private lazy var distanceFormatter: MKDistanceFormatter = {
-    let formatter =  MKDistanceFormatter()
-    formatter.unitStyle = .abbreviated
-    formatter.units = Settings.measurementUnits() == .imperial ? .imperial : .metric
-    return formatter
-  }()
-
-  private lazy var unitsFormatter: MeasurementFormatter = {
-    let formatter = MeasurementFormatter()
-    formatter.unitOptions = [.providedUnit]
-    return formatter
-  }()
+  
+  private let distanceFormatter = DistanceFormatter.self
+  private let altitudeFormatter = AltitudeFormatter.self
 
   private var placePageData: PlacePageData
   private var interactor: PlacePageInteractor
@@ -19,7 +10,11 @@ class PlacePageCommonLayout: NSObject, IPlacePageLayout {
 
   fileprivate var lastLocation: CLLocation?
 
-  lazy var viewControllers: [UIViewController] = {
+  lazy var headerViewControllers: [UIViewController] = {
+    [headerViewController, previewViewController]
+  }()
+
+  lazy var bodyViewControllers: [UIViewController] = {
     return configureViewControllers()
   }()
 
@@ -30,13 +25,17 @@ class PlacePageCommonLayout: NSObject, IPlacePageLayout {
   var navigationBar: UIViewController? {
     return placePageNavigationViewController
   }
+  
+  lazy var headerViewController: PlacePageHeaderViewController = {
+    PlacePageHeaderBuilder.build(data: placePageData.previewData, delegate: interactor, headerType: .flexible)
+  }()
 
   lazy var previewViewController: PlacePagePreviewViewController = {
     let vc = storyboard.instantiateViewController(ofType: PlacePagePreviewViewController.self)
     vc.placePagePreviewData = placePageData.previewData
     return vc
   } ()
-  
+
   lazy var wikiDescriptionViewController: WikiDescriptionViewController = {
     let vc = storyboard.instantiateViewController(ofType: WikiDescriptionViewController.self)
     vc.view.isHidden = true
@@ -44,42 +43,34 @@ class PlacePageCommonLayout: NSObject, IPlacePageLayout {
     return vc
   } ()
 
-  lazy var descriptionDividerViewController: PlacePageDividerViewController = {
-    let vc = storyboard.instantiateViewController(ofType: PlacePageDividerViewController.self)
-    vc.view.isHidden = true
-    vc.titleText = L("placepage_place_description").uppercased()
-    return vc
-  } ()
-
-  lazy var keyInformationDividerViewController: PlacePageDividerViewController = {
-    let vc = storyboard.instantiateViewController(ofType: PlacePageDividerViewController.self)
-    vc.view.isHidden = true
-    vc.titleText = L("key_information_title").uppercased()
-    return vc
-  } ()
-
-  lazy var bookmarkViewController: PlacePageBookmarkViewController = {
-    let vc = storyboard.instantiateViewController(ofType: PlacePageBookmarkViewController.self)
+  lazy var editBookmarkViewController: PlacePageEditBookmarkOrTrackViewController = {
+    let vc = storyboard.instantiateViewController(ofType: PlacePageEditBookmarkOrTrackViewController.self)
     vc.view.isHidden = true
     vc.delegate = interactor
     return vc
   } ()
-  
+
   lazy var infoViewController: PlacePageInfoViewController = {
     let vc = storyboard.instantiateViewController(ofType: PlacePageInfoViewController.self)
     vc.placePageInfoData = placePageData.infoData
     vc.delegate = interactor
     return vc
   } ()
-  
+
+  private func productsViewController() -> ProductsViewController? {
+    let productsManager = FrameworkHelper.self
+    guard let configuration = productsManager.getProductsConfiguration() else { return nil }
+    let viewModel = ProductsViewModel(manager: productsManager, configuration: configuration)
+    return ProductsViewController(viewModel: viewModel)
+  }
+
   lazy var buttonsViewController: PlacePageButtonsViewController = {
     let vc = storyboard.instantiateViewController(ofType: PlacePageButtonsViewController.self)
     vc.buttonsData = placePageData.buttonsData!
-    vc.buttonsEnabled = placePageData.mapNodeAttributes?.nodeStatus == .onDisk
     vc.delegate = interactor
     return vc
   } ()
-  
+
   lazy var actionBarViewController: ActionBarViewController = {
     let vc = storyboard.instantiateViewController(ofType: ActionBarViewController.self)
     vc.placePageData = placePageData
@@ -89,57 +80,48 @@ class PlacePageCommonLayout: NSObject, IPlacePageLayout {
     return vc
   } ()
 
-  lazy var header: PlacePageHeaderViewController? = {
-    return PlacePageHeaderBuilder.build(data: placePageData.previewData, delegate: interactor, headerType: .flexible)
-  } ()
-
   lazy var placePageNavigationViewController: PlacePageHeaderViewController = {
     return PlacePageHeaderBuilder.build(data: placePageData.previewData, delegate: interactor, headerType: .fixed)
   } ()
-  
+
   init(interactor: PlacePageInteractor, storyboard: UIStoryboard, data: PlacePageData) {
     self.interactor = interactor
     self.storyboard = storyboard
     self.placePageData = data
   }
-  
+
   private func configureViewControllers() -> [UIViewController] {
     var viewControllers = [UIViewController]()
-    viewControllers.append(previewViewController)
-    viewControllers.append(descriptionDividerViewController)
+
     viewControllers.append(wikiDescriptionViewController)
     if let wikiDescriptionHtml = placePageData.wikiDescriptionHtml {
       wikiDescriptionViewController.descriptionHtml = wikiDescriptionHtml
       if placePageData.bookmarkData?.bookmarkDescription == nil {
         wikiDescriptionViewController.view.isHidden = false
-        descriptionDividerViewController.view.isHidden = false
       }
     }
 
-    viewControllers.append(bookmarkViewController)
+    viewControllers.append(editBookmarkViewController)
     if let bookmarkData = placePageData.bookmarkData {
-      bookmarkViewController.bookmarkData = bookmarkData
-      bookmarkViewController.view.isHidden = false
-      if let description = bookmarkData.bookmarkDescription, description.isEmpty == false {
-        descriptionDividerViewController.view.isHidden = false
-      }
+      editBookmarkViewController.data = .bookmark(bookmarkData)
+      editBookmarkViewController.view.isHidden = false
     }
 
     if placePageData.infoData != nil {
-      viewControllers.append(keyInformationDividerViewController)
-      keyInformationDividerViewController.view.isHidden = false
       viewControllers.append(infoViewController)
+    }
+
+    if let productsViewController = productsViewController() {
+      viewControllers.append(productsViewController)
     }
 
     if placePageData.buttonsData != nil {
       viewControllers.append(buttonsViewController)
     }
-    
+
     placePageData.onBookmarkStatusUpdate = { [weak self] in
       guard let self = self else { return }
-      if self.placePageData.bookmarkData == nil {
-        self.actionBarViewController.resetButtons()
-      }
+      self.actionBarViewController.updateBookmarkButtonState(isSelected: self.placePageData.bookmarkData != nil)
       self.previewViewController.placePagePreviewData = self.placePageData.previewData
       self.updateBookmarkRelatedSections()
     }
@@ -201,17 +183,17 @@ extension PlacePageCommonLayout {
   func updateBookmarkRelatedSections() {
     var isBookmark = false
     if let bookmarkData = placePageData.bookmarkData {
-      bookmarkViewController.bookmarkData = bookmarkData
+      editBookmarkViewController.data = .bookmark(bookmarkData)
       isBookmark = true
     }
-    if let title = placePageData.previewData.title {
-      header?.setTitle(title)
-      placePageNavigationViewController.setTitle(title)
+    if let title = placePageData.previewData.title, let headerViewController = headerViewControllers.compactMap({ $0 as? PlacePageHeaderViewController }).first {
+      let secondaryTitle = placePageData.previewData.secondaryTitle
+      headerViewController.setTitle(title, secondaryTitle: secondaryTitle)
+      placePageNavigationViewController.setTitle(title, secondaryTitle: secondaryTitle)
     }
-    self.presenter?.layoutIfNeeded()
+    presenter?.layoutIfNeeded()
     UIView.animate(withDuration: kDefaultAnimationDuration) { [unowned self] in
-      self.bookmarkViewController.view.isHidden = !isBookmark
-      self.presenter?.layoutIfNeeded()
+      self.editBookmarkViewController.view.isHidden = !isBookmark
     }
   }
 }
@@ -227,15 +209,10 @@ extension PlacePageCommonLayout: MWMLocationObserver {
 
   func onLocationUpdate(_ location: CLLocation) {
     if placePageData.isMyPosition {
-      let imperial = Settings.measurementUnits() == .imperial
-      let alt = imperial ? location.altitude / 0.3048 : location.altitude
-      let altMeasurement = Measurement(value: alt.rounded(), unit: imperial ? UnitLength.feet : UnitLength.meters)
-      let altString = "▲ \(unitsFormatter.string(from: altMeasurement))"
-
+      let altString = "▲ \(altitudeFormatter.altitudeString(fromMeters: location.altitude))"
       if location.speed > 0 && location.timestamp.timeIntervalSinceNow >= -2 {
-        let speed = imperial ? location.speed * 2.237 : location.speed * 3.6
-        let speedMeasurement = Measurement(value: speed.rounded(), unit: imperial ? UnitSpeed.milesPerHour: UnitSpeed.kilometersPerHour)
-        let speedString = "\(LocationManager.speedSymbolFor(location.speed))\(unitsFormatter.string(from: speedMeasurement))"
+        let speedMeasure = Measure.init(asSpeed: location.speed)
+        let speedString = "\(LocationManager.speedSymbolFor(location.speed))\(speedMeasure.valueAsString) \(speedMeasure.unit)"
         previewViewController.updateSpeedAndAltitude("\(altString)  \(speedString)")
       } else {
         previewViewController.updateSpeedAndAltitude(altString)
@@ -244,7 +221,7 @@ extension PlacePageCommonLayout: MWMLocationObserver {
       let ppLocation = CLLocation(latitude: placePageData.locationCoordinate.latitude,
                                   longitude: placePageData.locationCoordinate.longitude)
       let distance = location.distance(from: ppLocation)
-      let formattedDistance = distanceFormatter.string(fromDistance: distance)
+      let formattedDistance = distanceFormatter.distanceString(fromMeters: distance)
       previewViewController.updateDistance(formattedDistance)
 
       lastLocation = location

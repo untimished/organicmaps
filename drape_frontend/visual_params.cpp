@@ -1,12 +1,11 @@
 #include "drape_frontend/visual_params.hpp"
 
-#include "base/macros.hpp"
-#include "base/math.hpp"
-#include "base/assert.hpp"
-
 #include "geometry/mercator.hpp"
 
-#include "indexer/scales.hpp"
+#include "base/assert.hpp"
+#include "base/logging.hpp"
+#include "base/macros.hpp"
+#include "base/math.hpp"
 
 #include "std/target_os.hpp"
 
@@ -28,20 +27,6 @@ static bool g_isInited = false;
 #define ASSERT_INITED
 #endif
 
-double const VisualParams::kMdpiScale = 1.0;
-double const VisualParams::kHdpiScale = 1.5;
-double const VisualParams::kXhdpiScale = 2.0;
-double const VisualParams::k6plusScale = 2.4;
-double const VisualParams::kXxhdpiScale = 3.0;
-double const VisualParams::kXxxhdpiScale = 3.5;
-
-VisualParams::VisualParams()
-  : m_tileSize(0)
-  , m_visualScale(0.0)
-  , m_poiExtendScale(0.1) // found empirically
-  , m_fontScale(1.0)
-{}
-
 VisualParams & VisualParams::Instance()
 {
   static VisualParams vizParams;
@@ -50,6 +35,8 @@ VisualParams & VisualParams::Instance()
 
 void VisualParams::Init(double vs, uint32_t tileSize)
 {
+  ASSERT_LESS_OR_EQUAL(vs, kMaxVisualScale, ());
+
   VisualParams & vizParams = Instance();
   vizParams.m_tileSize = tileSize;
   vizParams.m_visualScale = vs;
@@ -61,24 +48,8 @@ void VisualParams::Init(double vs, uint32_t tileSize)
     vizParams.m_glyphVisualParams = { 0.5f, 0.06f, 0.2f, 0.01f, 0.49f, 0.04f };
 
   RISE_INITED;
-}
 
-uint32_t VisualParams::GetGlyphSdfScale() const
-{
-  ASSERT_INITED;
-  return (m_visualScale <= 1.0) ? 3 : 4;
-}
-
-bool VisualParams::IsSdfPrefered() const
-{
-  ASSERT_INITED;
-  return m_visualScale >= kHdpiScale;
-}
-
-uint32_t VisualParams::GetGlyphBaseSize() const
-{
-  ASSERT_INITED;
-  return 22;
+  LOG(LINFO, ("Visual scale =", vs, "; Tile size =", tileSize, "; Resources =", GetResourcePostfix(vs)));
 }
 
 double VisualParams::GetFontScale() const
@@ -90,13 +61,16 @@ double VisualParams::GetFontScale() const
 void VisualParams::SetFontScale(double fontScale)
 {
   ASSERT_INITED;
-  m_fontScale = fontScale;
+  m_fontScale = base::Clamp(fontScale, 0.5, 2.0);
 }
 
 void VisualParams::SetVisualScale(double visualScale)
 {
   ASSERT_INITED;
+  ASSERT_LESS_OR_EQUAL(visualScale, kMaxVisualScale, ());
   m_visualScale = visualScale;
+
+  LOG(LINFO, ("Visual scale =", visualScale));
 }
 
 std::string const & VisualParams::GetResourcePostfix(double visualScale)
@@ -104,12 +78,14 @@ std::string const & VisualParams::GetResourcePostfix(double visualScale)
   ASSERT_INITED;
   static VisualScale postfixes[] =
   {
-    std::make_pair("mdpi", kMdpiScale),
-    std::make_pair("hdpi", kHdpiScale),
-    std::make_pair("xhdpi", kXhdpiScale),
-    std::make_pair("6plus", k6plusScale),
-    std::make_pair("xxhdpi", kXxhdpiScale),
-    std::make_pair("xxxhdpi", kXxxhdpiScale),
+    /// @todo Not used in mobile because of minimal visual scale (@see visual_scale.hpp)
+    {"mdpi", kMdpiScale},
+
+    {"hdpi", kHdpiScale},
+    {"xhdpi", kXhdpiScale},
+    {"6plus", k6plusScale},
+    {"xxhdpi", kXxhdpiScale},
+    {"xxxhdpi", kXxxhdpiScale},
   };
 
   // Looking for the nearest available scale.
@@ -180,10 +156,9 @@ VisualParams::GlyphVisualParams const & VisualParams::GetGlyphVisualParams() con
   return m_glyphVisualParams;
 }
 
-m2::RectD const & GetWorldRect()
+m2::RectD GetWorldRect()
 {
-  static m2::RectD const worldRect = mercator::Bounds::FullRect();
-  return worldRect;
+  return mercator::Bounds::FullRect();
 }
 
 int GetTileScaleBase(ScreenBase const & s, uint32_t tileSize)
@@ -210,6 +185,7 @@ int GetTileScaleBase(ScreenBase const & s)
 int GetTileScaleBase(m2::RectD const & r)
 {
   double const sz = std::max(r.SizeX(), r.SizeY());
+  ASSERT_GREATER(sz, 0., ("Rect should not be a point:", r));
   return std::max(1, base::SignedRound(std::log2(mercator::Bounds::kRangeX / sz)));
 }
 
@@ -333,25 +309,6 @@ void ExtractZoomFactors(ScreenBase const & s, double & zoom, int & index, float 
   lerpCoef = static_cast<float>(zoomLevel - zoom);
 }
 
-float InterpolateByZoomLevelsImpl(int index, float lerpCoef, float const * values,
-                                  size_t valuesSize)
-{
-  ASSERT_GREATER_OR_EQUAL(index, 0, ());
-  ASSERT_GREATER(valuesSize, scales::UPPER_STYLE_SCALE, ());
-  if (index < scales::UPPER_STYLE_SCALE)
-    return values[index] + lerpCoef * (values[index + 1] - values[index]);
-  return values[scales::UPPER_STYLE_SCALE];
-}
-
-m2::PointF InterpolateByZoomLevels(int index, float lerpCoef, std::vector<m2::PointF> const & values)
-{
-  ASSERT_GREATER_OR_EQUAL(index, 0, ());
-  ASSERT_GREATER(values.size(), scales::UPPER_STYLE_SCALE, ());
-  if (index < scales::UPPER_STYLE_SCALE)
-    return values[index] + (values[index + 1] - values[index]) * lerpCoef;
-  return values[scales::UPPER_STYLE_SCALE];
-}
-
 double GetNormalizedZoomLevel(double screenScale, int minZoom)
 {
   double const kMaxZoom = scales::GetUpperStyleScale() + 1.0;
@@ -375,4 +332,15 @@ double GetZoomLevel(double screenScale)
   auto const factor = mercator::Bounds::kRangeX / len;
   return base::Clamp(GetDrawTileScale(fabs(std::log2(factor))), 1.0, scales::GetUpperStyleScale() + 1.0);
 }
+
+float CalculateRadius(ScreenBase const & screen, ArrayView<float> const & zoom2radius)
+{
+  double zoom = 0.0;
+  int index = 0;
+  float lerpCoef = 0.0f;
+  ExtractZoomFactors(screen, zoom, index, lerpCoef);
+  float const radius = InterpolateByZoomLevels(index, lerpCoef, zoom2radius);
+  return radius * static_cast<float>(VisualParams::Instance().GetVisualScale());
+}
+
 }  // namespace df

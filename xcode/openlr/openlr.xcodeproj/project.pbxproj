@@ -202,7 +202,9 @@
 		671E78EB1E6A4FE400B2859B /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
-				LastUpgradeCheck = 1240;
+				BuildIndependentTargetsInParallel = YES;
+				DefaultBuildSystemTypeForWorkspace = Latest;
+				LastUpgradeCheck = 1510;
 				TargetAttributes = {
 					671E78F21E6A4FE400B2859B = {
 						CreatedOnToolsVersion = 8.2.1;
@@ -259,9 +261,7 @@
 			buildSettings = {
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(OMIM_ROOT)",
-					"$(BOOST_ROOT)",
-					"$(OMIM_ROOT)/3party/jansson/src",
+					"$(OMIM_ROOT)/3party/pugixml/pugixml/src",
 				);
 			};
 			name = Debug;
@@ -272,9 +272,7 @@
 			buildSettings = {
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(OMIM_ROOT)",
-					"$(BOOST_ROOT)",
-					"$(OMIM_ROOT)/3party/jansson/src",
+					"$(OMIM_ROOT)/3party/pugixml/pugixml/src",
 				);
 			};
 			name = Release;
@@ -283,7 +281,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				EXECUTABLE_PREFIX = lib;
-				GCC_PREFIX_HEADER = "$(OMIM_ROOT)/precompiled_headers.hpp";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
 			name = Debug;
@@ -292,7 +289,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				EXECUTABLE_PREFIX = lib;
-				GCC_PREFIX_HEADER = "$(OMIM_ROOT)/precompiled_headers.hpp";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
 			name = Release;

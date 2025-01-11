@@ -1,7 +1,6 @@
 #import "MWMAlertViewController.h"
 #import "MWMAuthorizationCommon.h"
 #import "MWMAuthorizationLoginViewController.h"
-#import "MWMAuthorizationWebViewLoginViewController.h"
 
 #include <CoreApi/Framework.h>
 
@@ -58,7 +57,7 @@ using namespace osm_auth_ios;
 - (void)configHaveAuth
 {
   NSString * osmUserName = OSMUserName();
-  self.title = osmUserName.length > 0 ? osmUserName : L(@"osm_account").capitalizedString;
+  self.title = osmUserName.length > 0 ? osmUserName : L(@"osm_account");
   self.authView.hidden = YES;
   self.accountView.hidden = NO;
 
@@ -68,7 +67,7 @@ using namespace osm_auth_ios;
 
 - (void)configNoAuth
 {
-  self.title = L(@"profile").capitalizedString;
+  self.title = L(@"profile");
   self.authView.hidden = NO;
   self.accountView.hidden = YES;
 }
@@ -95,24 +94,18 @@ using namespace osm_auth_ios;
 {
   [self performOnlineAction:^
   {
-    [self openUrl:[NSURL URLWithString:@(OsmOAuth::ServerAuth().GetRegistrationURL().c_str())]];
+    [self openUrl:@(OsmOAuth::ServerAuth().GetRegistrationURL().c_str())];
   }];
 }
 
 - (IBAction)osmTap
 {
-  [self openUrl:[NSURL URLWithString:@"https://wiki.openstreetmap.org/wiki/Main_Page"]];
+  [self openUrl:L(@"osm_wiki_about_url")];
 }
 
 - (IBAction)historyTap
 {
-  [self openUrl:[NSURL URLWithString:[NSString stringWithFormat:
-#ifdef DEBUG
-                                      @"https://master.apis.dev.openstreetmap.org/user/%@/history"
-#else
-                                      @"https://www.openstreetmap.org/user/%@/history"
-#endif
-                                      , OSMUserName()]]];
+  [self openUrl:@(OsmOAuth::ServerAuth().GetHistoryURL([OSMUserName() UTF8String]).c_str())];
 }
 
 - (void)logout

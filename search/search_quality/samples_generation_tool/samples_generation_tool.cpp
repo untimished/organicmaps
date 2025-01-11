@@ -10,7 +10,6 @@
 #include "indexer/data_source.hpp"
 #include "indexer/feature_algo.hpp"
 #include "indexer/ftypes_matcher.hpp"
-#include "indexer/search_string_utils.hpp"
 
 #include "platform/platform_tests_support/helpers.hpp"
 
@@ -19,16 +18,11 @@
 #include "geometry/mercator.hpp"
 
 #include "base/file_name_utils.hpp"
-#include "base/macros.hpp"
 #include "base/string_utils.hpp"
 
 #include <algorithm>
-#include <cstddef>
-#include <cstdint>
-#include <cstdlib>
-#include <ctime>
+#include <cstring>    // strlen
 #include <fstream>
-#include <limits>
 #include <map>
 #include <random>
 #include <set>
@@ -36,7 +30,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "gflags/gflags.h"
+#include <gflags/gflags.h>
 
 using namespace search::search_quality;
 using namespace search;
@@ -49,8 +43,8 @@ size_t constexpr kMaxSamplesPerMwm = 20;
 
 DEFINE_string(data_path, "", "Path to data directory (resources dir).");
 DEFINE_string(mwm_path, "", "Path to mwm files (writable dir).");
-DEFINE_string(out_buildings_path, "buildings.jsonl", "Path to output file for buildings samples.");
-DEFINE_string(out_cafes_path, "cafes.jsonl", "Path to output file for cafes samples.");
+DEFINE_string(out_buildings_path, "buildings.json", "Path to output file for buildings samples.");
+DEFINE_string(out_cafes_path, "cafes.json", "Path to output file for cafes samples.");
 DEFINE_double(max_distance_to_object, kMaxDistanceToObjectM,
               "Maximal distance from user position to object (meters).");
 DEFINE_double(min_viewport_size, kMinViewportSizeM, "Minimal size of viewport (meters).");
@@ -150,7 +144,7 @@ map<string, vector<string>> const kStreetSynonyms = {
 
 void ModifyStreet(string & str)
 {
-  auto tokens = strings::Tokenize(str, " -&");
+  auto tokens = strings::Tokenize<std::string>(str, " -&");
   str.clear();
 
   auto const isStreetSynonym = [](string const & s) {
@@ -221,12 +215,9 @@ m2::RectD GenerateNearbyViewport(m2::PointD const & point)
 
 bool GetBuildingInfo(FeatureType & ft, search::ReverseGeocoder const & coder, string & street)
 {
-  auto const houseNumber = ft.GetHouseNumber();
-  if (houseNumber.empty() ||
-      !search::house_numbers::LooksLikeHouseNumber(houseNumber, false /* prefix */))
-  {
+  std::string const & hn = ft.GetHouseNumber();
+  if (hn.empty() || !search::house_numbers::LooksLikeHouseNumber(hn, false /* prefix */))
     return false;
-  }
 
   street = coder.GetFeatureStreetName(ft);
   if (street.empty())
@@ -236,13 +227,12 @@ bool GetBuildingInfo(FeatureType & ft, search::ReverseGeocoder const & coder, st
 }
 
 bool GetCafeInfo(FeatureType & ft, search::ReverseGeocoder const & coder, string & street,
-                 uint32_t & cafeType, string & name)
+                 uint32_t & cafeType, string_view & name)
 {
   if (!ft.HasName())
     return false;
 
-  auto const names = ft.GetNames();
-  if (!names.GetString(StringUtf8Multilang::kDefaultCode, name))
+  if (!ft.GetNames().GetString(StringUtf8Multilang::kDefaultCode, name))
     return false;
 
   for (auto const t : feature::TypesHolder(ft))
@@ -287,13 +277,13 @@ void ModifyCafe(string const & name, string const & type, string & out)
   AddMisprints(out);
 }
 
-string GetLocalizedCafeType(unordered_map<uint32_t, StringUtf8Multilang> const & typesTranslations,
-                            uint32_t type, uint8_t lang)
+string_view GetLocalizedCafeType(unordered_map<uint32_t, StringUtf8Multilang> const & typesTranslations,
+                                 uint32_t type, uint8_t lang)
 {
   auto const it = typesTranslations.find(type);
   if (it == typesTranslations.end())
     return {};
-  string translation;
+  string_view translation;
   if (it->second.GetString(lang, translation))
     return translation;
   it->second.GetString(StringUtf8Multilang::kEnglishCode, translation);
@@ -320,19 +310,18 @@ optional<Sample> GenerateRequest(
   case RequestType::Cafe:
   {
     uint32_t type;
-    string name;
+    string_view name;
     if (!GetCafeInfo(ft, coder, street, type, name))
       return {};
 
     auto const cafeType = GetLocalizedCafeType(typesTranslations, type, lang);
-    ModifyCafe(name, cafeType, cafeStr);
+    ModifyCafe(std::string(name), std::string(cafeType), cafeStr);
     break;
   }
   }
 
-  auto const house = ft.GetHouseNumber();
   auto const featureCenter = feature::GetCenter(ft);
-  auto const address = ModifyAddress(street, house, lang);
+  auto const address = ModifyAddress(std::move(street), ft.GetHouseNumber(), lang);
   auto query = address;
   if (!cafeStr.empty())
     query = FLAGS_add_cafe_address ? CombineRandomly(cafeStr, address) : cafeStr;
@@ -437,7 +426,7 @@ int main(int argc, char * argv[])
     if (!value.HasSearchIndex())
       continue;
 
-    MwmContext const mwmContext(move(handle));
+    MwmContext const mwmContext(std::move(handle));
     base::Cancellable const cancellable;
     FeaturesLoaderGuard g(dataSource, mwmId);
 

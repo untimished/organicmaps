@@ -31,6 +31,7 @@ UNIT_TEST(RussiaTulskayaToPaveletskayaStreetNamesTest)
   RouterResultCode const result = routeResult.second;
   TEST_EQUAL(result, RouterResultCode::NoError, ());
 
+  /// @todo https://github.com/organicmaps/organicmaps/issues/1668
   integration::TestCurrentStreetName(route, "Большая Тульская улица");
   integration::TestNextStreetName(route, "Подольское шоссе");
 
@@ -51,8 +52,9 @@ UNIT_TEST(RussiaTulskayaToPaveletskayaStreetNamesTest)
 
   MoveRoute(route, ms::LatLon(55.73034, 37.63099));
 
+  // No more extra last turn, so TestNextStreetName returns "".
   integration::TestCurrentStreetName(route, "Валовая улица");
-  integration::TestNextStreetName(route, "улица Зацепский Вал");
+  //integration::TestNextStreetName(route, "улица Зацепский Вал");
 
   MoveRoute(route, ms::LatLon(55.730912, 37.636191));
 

@@ -7,13 +7,22 @@ final class Toast: NSObject {
   }
 
   private var blurView = UIVisualEffectView(effect: UIBlurEffect(style: .dark))
+  private var timer: Timer?
+
+  private static var toasts: [Toast] = []
 
   @objc static func toast(withText text: String) -> Toast {
-    return Toast(text)
+    let toast = Toast(text)
+    toasts.append(toast)
+    return toast
   }
-
+  
+  @objc static func hideAll() {
+    toasts.forEach { $0.hide() }
+  }
+  
   private init(_ text: String) {
-    blurView.layer.cornerRadius = 8
+    blurView.layer.setCorner(radius: 8)
     blurView.clipsToBounds = true
     blurView.alpha = 0
 
@@ -23,64 +32,73 @@ final class Toast: NSObject {
     label.numberOfLines = 0
     label.font = .regular14()
     label.textColor = .white
-    label.frame = blurView.contentView.bounds
     label.translatesAutoresizingMaskIntoConstraints = false
     blurView.contentView.addSubview(label)
     blurView.isUserInteractionEnabled = false
-    let views = ["label" : label]
-    blurView.contentView.addConstraints(NSLayoutConstraint.constraints(withVisualFormat: "H:|-8-[label]-8-|",
-                                                                       options: [],
-                                                                       metrics: [:],
-                                                                       views: views))
-    blurView.contentView.addConstraints(NSLayoutConstraint.constraints(withVisualFormat: "V:|-8-[label]-8-|",
-                                                                       options: [],
-                                                                       metrics: [:],
-                                                                       views: views))
+
+    NSLayoutConstraint.activate([
+        label.leadingAnchor.constraint(equalTo: blurView.contentView.leadingAnchor, constant: 8),
+        label.trailingAnchor.constraint(equalTo: blurView.contentView.trailingAnchor, constant: -8),
+        label.topAnchor.constraint(equalTo: blurView.contentView.topAnchor, constant: 8),
+        label.bottomAnchor.constraint(equalTo: blurView.contentView.bottomAnchor, constant: -8)
+    ])
+  }
+  
+  deinit {
+    timer?.invalidate()
   }
 
   @objc func show() {
     show(in: UIApplication.shared.keyWindow, alignment: .bottom)
   }
 
-  @objc func show(withAlignment alignment: Alignment) {
-    show(in: UIApplication.shared.keyWindow, alignment: alignment)
+  @objc func show(withAlignment alignment: Alignment, pinToSafeArea: Bool = true) {
+    show(in: UIApplication.shared.keyWindow, alignment: alignment, pinToSafeArea: pinToSafeArea)
   }
 
-  @objc func show(in view: UIView?, alignment: Alignment) {
-    guard let v = view else { return }
+  @objc func show(in view: UIView?, alignment: Alignment, pinToSafeArea: Bool = true) {
+    guard let view = view else { return }
     blurView.translatesAutoresizingMaskIntoConstraints = false
-    v.addSubview(blurView)
-    let views = ["bv" : blurView]
-    v.addConstraints(NSLayoutConstraint.constraints(withVisualFormat: "H:|->=16-[bv]->=16-|",
-                                                    options: [],
-                                                    metrics: [:],
-                                                    views: views))
-    let formatString = alignment == .bottom ? "V:[bv]-50-|" : "V:|-50-[bv]"
-    v.addConstraints(NSLayoutConstraint.constraints(withVisualFormat: formatString,
-                                                    options: [],
-                                                    metrics: [:],
-                                                    views: views))
-    v.addConstraint(NSLayoutConstraint(item: blurView,
-                                       attribute: .centerX,
-                                       relatedBy: .equal,
-                                       toItem: v,
-                                       attribute: .centerX,
-                                       multiplier: 1,
-                                       constant: 0))
+    view.addSubview(blurView)
+
+    let leadingConstraint = blurView.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 16)
+    let trailingConstraint = blurView.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -16)
+    
+    NSLayoutConstraint.activate([
+      leadingConstraint,
+      trailingConstraint
+    ])
+    
+    let topConstraint: NSLayoutConstraint
+    if alignment == .bottom {
+      topConstraint = blurView.bottomAnchor.constraint(equalTo: pinToSafeArea ? view.safeAreaLayoutGuide.bottomAnchor : view.bottomAnchor, constant: -63)
+    } else {
+      topConstraint = blurView.topAnchor.constraint(equalTo: pinToSafeArea ? view.safeAreaLayoutGuide.topAnchor : view.topAnchor, constant: 50)
+    }
+    
+    NSLayoutConstraint.activate([
+      topConstraint,
+      blurView.centerXAnchor.constraint(equalTo: pinToSafeArea ? view.safeAreaLayoutGuide.centerXAnchor : view.centerXAnchor)
+    ])
 
     UIView.animate(withDuration: kDefaultAnimationDuration) {
       self.blurView.alpha = 1
     }
 
-    Timer.scheduledTimer(timeInterval: 3,
-                         target: self,
-                         selector: #selector(onTimer),
-                         userInfo: nil,
-                         repeats: false)
+    timer = Timer.scheduledTimer(timeInterval: 3,
+                                 target: self,
+                                 selector: #selector(hide),
+                                 userInfo: nil,
+                                 repeats: false)
   }
-
-  @objc private func onTimer() {
-    UIView.animate(withDuration: kDefaultAnimationDuration,
-                   animations: { self.blurView.alpha = 0 }) { [self] _ in self.blurView.removeFromSuperview() }
+  
+  @objc func hide() {
+    timer?.invalidate()
+    if self.blurView.superview != nil {
+      UIView.animate(withDuration: kDefaultAnimationDuration,
+                     animations: { self.blurView.alpha = 0 }) { [self] _ in
+        self.blurView.removeFromSuperview()
+        Self.toasts.removeAll(where: { $0 === self }) }
+    }
   }
 }

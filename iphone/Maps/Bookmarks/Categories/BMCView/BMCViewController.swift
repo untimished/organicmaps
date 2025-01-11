@@ -12,7 +12,7 @@ final class BMCViewController: MWMViewController {
     didSet {
       let cells = [
         BMCCategoryCell.self,
-        BMCActionsCreateCell.self,
+        BMCActionsCell.self,
         BMCNotificationsCell.self,
       ]
       tableView.registerNibs(cells)
@@ -34,27 +34,18 @@ final class BMCViewController: MWMViewController {
 
   override func viewDidLoad() {
     super.viewDidLoad()
+    view.styleName = "PressBackground"
     viewModel = BMCDefaultViewModel()
   }
 
   override func viewWillAppear(_ animated: Bool) {
     super.viewWillAppear(animated)
+    viewModel.addToObserverList()
     viewModel.reloadData()
   }
-  
-  override func viewDidAppear(_ animated: Bool) {
-    super.viewDidAppear(animated)
-    // Disable all notifications in BM on appearance of this view.
-    // It allows to significantly improve performance in case of bookmarks
-    // modification. All notifications will be sent on controller's disappearance.
-    viewModel.setNotificationsEnabled(false)
-    viewModel.addToObserverList()
-  }
-  
+
   override func viewDidDisappear(_ animated: Bool) {
     super.viewDidDisappear(animated)
-    // Allow to send all notifications in BM.
-    viewModel.setNotificationsEnabled(true)
     viewModel.removeFromObserverList()
   }
 
@@ -72,36 +63,56 @@ final class BMCViewController: MWMViewController {
     }
   }
 
-  private func shareCategoryFile(at index: Int, anchor: UIView) {
-    viewModel.shareCategoryFile(at: index) {
-      switch $0 {
-      case let .success(url):
-        let shareController = ActivityViewController.share(for: url,
-                                                              message: L("share_bookmarks_email_body"))
-        { [weak self] _, _, _, _ in
-          self?.viewModel?.finishShareCategory()
+  private func shareCategoryFile(at index: Int, fileType: KmlFileType, anchor: UIView) {
+    UIApplication.shared.showLoadingOverlay()
+    viewModel.shareCategoryFile(at: index, fileType: fileType, handler: sharingResultHandler(anchorView: anchor))
+  }
+
+  private func shareAllCategories(anchor: UIView?) {
+    UIApplication.shared.showLoadingOverlay()
+    viewModel.shareAllCategories(handler: sharingResultHandler(anchorView: anchor))
+  }
+
+  private func sharingResultHandler(anchorView: UIView?) -> SharingResultCompletionHandler {
+    { [weak self] status, url in
+      UIApplication.shared.hideLoadingOverlay {
+        guard let self else { return }
+        switch status {
+        case .success:
+          let shareController = ActivityViewController.share(for: url, message: L("share_bookmarks_email_body"))
+          { [weak self] _, _, _, _ in
+            self?.viewModel?.finishShareCategory()
+          }
+          shareController.present(inParentViewController: self, anchorView: anchorView)
+        case .emptyCategory:
+          MWMAlertViewController.activeAlert().presentInfoAlert(L("bookmarks_error_title_share_empty"),
+                                                                text: L("bookmarks_error_message_share_empty"))
+        case .fileError, .archiveError:
+          MWMAlertViewController.activeAlert().presentInfoAlert(L("dialog_routing_system_error"),
+                                                                text: L("bookmarks_error_message_share_general"))
         }
-        shareController?.present(inParentViewController: self, anchorView: anchor)
-      case let .error(title, text):
-        MWMAlertViewController.activeAlert().presentInfoAlert(title, text: text)
       }
+    }
+  }
+
+  private func showImportDialog() {
+    DocumentPicker.shared.present(from: self) { [viewModel] urls in
+      viewModel?.importCategories(from: urls)
     }
   }
 
   private func openCategorySettings(category: BookmarkGroup) {
     let settingsController = CategorySettingsViewController(bookmarkGroup: BookmarksManager.shared().category(withId: category.categoryId))
     settingsController.delegate = self
-    
-    MapViewController.topViewController().navigationController?.pushViewController(settingsController,
-                                                                                   animated: true)
+
+    MapViewController.shared()?.navigationController?.pushViewController(settingsController, animated: true)
   }
 
   private func openCategory(category: BookmarkGroup) {
     let bmViewController = BookmarksListBuilder.build(markGroupId: category.categoryId,
                                                       bookmarksCoordinator: coordinator,
                                                       delegate: self)
-    MapViewController.topViewController().navigationController?.pushViewController(bmViewController,
-                                                                                   animated: true)
+    MapViewController.shared()?.navigationController?.pushViewController(bmViewController, animated: true)
   }
 
   private func setCategoryVisible(_ visible: Bool, at index: Int) {
@@ -120,7 +131,7 @@ final class BMCViewController: MWMViewController {
       ppc.sourceRect = anchor.bounds
     }
 
-    let settings = L("list_settings")
+    let settings = L("edit")
     actionSheet.addAction(UIAlertAction(title: settings, style: .default, handler: { _ in
       self.openCategorySettings(category: category)
     }))
@@ -130,20 +141,27 @@ final class BMCViewController: MWMViewController {
       let sectionIndex = self.viewModel.sectionIndex(section: .categories)
       self.tableView.reloadRows(at: [IndexPath(row: index, section: sectionIndex)], with: .none)
     }))
-    let exportFile = L("export_file")
-    actionSheet.addAction(UIAlertAction(title: exportFile, style: .default, handler: { _ in
-      self.shareCategoryFile(at: index, anchor: anchor)
+    actionSheet.addAction(UIAlertAction(title: L("export_file"), style: .default, handler: { _ in
+      self.shareCategoryFile(at: index, fileType: .text, anchor: anchor)
+    }))
+    actionSheet.addAction(UIAlertAction(title: L("export_file_gpx"), style: .default, handler: { _ in
+      self.shareCategoryFile(at: index, fileType: .gpx, anchor: anchor)
     }))
     let delete = L("delete_list")
     let deleteAction = UIAlertAction(title: delete, style: .destructive, handler: { [viewModel] _ in
       viewModel!.deleteCategory(at: index)
     })
-    deleteAction.isEnabled = (viewModel.numberOfRows(section: .categories) > 1)
+    deleteAction.isEnabled = (viewModel.canDeleteCategory())
     actionSheet.addAction(deleteAction)
     let cancel = L("cancel")
     actionSheet.addAction(UIAlertAction(title: cancel, style: .cancel, handler: nil))
 
     present(actionSheet, animated: true, completion: nil)
+  }
+
+  private func openRecentlyDeleted() {
+    let recentlyDeletedController = RecentlyDeletedCategoriesViewController(viewModel: RecentlyDeletedCategoriesViewModel(bookmarksManager: BookmarksManager.shared()))
+    MapViewController.shared()?.navigationController?.pushViewController(recentlyDeletedController, animated: true)
   }
 }
 
@@ -182,7 +200,7 @@ extension BMCViewController: UITableViewDataSource {
   func tableView(_: UITableView, numberOfRowsInSection section: Int) -> Int {
     switch viewModel.sectionType(section: section) {
     case .categories: fallthrough
-    case .actions: fallthrough
+    case .actions, .recentlyDeleted: fallthrough
     case .notifications: return viewModel.numberOfRows(section: section)
     }
   }
@@ -197,7 +215,9 @@ extension BMCViewController: UITableViewDataSource {
       return dequeCell(BMCCategoryCell.self).config(category: viewModel.category(at: indexPath.row),
                                                     delegate: self)
     case .actions:
-      return dequeCell(BMCActionsCreateCell.self).config(model: viewModel.action(at: indexPath.row))
+      return dequeCell(BMCActionsCell.self).config(model: viewModel.action(at: indexPath.row))
+    case .recentlyDeleted:
+      return dequeCell(BMCActionsCell.self).config(model: viewModel.recentlyDeletedCategories())
     case .notifications:
       return dequeCell(BMCNotificationsCell.self)
     }
@@ -210,7 +230,7 @@ extension BMCViewController: UITableViewDelegate {
       return false
     }
 
-    return viewModel.numberOfRows(section: .categories) > 1
+    return viewModel.canDeleteCategory()
   }
 
   func tableView(_ tableView: UITableView,
@@ -229,7 +249,7 @@ extension BMCViewController: UITableViewDelegate {
     switch viewModel.sectionType(section: section) {
     case .notifications: fallthrough
     case .categories: return 48
-    case .actions: return 24
+    case .actions, .recentlyDeleted: return 24
     }
   }
 
@@ -238,10 +258,10 @@ extension BMCViewController: UITableViewDelegate {
     case .categories:
       let categoriesHeader = tableView.dequeueReusableHeaderFooterView(BMCCategoriesHeader.self)
       categoriesHeader.isShowAll = viewModel.areAllCategoriesHidden()
-      categoriesHeader.title = L("bookmarks_groups")
+      categoriesHeader.title = L("bookmark_lists")
       categoriesHeader.delegate = self
       return categoriesHeader
-    case .actions: return actionsHeader
+    case .actions, .recentlyDeleted: return actionsHeader
     case .notifications: return notificationsHeader
     }
   }
@@ -254,7 +274,12 @@ extension BMCViewController: UITableViewDelegate {
     case .actions:
       switch viewModel.action(at: indexPath.row) {
       case .create: createNewCategory()
+      case .exportAll: shareAllCategories(anchor: tableView.cellForRow(at: indexPath))
+      case .import: showImportDialog()
+      default:
+        assertionFailure()
       }
+    case .recentlyDeleted: openRecentlyDeleted()
     default:
       assertionFailure()
     }
@@ -294,7 +319,7 @@ extension BMCViewController: CategorySettingsViewControllerDelegate {
                                   didEndEditing categoryId: MWMMarkGroupID) {
     navigationController?.popViewController(animated: true)
   }
-  
+
   func categorySettingsController(_ viewController: CategorySettingsViewController,
                                   didDelete categoryId: MWMMarkGroupID) {
     navigationController?.popViewController(animated: true)

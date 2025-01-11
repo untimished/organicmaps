@@ -31,14 +31,14 @@
 #include <string>
 #include <vector>
 
+namespace altitude_test
+{
 using namespace feature;
 using namespace generator;
 using namespace platform;
 using namespace platform::tests_support;
 using namespace routing;
 
-namespace
-{
 // These tests generate mwms with altitude sections and then check if altitudes
 // in the mwms are correct. The mwms are initialized with different sets of features.
 // There are several restrictions for these features:
@@ -134,13 +134,16 @@ void TestAltitudes(DataSource const & dataSource, MwmSet::MwmId const & mwmId,
                    std::string const & mwmPath, bool hasAltitudeExpected,
                    AltitudeGetter & expectedAltitudes)
 {
-  AltitudeLoader loader(dataSource, mwmId);
+  auto const handle = dataSource.GetMwmHandleById(mwmId);
+  TEST(handle.IsAlive(), ());
+  AltitudeLoaderCached loader(*handle.GetValue());
   TEST_EQUAL(loader.HasAltitudes(), hasAltitudeExpected, ());
 
-  auto processor = [&expectedAltitudes, &loader](FeatureType & f, uint32_t const & id) {
+  auto processor = [&expectedAltitudes, &loader](FeatureType & f, uint32_t const & id)
+  {
     f.ParseGeometry(FeatureType::BEST_GEOMETRY);
     size_t const pointsCount = f.GetPointsCount();
-    geometry::Altitudes const altitudes = loader.GetAltitudes(id, pointsCount);
+    geometry::Altitudes const & altitudes = loader.GetAltitudes(id, pointsCount);
 
     if (!routing::IsRoad(feature::TypesHolder(f)))
     {
@@ -254,4 +257,4 @@ UNIT_TEST(AltitudeGenerationTest_FourRoadsWithoutAltitude)
   std::vector<TPoint3DList> const roads = {kRoad1, kRoad2, kRoad3, kRoad4};
   TestBuildingNoFeatureHasAltitude(roads, false /* hasAltitudeExpected */);
 }
-}  // namespace
+}  // namespace altitude_test

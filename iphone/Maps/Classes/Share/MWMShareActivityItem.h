@@ -6,11 +6,9 @@ class LatLon;
 @protocol MWMPlacePageObject<NSObject>
 
 - (BOOL)isMyPosition;
-- (BOOL)isBooking;
 - (NSString *)title;
 - (NSString *)subtitle;
 - (NSString *)address;
-- (NSURL *)sponsoredDescriptionURL;
 - (NSString *)phoneNumber;
 - (ms::LatLon)latLon;
 

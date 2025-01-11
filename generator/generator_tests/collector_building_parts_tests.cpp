@@ -8,16 +8,13 @@
 #include "generator/osm_element.hpp"
 
 #include "indexer/classificator.hpp"
-#include "indexer/classificator_loader.hpp"
 
 #include "platform/platform_tests_support/scoped_file.hpp"
-
-#include "geometry/point2d.hpp"
 
 #include <memory>
 #include <unordered_map>
 
-namespace
+namespace collector_building_parts_tests
 {
 using namespace generator::tests_support;
 
@@ -30,7 +27,10 @@ public:
   }
 
   // OSMElementCacheReaderInterface overrides:
-  bool Read(generator::cache::Key /* id */, WayElement & /* value */) override { UNREACHABLE(); }
+  bool Read(generator::cache::Key /* id */, WayElement & /* value */) override
+  {
+    UNREACHABLE();
+  }
 
   bool Read(generator::cache::Key id, RelationElement & value) override
   {
@@ -99,8 +99,7 @@ public:
   }
 
   // IntermediateDataReaderBase overrides:
-  bool GetNode(generator::cache::Key /* id */, double & /* lat */,
-               double & /* lon */) const override
+  bool GetNode(generator::cache::Key, double &, double &) const override
   {
     UNREACHABLE();
   }
@@ -241,4 +240,4 @@ UNIT_CLASS_TEST(TestWithClassificator, CollectorBuildingParts_Case2)
   TestCollector(file.GetFullPath(), fb2, *intermediateReader,
                 IntermediateDataReaderTest::kTopRelationId2);
 }
-}  // namespace
+}  // namespace collector_building_parts_tests

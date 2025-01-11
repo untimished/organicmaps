@@ -1,20 +1,15 @@
 #include "drape_frontend/line_shape.hpp"
 
-#include "drape_frontend/line_shape_helper.hpp"
-
 #include "shaders/programs.hpp"
 
 #include "drape/attribute_provider.hpp"
 #include "drape/batcher.hpp"
 #include "drape/glsl_types.hpp"
-#include "drape/glsl_func.hpp"
 #include "drape/support_manager.hpp"
 #include "drape/texture_manager.hpp"
 #include "drape/utils/vertex_decl.hpp"
 
 #include "indexer/scales.hpp"
-
-#include "base/logging.hpp"
 
 #include <algorithm>
 #include <vector>
@@ -27,24 +22,18 @@ class TextureCoordGenerator
 {
 public:
   explicit TextureCoordGenerator(dp::TextureManager::StippleRegion const & region)
-    : m_region(region)
-    , m_maskLength(static_cast<float>(m_region.GetMaskPixelLength()))
+    : m_region(region), m_maskSize(m_region.GetMaskPixelSize())
   {}
 
-  glsl::vec4 GetTexCoordsByDistance(float distance) const
-  {
-    return GetTexCoords(distance / m_maskLength);
-  }
-
-  glsl::vec4 GetTexCoords(float offset) const
+  glsl::vec4 GetTexCoordsByDistance(float distance, bool isLeft) const
   {
     m2::RectF const & texRect = m_region.GetTexRect();
-    return glsl::vec4(offset, texRect.minX(), texRect.SizeX(), texRect.Center().y);
+    return { distance / GetMaskLength(), texRect.minX(), texRect.SizeX(), isLeft ? texRect.minY() : texRect.maxY() };
   }
 
-  float GetMaskLength() const
+  uint32_t GetMaskLength() const
   {
-    return m_maskLength;
+    return m_maskSize.x;
   }
 
   dp::TextureManager::StippleRegion const & GetRegion() const
@@ -54,7 +43,7 @@ public:
 
 private:
   dp::TextureManager::StippleRegion const m_region;
-  float const m_maskLength;
+  m2::PointU const m_maskSize;
 };
 
 struct BaseBuilderParams
@@ -77,7 +66,7 @@ public:
     , m_colorCoord(glsl::ToVec2(params.m_color.GetTexRect().Center()))
   {
     m_geometry.reserve(geomsSize);
-    m_joinGeom.reserve(joinsSize);
+    //m_joinGeom.reserve(joinsSize);
   }
 
   dp::BindingInfo const & GetBindingInfo() override
@@ -95,15 +84,15 @@ public:
     return static_cast<uint32_t>(m_geometry.size());
   }
 
-  ref_ptr<void> GetJoinData() override
-  {
-    return make_ref(m_joinGeom.data());
-  }
+//  ref_ptr<void> GetJoinData() override
+//  {
+//    return make_ref(m_joinGeom.data());
+//  }
 
-  uint32_t GetJoinSize() override
-  {
-    return static_cast<uint32_t>(m_joinGeom.size());
-  }
+//  uint32_t GetJoinSize() override
+//  {
+//    return static_cast<uint32_t>(m_joinGeom.size());
+//  }
 
   float GetHalfWidth()
   {
@@ -137,10 +126,10 @@ public:
 
 protected:
   using V = TVertex;
-  using TGeometryBuffer = std::vector<V>;
+  using TGeometryBuffer = gpu::VBReservedSizeT<V>;
 
   TGeometryBuffer m_geometry;
-  TGeometryBuffer m_joinGeom;
+  //TGeometryBuffer m_joinGeom;
 
   BaseBuilderParams m_params;
   glsl::vec2 const m_colorCoord;
@@ -169,7 +158,7 @@ class SolidLineBuilder : public BaseLineBuilder<gpu::LineVertex>
     TTexCoord m_color;
   };
 
-  using TCapBuffer = std::vector<CapVertex>;
+  using TCapBuffer = gpu::VBUnknownSizeT<CapVertex>;
 
 public:
   using BuilderParams = BaseBuilderParams;
@@ -188,8 +177,7 @@ public:
 
   dp::BindingInfo const & GetCapBindingInfo() override
   {
-    if (m_params.m_cap == dp::ButtCap)
-      return TBase::GetCapBindingInfo();
+    ASSERT(!m_capGeometry.empty(), ());
 
     static std::unique_ptr<dp::BindingInfo> s_capInfo;
     if (s_capInfo == nullptr)
@@ -207,8 +195,7 @@ public:
 
   dp::RenderState GetCapState() override
   {
-    if (m_params.m_cap == dp::ButtCap)
-      return TBase::GetCapState();
+    ASSERT(!m_capGeometry.empty(), ());
 
     auto state = CreateRenderState(gpu::Program::CapJoin, m_params.m_depthLayer);
     state.SetDepthTestEnabled(m_params.m_depthTestEnabled);
@@ -230,7 +217,7 @@ public:
   void SubmitVertex(glsl::vec3 const & pivot, glsl::vec2 const & normal, bool isLeft)
   {
     float const halfWidth = GetHalfWidth();
-    m_geometry.emplace_back(V(pivot, TNormal(halfWidth * normal, halfWidth * GetSide(isLeft)), m_colorCoord));
+    m_geometry.emplace_back(pivot, TNormal(halfWidth * normal, halfWidth * GetSide(isLeft)), m_colorCoord);
   }
 
   void SubmitJoin(glsl::vec2 const & pos)
@@ -252,16 +239,15 @@ private:
     static float const kSqrt3 = sqrt(3.0f);
     float const radius = GetHalfWidth();
 
-    m_capGeometry.reserve(3);
-    m_capGeometry.push_back(CapVertex(CapVertex::TPosition(pos, m_params.m_depth),
-                                      CapVertex::TNormal(-radius * kSqrt3, -radius, radius),
-                                      CapVertex::TTexCoord(m_colorCoord)));
-    m_capGeometry.push_back(CapVertex(CapVertex::TPosition(pos, m_params.m_depth),
-                                      CapVertex::TNormal(radius * kSqrt3, -radius, radius),
-                                      CapVertex::TTexCoord(m_colorCoord)));
-    m_capGeometry.push_back(CapVertex(CapVertex::TPosition(pos, m_params.m_depth),
-                                      CapVertex::TNormal(0, 2.0f * radius, radius),
-                                      CapVertex::TTexCoord(m_colorCoord)));
+    m_capGeometry.emplace_back(CapVertex::TPosition(pos, m_params.m_depth),
+                               CapVertex::TNormal(-radius * kSqrt3, -radius, radius),
+                               CapVertex::TTexCoord(m_colorCoord));
+    m_capGeometry.emplace_back(CapVertex::TPosition(pos, m_params.m_depth),
+                               CapVertex::TNormal(radius * kSqrt3, -radius, radius),
+                               CapVertex::TTexCoord(m_colorCoord));
+    m_capGeometry.emplace_back(CapVertex::TPosition(pos, m_params.m_depth),
+                               CapVertex::TNormal(0, 2.0f * radius, radius),
+                               CapVertex::TTexCoord(m_colorCoord));
   }
 
 private:
@@ -292,7 +278,7 @@ public:
 
   void SubmitVertex(glsl::vec3 const & pivot)
   {
-    m_geometry.emplace_back(V(pivot, m_colorCoord));
+    m_geometry.emplace_back(pivot, m_colorCoord);
   }
 
 private:
@@ -308,7 +294,6 @@ public:
   struct BuilderParams : BaseBuilderParams
   {
     dp::TextureManager::StippleRegion m_stipple;
-    float m_glbHalfWidth;
     float m_baseGtoP;
   };
 
@@ -318,10 +303,9 @@ public:
     , m_baseGtoPScale(params.m_baseGtoP)
   {}
 
-  int GetDashesCount(float const globalLength) const
+  float GetMaskLengthG() const
   {
-    float const pixelLen = globalLength * m_baseGtoPScale;
-    return static_cast<int>((pixelLen + m_texCoordGen.GetMaskLength() - 1) / m_texCoordGen.GetMaskLength());
+    return m_texCoordGen.GetMaskLength() / m_baseGtoPScale;
   }
 
   dp::RenderState GetState() override
@@ -336,8 +320,8 @@ public:
   void SubmitVertex(glsl::vec3 const & pivot, glsl::vec2 const & normal, bool isLeft, float offsetFromStart)
   {
     float const halfWidth = GetHalfWidth();
-    m_geometry.emplace_back(V(pivot, TNormal(halfWidth * normal, halfWidth * GetSide(isLeft)),
-                              m_colorCoord, m_texCoordGen.GetTexCoordsByDistance(offsetFromStart)));
+    m_geometry.emplace_back(pivot, TNormal(halfWidth * normal, halfWidth * GetSide(isLeft)),
+                            m_colorCoord, m_texCoordGen.GetTexCoordsByDistance(offsetFromStart, isLeft));
   }
 
 private:
@@ -360,96 +344,121 @@ void LineShape::Construct(TBuilder & builder) const
   ASSERT(false, ("No implementation"));
 }
 
+template <class FnT> void LineShape::ForEachSplineSection(FnT && fn) const
+{
+  std::vector<m2::PointD> const & path = m_spline->GetPath();
+  ASSERT(!path.empty(), ());
+  size_t const sz = path.size() - 1;
+
+  for (size_t i = 0, j = 1; j <= sz; ++j)
+  {
+    /// @todo Make this kind of filtration in Spline?
+    if (path[i].EqualDxDy(path[j], kMwmPointAccuracy) && j < sz)
+      continue;
+
+    std::pair<m2::PointD, double> tanlen;
+    if (j == i + 1)
+    {
+      // Fast path - take calculated tangent and length.
+      tanlen = m_spline->GetTangentAndLength(i);
+    }
+    else
+    {
+      tanlen.first = path[j] - path[i];
+      tanlen.second = tanlen.first.Length();
+      tanlen.first = tanlen.first / tanlen.second;
+    }
+
+    glsl::vec2 const tangent = glsl::ToVec2(tanlen.first);
+
+    fn(ToShapeVertex2(path[i]), ToShapeVertex2(path[j]),
+       tangent, tanlen.second,
+       {-tangent.y, tangent.x}, {tangent.y, -tangent.x},
+       (i == 0 ? 0x1 : 0) + (j == sz ? 0x2 : 0));
+
+    i = j;
+  }
+}
+
 // Specialization optimized for dashed lines.
 template <>
 void LineShape::Construct<DashedLineBuilder>(DashedLineBuilder & builder) const
 {
-  std::vector<m2::PointD> const & path = m_spline->GetPath();
-  ASSERT_GREATER(path.size(), 1, ());
+  float constexpr toShapeFactor = kShapeCoordScalar;  // the same as in ToShapeVertex2
 
-  // build geometry
-  for (size_t i = 1; i < path.size(); ++i)
+  // Each segment should lie in pattern mask according to the "longest" possible pixel length in current tile.
+  // Since, we calculate vertices once, usually for the "smallest" tile scale, need to apply divide factor here.
+  // In other words, if m_baseGtoPScale = Scale(tileLevel), we should use Scale(tileLevel + 1) to calculate 'maskLengthG'.
+  /// @todo Logically, the factor should be 2, but drawing artifacts are still present at higher visual scales.
+  /// Use 3 for the best quality, but need to review here, probably I missed something.
+  float const maskLengthG = builder.GetMaskLengthG() / 3;
+
+  float offset = 0;
+  ForEachSplineSection([&](glsl::vec2 const & p1, glsl::vec2 const & p2,
+                           glsl::vec2 const & tangent, float toDraw,
+                           glsl::vec2 const & leftNormal, glsl::vec2 const & rightNormal, int)
   {
-    if (path[i].EqualDxDy(path[i - 1], 1.0E-5))
-      continue;
-
-    glsl::vec2 const p1 = glsl::ToVec2(ConvertToLocal(path[i - 1], m_params.m_tileCenter, kShapeCoordScalar));
-    glsl::vec2 const p2 = glsl::ToVec2(ConvertToLocal(path[i], m_params.m_tileCenter, kShapeCoordScalar));
-    glsl::vec2 tangent, leftNormal, rightNormal;
-    CalculateTangentAndNormals(p1, p2, tangent, leftNormal, rightNormal);
-
-    // calculate number of steps to cover line segment
-    float const initialGlobalLength = static_cast<float>((path[i] - path[i - 1]).Length());
-    int const steps = std::max(1, builder.GetDashesCount(initialGlobalLength));
-    float const maskSize = glsl::length(p2 - p1) / steps;
-    float const offsetSize = initialGlobalLength / steps;
-
-    // generate vertices
-    float currentSize = 0;
-    glsl::vec3 currentStartPivot = glsl::vec3(p1, m_params.m_depth);
-    for (int step = 0; step < steps; step++)
+    glsl::vec2 currPivot = p1;
+    do
     {
-      currentSize += maskSize;
-      glsl::vec3 const newPivot = glsl::vec3(p1 + tangent * currentSize, m_params.m_depth);
+      glsl::vec2 nextPivot;
+      float nextOffset = offset + toDraw;
+      if (maskLengthG >= nextOffset)
+      {
+        // Fast lane, where most of segments, that fit into mask, should draw.
+        nextPivot = p2;
+        toDraw = 0;
+      }
+      else
+      {
+        // Break path section here.
+        float const len = maskLengthG - offset;
+        ASSERT_GREATER(len, 0, ());
+        nextPivot = currPivot + tangent * (len * toShapeFactor);
 
-      builder.SubmitVertex(currentStartPivot, rightNormal, false /* isLeft */, 0.0);
-      builder.SubmitVertex(currentStartPivot, leftNormal, true /* isLeft */, 0.0);
-      builder.SubmitVertex(newPivot, rightNormal, false /* isLeft */, offsetSize);
-      builder.SubmitVertex(newPivot, leftNormal, true /* isLeft */, offsetSize);
+        nextOffset = maskLengthG;
+        toDraw -= len;
+      }
 
-      currentStartPivot = newPivot;
-    }
-  }
+      builder.SubmitVertex({currPivot, m_params.m_depth}, rightNormal, false /* isLeft */, offset);
+      builder.SubmitVertex({currPivot, m_params.m_depth}, leftNormal, true /* isLeft */, offset);
+      builder.SubmitVertex({nextPivot, m_params.m_depth}, rightNormal, false /* isLeft */, nextOffset);
+      builder.SubmitVertex({nextPivot, m_params.m_depth}, leftNormal, true /* isLeft */, nextOffset);
+
+      currPivot = nextPivot;
+      offset = nextOffset;
+      if (offset >= maskLengthG)
+        offset = 0;
+
+    } while (toDraw > 0);
+  });
 }
 
 // Specialization optimized for solid lines.
 template <>
 void LineShape::Construct<SolidLineBuilder>(SolidLineBuilder & builder) const
 {
-  std::vector<m2::PointD> const & path = m_spline->GetPath();
-  ASSERT_GREATER(path.size(), 1, ());
+  // Skip joins generation for thin lines.
+  bool const generateJoins = builder.GetHalfWidth() > 2.5f;
 
-  // skip joins generation
-  float const kJoinsGenerationThreshold = 2.5f;
-  bool generateJoins = true;
-  if (builder.GetHalfWidth() <= kJoinsGenerationThreshold)
-    generateJoins = false;
-
-  // build geometry
-  glsl::vec2 firstPoint = glsl::ToVec2(ConvertToLocal(path.front(), m_params.m_tileCenter, kShapeCoordScalar));
-  glsl::vec2 lastPoint;
-  bool hasConstructedSegments = false;
-  for (size_t i = 1; i < path.size(); ++i)
+  ForEachSplineSection([&](glsl::vec2 const & p1, glsl::vec2 const & p2,
+                           glsl::vec2 const & tangent, double,
+                           glsl::vec2 const & leftNormal, glsl::vec2 const & rightNormal,
+                           int flag)
   {
-    if (path[i].EqualDxDy(path[i - 1], 1.0E-5))
-      continue;
+    builder.SubmitVertex({p1, m_params.m_depth}, rightNormal, false /* isLeft */);
+    builder.SubmitVertex({p1, m_params.m_depth}, leftNormal, true /* isLeft */);
+    builder.SubmitVertex({p2, m_params.m_depth}, rightNormal, false /* isLeft */);
+    builder.SubmitVertex({p2, m_params.m_depth}, leftNormal, true /* isLeft */);
 
-    glsl::vec2 const p1 = glsl::ToVec2(ConvertToLocal(path[i - 1], m_params.m_tileCenter, kShapeCoordScalar));
-    glsl::vec2 const p2 = glsl::ToVec2(ConvertToLocal(path[i], m_params.m_tileCenter, kShapeCoordScalar));
-    glsl::vec2 tangent, leftNormal, rightNormal;
-    CalculateTangentAndNormals(p1, p2, tangent, leftNormal, rightNormal);
-
-    glsl::vec3 const startPoint = glsl::vec3(p1, m_params.m_depth);
-    glsl::vec3 const endPoint = glsl::vec3(p2, m_params.m_depth);
-
-    builder.SubmitVertex(startPoint, rightNormal, false /* isLeft */);
-    builder.SubmitVertex(startPoint, leftNormal, true /* isLeft */);
-    builder.SubmitVertex(endPoint, rightNormal, false /* isLeft */);
-    builder.SubmitVertex(endPoint, leftNormal, true /* isLeft */);
-
-    // generate joins
-    if (generateJoins && i < path.size() - 1)
+    // Generate joins.
+    if (flag & 0x1)   // p1 - first point
+      builder.SubmitCap(p1);
+    if (flag & 0x2)   // p2 - last point
+      builder.SubmitCap(p2);
+    else if (generateJoins)   // p2 - middle point
       builder.SubmitJoin(p2);
-
-    lastPoint = p2;
-    hasConstructedSegments = true;
-  }
-
-  if (hasConstructedSegments)
-  {
-    builder.SubmitCap(firstPoint);
-    builder.SubmitCap(lastPoint);
-  }
+  });
 }
 
 // Specialization optimized for simple solid lines.
@@ -460,11 +469,8 @@ void LineShape::Construct<SimpleSolidLineBuilder>(SimpleSolidLineBuilder & build
   ASSERT_GREATER(path.size(), 1, ());
 
   // Build geometry.
-  for (size_t i = 0; i < path.size(); ++i)
-  {
-    glsl::vec2 const p = glsl::ToVec2(ConvertToLocal(path[i], m_params.m_tileCenter, kShapeCoordScalar));
-    builder.SubmitVertex(glsl::vec3(p, m_params.m_depth));
-  }
+  for (m2::PointD const & pt : path)
+    builder.SubmitVertex(glsl::vec3(ToShapeVertex2(pt), m_params.m_depth));
 }
 
 bool LineShape::CanBeSimplified(int & lineWidth) const
@@ -473,7 +479,7 @@ bool LineShape::CanBeSimplified(int & lineWidth) const
   if (m_params.m_zoomLevel > 0 && m_params.m_zoomLevel <= scales::GetUpperCountryScale())
     return false;
 
-  static float width = std::min(2.5f, dp::SupportManager::Instance().GetMaxLineWidth());
+  float const width = std::min(2.5f, dp::SupportManager::Instance().GetMaxLineWidth());
   if (m_params.m_width <= width)
   {
     lineWidth = std::max(1, static_cast<int>(m_params.m_width));
@@ -486,20 +492,18 @@ bool LineShape::CanBeSimplified(int & lineWidth) const
 
 void LineShape::Prepare(ref_ptr<dp::TextureManager> textures) const
 {
-  float const pxHalfWidth = m_params.m_width / 2.0f;
-
-  dp::TextureManager::ColorRegion colorRegion;
-  textures->GetColorRegion(m_params.m_color, colorRegion);
-
-  auto commonParamsBuilder = [&](BaseBuilderParams & p)
+  auto commonParamsBuilder = [this, textures](BaseBuilderParams & p)
   {
+    dp::TextureManager::ColorRegion colorRegion;
+    textures->GetColorRegion(m_params.m_color, colorRegion);
+
     p.m_cap = m_params.m_cap;
     p.m_color = colorRegion;
     p.m_depthTestEnabled = m_params.m_depthTestEnabled;
     p.m_depth = m_params.m_depth;
     p.m_depthLayer = m_params.m_depthLayer;
     p.m_join = m_params.m_join;
-    p.m_pxHalfWidth = pxHalfWidth;
+    p.m_pxHalfWidth = m_params.m_width / 2;
   };
 
   if (m_params.m_pattern.empty())
@@ -511,18 +515,18 @@ void LineShape::Prepare(ref_ptr<dp::TextureManager> textures) const
       SimpleSolidLineBuilder::BuilderParams p;
       commonParamsBuilder(p);
 
-      auto builder =
-          std::make_unique<SimpleSolidLineBuilder>(p, m_spline->GetPath().size(), lineWidth);
+      auto builder = std::make_unique<SimpleSolidLineBuilder>(p, m_spline->GetPath().size(), lineWidth);
       Construct<SimpleSolidLineBuilder>(*builder);
-      m_lineShapeInfo = move(builder);
+      m_lineShapeInfo = std::move(builder);
     }
     else
     {
       SolidLineBuilder::BuilderParams p;
       commonParamsBuilder(p);
+
       auto builder = std::make_unique<SolidLineBuilder>(p, m_spline->GetPath().size());
       Construct<SolidLineBuilder>(*builder);
-      m_lineShapeInfo = move(builder);
+      m_lineShapeInfo = std::move(builder);
     }
   }
   else
@@ -533,12 +537,11 @@ void LineShape::Prepare(ref_ptr<dp::TextureManager> textures) const
     DashedLineBuilder::BuilderParams p;
     commonParamsBuilder(p);
     p.m_stipple = maskRegion;
-    p.m_baseGtoP = m_params.m_baseGtoPScale;
-    p.m_glbHalfWidth = pxHalfWidth / m_params.m_baseGtoPScale;
+    p.m_baseGtoP = static_cast<float>(m_params.m_baseGtoPScale);
 
     auto builder = std::make_unique<DashedLineBuilder>(p, m_spline->GetPath().size());
     Construct<DashedLineBuilder>(*builder);
-    m_lineShapeInfo = move(builder);
+    m_lineShapeInfo = std::move(builder);
   }
 }
 
@@ -556,13 +559,14 @@ void LineShape::Draw(ref_ptr<dp::GraphicsContext> context, ref_ptr<dp::Batcher> 
   {
     batcher->InsertListOfStrip(context, state, make_ref(&provider), dp::Batcher::VertexPerQuad);
 
-    uint32_t const joinSize = m_lineShapeInfo->GetJoinSize();
-    if (joinSize > 0)
-    {
-      dp::AttributeProvider joinsProvider(1, joinSize);
-      joinsProvider.InitStream(0, m_lineShapeInfo->GetBindingInfo(), m_lineShapeInfo->GetJoinData());
-      batcher->InsertTriangleList(context, state, make_ref(&joinsProvider));
-    }
+    // Not used, keep comment for possible usage. LineJoin::RoundJoin is processed as _Cap_.
+//    uint32_t const joinSize = m_lineShapeInfo->GetJoinSize();
+//    if (joinSize > 0)
+//    {
+//      dp::AttributeProvider joinsProvider(1, joinSize);
+//      joinsProvider.InitStream(0, m_lineShapeInfo->GetBindingInfo(), m_lineShapeInfo->GetJoinData());
+//      batcher->InsertTriangleList(context, state, make_ref(&joinsProvider));
+//    }
 
     uint32_t const capSize = m_lineShapeInfo->GetCapSize();
     if (capSize > 0)

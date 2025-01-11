@@ -18,17 +18,13 @@
 
 struct Transliteration::TransliteratorInfo
 {
-  TransliteratorInfo()
-    : m_initialized(false)
-  {}
-
-  std::atomic<bool> m_initialized;
+  std::atomic<bool> m_initialized = false;
   std::mutex m_mutex;
   std::unique_ptr<icu::Transliterator> m_transliterator;
 };
 
 Transliteration::Transliteration()
-  : m_mode(Mode::Enabled)
+  : m_inited(false), m_mode(Mode::Enabled)
 {}
 
 Transliteration::~Transliteration()
@@ -58,8 +54,12 @@ void Transliteration::Init(std::string const & icuDataDir)
     return;
 
   // This function should be called before the first ICU operation that will require the loading of
-  // an ICU data file.
+  // an ICU data file. On Linux, data file is loaded automatically from the shared library.
+#ifndef OMIM_OS_LINUX
   u_setDataDirectory(icuDataDir.c_str());
+#else
+  UNUSED_VALUE(icuDataDir);
+#endif
 
   for (auto const & lang : StringUtf8Multilang::GetSupportedLanguages())
   {
@@ -76,20 +76,20 @@ void Transliteration::Init(std::string const & icuDataDir)
   m_inited = true;
 }
 
-void Transliteration::SetMode(Transliteration::Mode mode)
+void Transliteration::SetMode(Mode mode)
 {
   m_mode = mode;
 }
 
-bool Transliteration::Transliterate(std::string transliteratorId, icu::UnicodeString & ustr) const
+bool Transliteration::Transliterate(std::string_view transID, icu::UnicodeString & ustr) const
 {
   CHECK(m_inited, ());
-  CHECK(!transliteratorId.empty(), (transliteratorId));
+  ASSERT(!transID.empty(), ());
 
-  auto it = m_transliterators.find(transliteratorId);
+  auto it = m_transliterators.find(transID);
   if (it == m_transliterators.end())
   {
-    LOG(LWARNING, ("Transliteration failed, unknown transliterator \"", transliteratorId, "\""));
+    LOG(LWARNING, ("Unknown transliterator:", transID));
     return false;
   }
 
@@ -99,21 +99,15 @@ bool Transliteration::Transliterate(std::string transliteratorId, icu::UnicodeSt
     if (!it->second->m_initialized)
     {
       UErrorCode status = U_ZERO_ERROR;
-
-      std::string const removeDiacriticRule =
-          ";NFD;[\u02B9-\u02D3\u0301-\u0358\u00B7\u0027]Remove;NFC";
-      transliteratorId.append(removeDiacriticRule);
-
-      icu::UnicodeString translitId(transliteratorId.c_str());
+      // Append remove diacritic rule.
+      auto const withDiacritic = std::string{transID}.append(";NFD;[\u02B9-\u02D3\u0301-\u0358\u00B7\u0027]Remove;NFC");
+      icu::UnicodeString const uTransID(withDiacritic.c_str());
 
       it->second->m_transliterator.reset(
-          icu::Transliterator::createInstance(translitId, UTRANS_FORWARD, status));
+          icu::Transliterator::createInstance(uTransID, UTRANS_FORWARD, status));
 
       if (it->second->m_transliterator == nullptr)
-      {
-        LOG(LWARNING,
-            ("Cannot create transliterator \"", transliteratorId, "\", icu error =", status));
-      }
+        LOG(LWARNING, ("Cannot create transliterator:", transID, "ICU error =", status));
 
       it->second->m_initialized = true;
     }
@@ -124,10 +118,7 @@ bool Transliteration::Transliterate(std::string transliteratorId, icu::UnicodeSt
 
   it->second->m_transliterator->transliterate(ustr);
 
-  if (ustr.isEmpty())
-    return false;
-
-  return true;
+  return !ustr.isEmpty();
 }
 
 bool Transliteration::TransliterateForce(std::string const & str, std::string const & transliteratorId,
@@ -141,23 +132,23 @@ bool Transliteration::TransliterateForce(std::string const & str, std::string co
   return res;
 }
 
-bool Transliteration::Transliterate(std::string const & str, int8_t langCode,
+bool Transliteration::Transliterate(std::string_view sv, int8_t langCode,
                                     std::string & out) const
 {
   CHECK(m_inited, ());
   if (m_mode != Mode::Enabled)
     return false;
 
-  if (str.empty() || strings::IsASCIIString(str))
+  if (sv.empty() || strings::IsASCIIString(sv))
     return false;
 
-  auto const & transliteratorsIds = StringUtf8Multilang::GetTransliteratorsIdsByCode(langCode);
-  if (transliteratorsIds.empty())
+  auto const * transliteratorsIds = StringUtf8Multilang::GetTransliteratorsIdsByCode(langCode);
+  if (transliteratorsIds == nullptr || transliteratorsIds->empty())
     return false;
 
-  icu::UnicodeString ustr(str.c_str());
-  for (auto transliteratorId : transliteratorsIds)
-    Transliterate(transliteratorId, ustr);
+  icu::UnicodeString ustr(sv.data(), static_cast<int32_t>(sv.size()));
+  for (auto const & id : *transliteratorsIds)
+    Transliterate(id, ustr);
 
   if (ustr.isEmpty())
     return false;

@@ -4,7 +4,7 @@
 
 #include "platform/platform.hpp"
 
-#include "3party/jansson/myjansson.hpp"
+#include "cppjansson/cppjansson.hpp"
 
 #include <cstdint>
 #include <vector>
@@ -29,6 +29,7 @@ namespace feature
 {
 bool ReadRegionDataImpl(std::string const & countryName, RegionData & data)
 {
+  /// @todo How LEAP_SPEEDS_FILE was generated before? It's always absent now.
   if (Platform::IsFileExistsByFullPath(LEAP_SPEEDS_FILE))
   {
     try
@@ -54,7 +55,7 @@ bool ReadRegionDataImpl(std::string const & countryName, RegionData & data)
     }
     catch (Reader::Exception const & e)
     {
-      LOG(LWARNING, ("Error reading", LEAP_SPEEDS_FILE, ":", e.Msg()));
+      LOG(LERROR, ("Error reading", LEAP_SPEEDS_FILE, ":", e.Msg()));
       return false;
     }
     catch (base::Json::Exception const & e)
@@ -62,10 +63,6 @@ bool ReadRegionDataImpl(std::string const & countryName, RegionData & data)
       LOG(LERROR, ("Error parsing JSON in", LEAP_SPEEDS_FILE, ":", e.Msg()));
       return false;
     }
-  }
-  else
-  {
-    LOG(LWARNING, ("File", LEAP_SPEEDS_FILE, "not found."));
   }
 
   try
@@ -137,7 +134,7 @@ bool ReadRegionDataImpl(std::string const & countryName, RegionData & data)
   }
   catch (Reader::Exception const & e)
   {
-    LOG(LWARNING, ("Error reading", COUNTRIES_META_FILE, ":", e.Msg()));
+    LOG(LERROR, ("Error reading", COUNTRIES_META_FILE, ":", e.Msg()));
   }
   catch (base::Json::Exception const & e)
   {

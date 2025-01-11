@@ -37,7 +37,7 @@ final class CategorySettingsViewController: MWMTableViewController {
   override func viewDidLoad() {
     super.viewDidLoad()
 
-    title = L("list_settings")
+    title = L("edit")
     navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .save,
                                                         target: self,
                                                         action: #selector(onSave))
@@ -79,7 +79,7 @@ final class CategorySettingsViewController: MWMTableViewController {
       } else {
         let cell = tableView.dequeueReusableCell(cell: MWMNoteCell.self, indexPath: indexPath)
         cell.config(with: self, noteText: bookmarkGroup.detailedAnnotation,
-                    placeholder: L("bookmark_category_description_hint"))
+                    placeholder: L("bookmark_list_description_hint"))
         noteCell = cell
         return cell
       }
@@ -87,7 +87,7 @@ final class CategorySettingsViewController: MWMTableViewController {
       let cell = tableView.dequeueReusableCell(cell: MWMButtonCell.self, indexPath: indexPath)
       cell.configure(with: self,
                      title: L("delete_list"),
-                     enabled: BookmarksManager.shared().userCategories().count > 1)
+                     enabled: BookmarksManager.shared().userCategoriesCount() > 1)
       return cell
     default:
       fatalError()
@@ -101,13 +101,12 @@ final class CategorySettingsViewController: MWMTableViewController {
       changesMade = true
     }
 
-    if let newAnnotation = newAnnotation, !newAnnotation.isEmpty {
+    if let newAnnotation = newAnnotation {
       BookmarksManager.shared().setCategory(bookmarkGroup.categoryId, description: newAnnotation)
       changesMade = true
     }
 
     delegate?.categorySettingsController(self, didEndEditing: bookmarkGroup.categoryId)
-    self.navigationController?.popViewController(animated: true)
   }
 }
 

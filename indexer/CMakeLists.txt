@@ -1,9 +1,6 @@
 project(indexer)
 
-include_directories(${OMIM_ROOT}/3party/protobuf/protobuf/src)
-
-set(
-  SRC
+set(SRC
   altitude_loader.cpp
   altitude_loader.hpp
   brands_holder.cpp
@@ -32,6 +29,8 @@ set(
   complex/tree_node.hpp
   cuisines.cpp
   cuisines.hpp
+  custom_keyvalue.cpp
+  custom_keyvalue.hpp
   data_factory.cpp
   data_factory.hpp
   data_header.cpp
@@ -40,6 +39,7 @@ set(
   data_source.hpp
   data_source_helpers.cpp
   data_source_helpers.hpp
+  displacement_manager.hpp
   drawing_rule_def.cpp
   drawing_rule_def.hpp
   drawing_rules.cpp
@@ -86,12 +86,15 @@ set(
   ftraits.hpp
   ftypes_matcher.cpp
   ftypes_matcher.hpp
+  house_to_street_iface.hpp
   index_builder.cpp
   index_builder.hpp
   interval_index.hpp
   interval_index_builder.hpp
   isolines_info.cpp
   isolines_info.hpp
+  kayak.cpp
+  kayak.hpp
   map_object.cpp
   map_object.hpp
   map_style.cpp
@@ -102,10 +105,8 @@ set(
   metadata_serdes.hpp
   mwm_set.cpp
   mwm_set.hpp
-  postcodes.cpp
-  postcodes.hpp
-  postcodes_matcher.cpp   # it's in indexer due to editor which is in indexer and depends on postcodes_marcher
-  postcodes_matcher.hpp    # it's in indexer due to editor which is in indexer and depends on postcodes_marcher
+  postcodes_matcher.cpp  # it's in indexer due to editor which is in indexer and depends on postcodes_marcher
+  postcodes_matcher.hpp  # it's in indexer due to editor which is in indexer and depends on postcodes_marcher
   rank_table.cpp
   rank_table.hpp
   road_shields_parser.cpp
@@ -115,10 +116,10 @@ set(
   scales.cpp
   scales.hpp
   scales_patch.hpp
-  search_delimiters.cpp     # it's in indexer because of CategoriesHolder dependency.
-  search_delimiters.hpp       # it's in indexer because of CategoriesHolder dependency.
-  search_string_utils.cpp   # it's in indexer because of CategoriesHolder dependency.
-  search_string_utils.hpp     # it's in indexer because of CategoriesHolder dependency.
+  search_delimiters.cpp    # it's in indexer because of CategoriesHolder dependency.
+  search_delimiters.hpp    # it's in indexer because of CategoriesHolder dependency.
+  search_string_utils.cpp  # it's in indexer because of CategoriesHolder dependency.
+  search_string_utils.hpp  # it's in indexer because of CategoriesHolder dependency.
   shared_load_info.cpp
   shared_load_info.hpp
   string_set.hpp
@@ -141,16 +142,23 @@ set(
   validate_and_format_contacts.hpp
 )
 
-set(
-  OTHER_FILES
-  drules_struct.proto
-)
+set(OTHER_FILES drules_struct.proto)
 
 # Disable warnings.
-set_source_files_properties(drules_struct.pb.cc PROPERTIES COMPILE_FLAGS -Wno-shorten-64-to-32)
+set_source_files_properties(drules_struct.pb.cc PROPERTIES COMPILE_FLAGS
+  "$<$<CXX_COMPILER_ID:AppleClang,Clang>:-Wno-shorten-64-to-32> $<$<CXX_COMPILER_ID:GNU>:-Wno-deprecated-declarations>"
+)
 
 file(COPY ${OTHER_FILES} DESTINATION ${CMAKE_BINARY_DIR})
 
 omim_add_library(${PROJECT_NAME} ${SRC})
+
+target_link_libraries(${PROJECT_NAME}
+  search  # search::DummyRankTable in CachingRankTableLoader
+  platform
+  geometry
+  protobuf
+  coding
+)
 
 omim_add_test_subdirectory(indexer_tests)

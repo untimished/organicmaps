@@ -18,11 +18,11 @@ public:
   explicit TranslatorsPool(std::shared_ptr<TranslatorInterface> const & original,
                            size_t threadCount);
 
-  void Emit(std::vector<OsmElement> elements);
+  void Emit(std::vector<OsmElement> && elements);
   bool Finish();
 
 private:
-  base::thread_pool::computational::ThreadPool m_threadPool;
-  base::threads::ThreadSafeQueue<std::shared_ptr<TranslatorInterface>> m_translators;
+  base::ComputationalThreadPool m_threadPool;
+  threads::ThreadSafeQueue<std::shared_ptr<TranslatorInterface>> m_translators;
 };
 }  // namespace generator

@@ -7,8 +7,8 @@
 
 #include "coding/reader.hpp"
 
+#include "base/assert.hpp"
 #include "base/exception.hpp"
-#include "base/macros.hpp"
 #include "base/task_loop.hpp"
 #include "base/thread_pool_delayed.hpp"
 
@@ -61,9 +61,9 @@ public:
 
   enum EFileType
   {
-    FILE_TYPE_UNKNOWN = 0x1,
-    FILE_TYPE_REGULAR = 0x2,
-    FILE_TYPE_DIRECTORY = 0x4
+    Unknown = 0x1,
+    Regular = 0x2,
+    Directory = 0x4
   };
 
   enum class EConnectionType : uint8_t
@@ -96,15 +96,13 @@ protected:
   /// Writable directory to store downloaded map data
   /// @note on some systems it can point to external ejectable storage
   std::string m_writableDir;
-  /// Application private directory.
-  std::string m_privateDir;
   /// Temporary directory, can be cleaned up by the system
   std::string m_tmpDir;
   /// Writable directory to store persistent application data
   std::string m_settingsDir;
 
   /// Used in Android only to get corret GUI elements layout.
-  bool m_isTablet;
+  bool m_isTablet = false;
 
   /// Returns last system call error as EError.
   static EError ErrnoToError();
@@ -114,9 +112,9 @@ protected:
 
   std::unique_ptr<base::TaskLoop> m_guiThread;
 
-  std::unique_ptr<base::thread_pool::delayed::ThreadPool> m_networkThread;
-  std::unique_ptr<base::thread_pool::delayed::ThreadPool> m_fileThread;
-  std::unique_ptr<base::thread_pool::delayed::ThreadPool> m_backgroundThread;
+  std::unique_ptr<base::DelayedThreadPool> m_networkThread;
+  std::unique_ptr<base::DelayedThreadPool> m_fileThread;
+  std::unique_ptr<base::DelayedThreadPool> m_backgroundThread;
 
   platform::BatteryLevelTracker m_batteryTracker;
 
@@ -132,35 +130,43 @@ public:
   /// @note In case of an error returns an empty std::string.
   static std::string GetCurrentWorkingDirectory() noexcept;
   /// @return always the same writable dir for current user with slash at the end
-  std::string const & WritableDir() const { return m_writableDir; }
+  std::string const & WritableDir() const
+  {
+    ASSERT(!m_writableDir.empty(), ());
+    return m_writableDir;
+  }
   /// Set writable dir — use for testing and linux stuff only
   void SetWritableDirForTests(std::string const & path);
   /// @return full path to file in user's writable directory
-  std::string WritablePathForFile(std::string const & file) const { return WritableDir() + file; }
+  std::string WritablePathForFile(std::string const & file) const;
   /// Uses m_writeableDir [w], m_resourcesDir [r], m_settingsDir [s].
   std::string ReadPathForFile(std::string const & file,
                               std::string searchScope = std::string()) const;
 
   /// @return resource dir (on some platforms it's differ from Writable dir)
-  std::string const & ResourcesDir() const { return m_resourcesDir; }
+  std::string const & ResourcesDir() const
+  {
+    ASSERT(!m_resourcesDir.empty(), ());
+    return m_resourcesDir;
+  }
   /// @note! This function is used in generator_tool and unit tests.
   /// Client app should not replace default resource dir.
   void SetResourceDir(std::string const & path);
 
   /// Creates the directory in the filesystem.
-  WARN_UNUSED_RESULT static EError MkDir(std::string const & dirName);
+  [[nodiscard]] static EError MkDir(std::string const & dirName);
 
   /// Creates the directory. Returns true on success.
   /// Returns false and logs the reason on failure.
-  WARN_UNUSED_RESULT static bool MkDirChecked(std::string const & dirName);
+  [[nodiscard]] static bool MkDirChecked(std::string const & dirName);
 
   // Creates the directory path dirName.
-  // The function will create all parent directories necessary to create the directory.
+  // The function creates all parent directories necessary to create the directory.
   // Returns true if successful; otherwise returns false.
-  // If the path already exists when this function is called, it will return true.
-  // If it was possible to create only a part of the directories, the function will returns false
-  // and will not restore the previous state of the file system.
-  WARN_UNUSED_RESULT static bool MkDirRecursively(std::string const & dirName);
+  // If the path already exists when this function is called, it returns true.
+  // If only some intermediate directories were created, the function returns false
+  // and does not restore the previous state of the file system.
+  [[nodiscard]] static bool MkDirRecursively(std::string const & dirName);
 
   /// Removes empty directory from the filesystem.
   static EError RmDir(std::string const & dirName);
@@ -187,10 +193,7 @@ public:
   std::string const & SettingsDir() const { return m_settingsDir; }
   void SetSettingsDir(std::string const & path);
   /// @return full path to file in the settings directory
-  std::string SettingsPathForFile(std::string const & file) const { return SettingsDir() + file; }
-
-  /// Returns application private directory.
-  std::string const & PrivateDir() const { return m_privateDir; }
+  std::string SettingsPathForFile(std::string const & file) const;
 
   /// @return reader for file decriptor.
   /// @throws FileAbsentException
@@ -207,7 +210,7 @@ public:
   /// @param directory directory path with slash at the end
   //@{
   /// @param ext files extension to find, like ".mwm".
-  static void GetFilesByExt(std::string const & directory, std::string const & ext,
+  static void GetFilesByExt(std::string const & directory, std::string_view ext,
                             FilesList & outFiles);
   static void GetFilesByRegExp(std::string const & directory, std::string const & regexp,
                                FilesList & outFiles);
@@ -232,6 +235,11 @@ public:
   static bool GetFileSizeByFullPath(std::string const & filePath, uint64_t & size);
   //@}
 
+  /// @return 0 in case of failure.
+  static time_t GetFileCreationTime(std::string const & path);
+  /// @return 0 in case of failure.
+  static time_t GetFileModificationTime(std::string const & path);
+
   /// Used to check available free storage space for downloading.
   enum TStorageStatus
   {
@@ -240,26 +248,30 @@ public:
     NOT_ENOUGH_SPACE
   };
   TStorageStatus GetWritableStorageStatus(uint64_t neededSize) const;
-  uint64_t GetWritableStorageSpace() const;
 
   // Please note, that number of active cores can vary at runtime.
   // DO NOT assume for the same return value between calls.
-  unsigned CpuCores() const;
+  static unsigned CpuCores() ;
 
   void GetFontNames(FilesList & res) const;
 
+  // TODO: Optimize for each platform/device.
   int VideoMemoryLimit() const;
-
+  // TODO: Optimize for each platform/device.
   int PreCachingDepth() const;
 
   std::string DeviceName() const;
 
   std::string DeviceModel() const;
 
+  /// @return string version as displayed to the user.
+  std::string Version() const;
+
+  /// @return integer version in yyMMdd format.
+  int32_t IntVersion() const;
+
   /// @return url for clients to download maps
-  //@{
   std::string MetaServerUrl() const;
-  //@}
 
   /// @return JSON-encoded list of urls if metaserver is unreachable
   std::string DefaultUrlsJSON() const;
@@ -268,7 +280,7 @@ public:
 
   /// @return information about kinds of memory which are relevant for a platform.
   /// This method is implemented for iOS and Android only.
-  /// @TODO Add implementation
+  /// @TODO remove as its not used anywhere?
   std::string GetMemoryInfo() const;
 
   static EConnectionType ConnectionStatus();
@@ -304,7 +316,7 @@ public:
 
   template <typename Task>
   base::TaskLoop::PushResult RunDelayedTask(
-      Thread thread, base::thread_pool::delayed::ThreadPool::Duration const & delay, Task && task)
+      Thread thread, base::DelayedThreadPool::Duration const & delay, Task && task)
   {
     ASSERT(m_networkThread && m_fileThread && m_backgroundThread, ());
     switch (thread)

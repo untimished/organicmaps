@@ -1,6 +1,5 @@
 #pragma once
 
-#include "search/house_to_street_table.hpp"
 #include "search/lazy_centers_table.hpp"
 
 #include "editor/editable_feature_source.hpp"
@@ -52,7 +51,11 @@ public:
   MwmSet::MwmId const & GetId() const { return m_handle.GetId(); }
   std::string const & GetName() const { return GetInfo()->GetCountryName(); }
   std::shared_ptr<MwmInfo> const & GetInfo() const { return GetId().GetInfo(); }
-  std::optional<MwmType> const & GetType() const { return m_type; }
+  MwmType const & GetType() const
+  {
+    CHECK(m_type, ());
+    return *m_type;
+  }
 
   template <typename Fn>
   void ForEachIndex(covering::Intervals const & intervals, uint32_t scale, Fn && fn) const
@@ -98,13 +101,15 @@ public:
   // Returns false if feature was deleted by user.
   std::unique_ptr<FeatureType> GetFeature(uint32_t index) const;
 
-  WARN_UNUSED_RESULT inline bool GetCenter(uint32_t index, m2::PointD & center)
+  [[nodiscard]] inline bool GetCenter(uint32_t index, m2::PointD & center)
   {
     return m_centers.Get(index, center);
   }
 
+  std::optional<uint32_t> GetStreet(uint32_t index) const;
+
   MwmSet::MwmHandle m_handle;
-  MwmValue const & m_value;
+  MwmValue & m_value;
 
 private:
   FeatureStatus GetEditedStatus(uint32_t index) const

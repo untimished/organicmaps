@@ -6,6 +6,7 @@
 
 #include "base/assert.hpp"
 #include "base/logging.hpp"
+#include "base/stl_helpers.hpp"
 
 #include <cmath>
 
@@ -63,9 +64,9 @@ ProjectionData GetProjection(std::vector<m2::PointD> const & polyline, size_t in
   projData.m_distFromPoint = proj.m_dist;
   projData.m_proj = proj.m_point;
 
-  auto const next = direction == Direction::Forward ? index + 1 : index - 1;
+  int64_t const next = direction == Direction::Forward ? index + 1 : index - 1;
   CHECK_GREATER_OR_EQUAL(next, 0, ());
-  CHECK_LESS(next, polyline.size(), ());
+  CHECK_LESS(static_cast<size_t>(next), polyline.size(), ());
 
   if (base::AlmostEqualAbs(proj.m_point, polyline[index], kEps))
   {
@@ -104,7 +105,6 @@ void FillProjections(std::vector<m2::PointD> & polyline, size_t startIndex, size
 
   auto const move = [&](size_t & i) {
     direction == Direction::Forward ? ++i : --i;
-    CHECK_GREATER_OR_EQUAL(i, 0, ());
     CHECK_LESS_OR_EQUAL(i, polyline.size(), ());
   };
 
@@ -225,8 +225,7 @@ bool IsRelevantType(gtfs::RouteType const & routeType)
       gtfs::RouteType::SchoolBus,
       gtfs::RouteType::SchoolAndPublicServiceBus};
 
-  return std::find(kNotRelevantTypes.begin(), kNotRelevantTypes.end(), routeType) ==
-         kNotRelevantTypes.end();
+  return !base::IsExist(kNotRelevantTypes, routeType);
 }
 
 std::string ToString(gtfs::RouteType const & routeType)
@@ -338,7 +337,7 @@ void UpdateLinePart(LineParts & lineParts, LineSegment const & segment,
 std::pair<LineSegments, LineSegments> FindIntersections(std::vector<m2::PointD> const & line1,
                                                         std::vector<m2::PointD> const & line2)
 {
-  double const eps = 1e-5;
+  double constexpr eps = 1e-5;
   size_t constexpr minIntersection = 2;
 
   CHECK_GREATER_OR_EQUAL(line1.size(), minIntersection, ());

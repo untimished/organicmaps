@@ -12,7 +12,15 @@
 #include <memory>
 
 // Generic Writer. Not thread-safe.
+// 'Writer' has virtual functions but non-virtual destructor
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnon-virtual-dtor"
+#endif  // __clang__
 class Writer
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif  // __clang__
 {
 public:
   DECLARE_EXCEPTION(Exception, RootException);
@@ -22,14 +30,30 @@ public:
   DECLARE_EXCEPTION(SeekException, Exception);
   DECLARE_EXCEPTION(CreateDirException, Exception);
 
-  virtual ~Writer() {}
   virtual void Seek(uint64_t pos) = 0;
   virtual uint64_t Pos() const = 0;
   virtual void Write(void const * p, size_t size) = 0;
+
+  Writer & operator<<(std::string_view str)
+  {
+    Write(str.data(), str.length());
+    return *this;
+  }
+
+  // Disable deletion via this interface, because some dtors in derived classes are noexcept(false).
+protected:
+  ~Writer() = default;
 };
 
-template <typename ContainerT>
-class MemWriter : public Writer
+// 'MemWriter<std::vector<char>>' has virtual functions but non-virtual destructor
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnon-virtual-dtor"
+#endif  // __clang__
+template <typename ContainerT> class MemWriter : public Writer
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif  // __clang__
 {
 public:
   explicit MemWriter(ContainerT & data) : m_Data(data), m_Pos(0)
@@ -37,33 +61,34 @@ public:
     static_assert(sizeof(typename ContainerT::value_type) == 1, "");
   }
 
-  void Seek(uint64_t pos) override { m_Pos = base::asserted_cast<uintptr_t>(pos); }
+  void Seek(uint64_t pos) override { m_Pos = base::asserted_cast<size_t>(pos); }
 
   uint64_t Pos() const override { return m_Pos; }
 
   void Write(void const * p, size_t size) override
   {
-    auto freeSize = static_cast<intptr_t>(m_Data.size() - m_Pos);
-    if (freeSize < 0)
+    if (size == 0)
+      return;
+
+    size_t const newSize = m_Pos + size;
+    if (m_Data.size() < newSize)
     {
-      m_Data.resize(static_cast<size_t>(m_Pos + size));
-      freeSize = size;
+      // Assume the same alloc strategy as in std::vector.
+      size_t const cap = m_Data.capacity();
+      if (cap < newSize)
+        m_Data.reserve(std::max(newSize, cap * 2));
+
+      m_Data.resize(newSize);
     }
 
-    memcpy(&m_Data[static_cast<size_t>(m_Pos)], p, std::min(size, static_cast<size_t>(freeSize)));
-
-    if (size > static_cast<size_t>(freeSize))
-    {
-      uint8_t const * it = reinterpret_cast<uint8_t const *>(p);
-      m_Data.insert(m_Data.end(), it + freeSize, it + size);
-    }
+    memcpy(m_Data.data() + m_Pos, p, size);
 
     m_Pos += size;
   }
 
 private:
   ContainerT & m_Data;
-  uint64_t m_Pos;
+  size_t m_Pos;
 };
 
 // Original writer should not be used when SubWriter is active!
@@ -82,7 +107,7 @@ public:
   {
   }
 
-  ~SubWriter() override
+  ~SubWriter()
   {
     ASSERT_EQUAL(m_offset, GetOffset(), ());
     if (m_pos != m_maxPos)

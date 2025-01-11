@@ -19,12 +19,11 @@ omim_link_libraries(
   coding
   geometry
   base
-  icu
-  jansson
-  oauthcpp
+  ICU::i18n
+  cppjansson
   protobuf
   pugixml
-  expat
+  expat::expat
   succinct
 )
 

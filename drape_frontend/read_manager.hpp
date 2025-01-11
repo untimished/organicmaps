@@ -49,6 +49,8 @@ public:
   bool CheckTileKey(TileKey const & tileKey) const;
   void Allow3dBuildings(bool allow3dBuildings);
 
+  void SetMapLangIndex(int8_t mapLangIndex);
+
   void SetTrafficEnabled(bool trafficEnabled);
   void SetIsolinesEnabled(bool isolinesEnabled);
 
@@ -74,7 +76,7 @@ private:
 
   MapDataProvider & m_model;
 
-  drape_ptr<base::thread_pool::routine::ThreadPool> m_pool;
+  drape_ptr<base::ThreadPool> m_pool;
 
   ScreenBase m_currentViewport;
   bool m_have3dBuildings;
@@ -82,6 +84,7 @@ private:
   bool m_trafficEnabled;
   bool m_isolinesEnabled;
   bool m_modeChanged;
+  int8_t m_mapLangIndex;
 
   struct LessByTileInfo
   {
@@ -106,7 +109,7 @@ private:
 
   void CancelTileInfo(std::shared_ptr<TileInfo> const & tileToCancel);
   void ClearTileInfo(std::shared_ptr<TileInfo> const & tileToClear);
-  void IncreaseCounter(int value);
+  void IncreaseCounter(size_t value);
   void CheckFinishedTiles(TTileInfoCollection const & requestedTiles, bool forceUpdateUserMarks);
 };
 }  // namespace df

@@ -2,20 +2,18 @@
 
 #include "indexer/feature_data.hpp"
 
+#include "platform/platform.hpp"
+
 #include "coding/file_reader.hpp"
 #include "coding/file_writer.hpp"
 #include "coding/internal/file_data.hpp"
-#include "coding/read_write_utils.hpp"
 
 #include "base/geo_object_id.hpp"
 #include "base/stl_helpers.hpp"
-#include "base/thread_pool_delayed.hpp"
 
 #include <functional>
 #include <list>
-#include <mutex>
 #include <string>
-#include <thread>
 #include <vector>
 
 namespace serial
@@ -54,21 +52,32 @@ public:
 
   bool IsValid() const;
 
-  // To work with geometry.
-  void AddPoint(m2::PointD const & p);
-  void SetHoles(Geometry const & holes);
-  void AddPolygon(std::vector<m2::PointD> & poly);
+  /// @name To work with geometry.
+  ///@{
+  void AssignPoints(PointSeq points);
+  void AssignArea(PointSeq && outline, Geometry const & holes);
+  void AddPolygon(PointSeq && poly);
   void ResetGeometry();
+
   m2::RectD const & GetLimitRect() const { return m_limitRect; }
   Geometry const & GetGeometry() const { return m_polygons; }
-  PointSeq const & GetOuterGeometry() const { return m_polygons.front(); }
+  PointSeq const & GetOuterGeometry() const
+  {
+    CHECK(!m_polygons.empty(), ());
+    return m_polygons.front();
+  }
   GeomType GetGeomType() const { return m_params.GetGeomType(); }
   bool IsGeometryClosed() const;
-  m2::PointD GetGeometryCenter() const;
+
+  static m2::PointD GetGeometryCenter(PointSeq const & pts);
+  m2::PointD GetGeometryCenter() const
+  {
+    return GetGeometryCenter(GetOuterGeometry());
+  }
   m2::PointD GetKeyPoint() const;
   size_t GetPointsCount() const;
   size_t GetPolygonsCount() const { return m_polygons.size(); }
-  size_t GetTypesCount() const { return m_params.m_types.size(); }
+  ///@}
 
   template <class ToDo>
   void ForEachPoint(ToDo && toDo) const
@@ -117,7 +126,8 @@ public:
   bool IsLine() const { return GetGeomType() == GeomType::Line; }
   bool IsArea() const { return GetGeomType() == GeomType::Area; }
 
-  // To work with types.
+  /// @name To work with types.
+  ///@{
   void SetType(uint32_t type) { m_params.SetType(type); }
   void AddType(uint32_t type) { m_params.AddType(type); }
   bool PopExactType(uint32_t type) { return m_params.PopExactType(type); }
@@ -131,20 +141,20 @@ public:
 
   bool HasType(uint32_t t) const { return m_params.IsTypeExist(t); }
   bool HasType(uint32_t t, uint8_t level) const { return m_params.IsTypeExist(t, level); }
-  uint32_t FindType(uint32_t comp, uint8_t level) const { return m_params.FindType(comp, level); }
   FeatureParams::Types const & GetTypes() const { return m_params.m_types; }
+  size_t GetTypesCount() const { return m_params.m_types.size(); }
+  ///@}
 
-  // To work with additional information.
-  void SetRank(uint8_t rank);
-  bool AddName(std::string const & lang, std::string const & name);
+  // Actually, "SetName" is a better name for this function ...
+  bool AddName(std::string_view lang, std::string_view name);
+  void SetName(int8_t lang, std::string_view name);
   void SetParams(FeatureBuilderParams const & params) { m_params.SetParams(params); }
 
   FeatureBuilderParams const & GetParams() const { return m_params; }
   FeatureBuilderParams & GetParams() { return m_params; }
-  std::string GetName(int8_t lang = StringUtf8Multilang::kDefaultCode) const;
+  std::string_view GetName(int8_t lang = StringUtf8Multilang::kDefaultCode) const;
   StringUtf8Multilang const & GetMultilangName() const { return m_params.name; }
   uint8_t GetRank() const { return m_params.rank; }
-  AddressData const & GetAddressData() const { return m_params.GetAddressData(); }
 
   Metadata const & GetMetadata() const { return m_params.GetMetadata(); }
   Metadata & GetMetadata() { return m_params.GetMetadata(); }
@@ -157,15 +167,14 @@ public:
   // Clear name if it's not visible in scale range [minS, maxS].
   void RemoveNameIfInvisible(int minS = 0, int maxS = 1000);
   void RemoveUselessNames();
-  int GetMinFeatureDrawScale() const;
   bool IsDrawableInRange(int lowScale, int highScale) const;
 
-  // Serialization.
+  /// @name Serialization.
+  ///@{
   bool PreSerialize();
   bool PreSerializeAndRemoveUselessNamesForIntermediate();
+
   void SerializeForIntermediate(Buffer & data) const;
-  void SerializeBorderForIntermediate(serial::GeometryCodingParams const & params,
-                                      Buffer & data) const;
   void DeserializeFromIntermediate(Buffer & data);
 
   // These methods use geometry without loss of accuracy.
@@ -173,14 +182,14 @@ public:
   void DeserializeAccuratelyFromIntermediate(Buffer & data);
 
   bool PreSerializeAndRemoveUselessNamesForMwm(SupportingData const & data);
-  void SerializeLocalityObject(serial::GeometryCodingParams const & params,
-                               SupportingData & data) const;
   void SerializeForMwm(SupportingData & data, serial::GeometryCodingParams const & params) const;
+  ///@}
 
   // Get common parameters of feature.
   TypesHolder GetTypesHolder() const;
 
-  // To work with osm ids.
+  /// @name To work with osm ids.
+  ///@{
   void AddOsmId(base::GeoObjectId id);
   void SetOsmId(base::GeoObjectId id);
   base::GeoObjectId GetFirstOsmId() const;
@@ -188,13 +197,15 @@ public:
   // Returns an id of the most general element: node's one if there is no area or relation,
   // area's one if there is no relation, and relation id otherwise.
   base::GeoObjectId GetMostGenericOsmId() const;
-  bool HasOsmId(base::GeoObjectId const & id) const;
   bool HasOsmIds() const { return !m_osmIds.empty(); }
-  std::vector<base::GeoObjectId> const & GetOsmIds() const { return m_osmIds; }
+  std::string DebugPrintIDs() const;
+  ///@}
 
   // To work with coasts.
   void SetCoastCell(int64_t iCell) { m_coastCell = iCell; }
   bool IsCoastCell() const { return (m_coastCell != -1); }
+
+  friend std::string DebugPrint(FeatureBuilder const & fb);
 
 protected:
   // Can be one of the following:
@@ -210,8 +221,6 @@ protected:
   /// Not used in GEOM_POINTs
   int64_t m_coastCell;
 };
-
-std::string DebugPrint(FeatureBuilder const & fb);
 
 // SerializationPolicy serialization and deserialization.
 namespace serialization_policy
@@ -277,7 +286,7 @@ struct MaxAccuracy
 //}
 
 // Read feature from feature source.
-template <class SerializationPolicy = serialization_policy::MinSize, class Source>
+template <class SerializationPolicy = serialization_policy::MaxAccuracy, class Source>
 void ReadFromSourceRawFormat(Source & src, FeatureBuilder & fb)
 {
   uint32_t const sz = ReadVarUint<uint32_t>(src);
@@ -287,7 +296,7 @@ void ReadFromSourceRawFormat(Source & src, FeatureBuilder & fb)
 }
 
 // Process features in features file.
-template <class SerializationPolicy = serialization_policy::MinSize, class ToDo>
+template <class SerializationPolicy = serialization_policy::MaxAccuracy, class ToDo>
 void ForEachFeatureRawFormat(std::string const & filename, ToDo && toDo)
 {
   FileReader reader(filename);
@@ -300,22 +309,27 @@ void ForEachFeatureRawFormat(std::string const & filename, ToDo && toDo)
   {
     FeatureBuilder fb;
     ReadFromSourceRawFormat<SerializationPolicy>(src, fb);
-    toDo(fb, currPos);
+    toDo(std::move(fb), currPos);
     currPos = src.Pos();
   }
 }
 
-template <class SerializationPolicy = serialization_policy::MinSize>
+template <class SerializationPolicy = serialization_policy::MaxAccuracy>
 std::vector<FeatureBuilder> ReadAllDatRawFormat(std::string const & fileName)
 {
   std::vector<FeatureBuilder> fbs;
-  ForEachFeatureRawFormat<SerializationPolicy>(fileName, [&](auto && fb, auto const &) {
-    fbs.emplace_back(std::move(fb));
-  });
+  // Happens in tests when World or Country file is empty (no valid Features to emit).
+  if (Platform::IsFileExistsByFullPath(fileName))
+  {
+    ForEachFeatureRawFormat<SerializationPolicy>(fileName, [&](FeatureBuilder && fb, uint64_t)
+    {
+      fbs.emplace_back(std::move(fb));
+    });
+  }
   return fbs;
 }
 
-template <class SerializationPolicy = serialization_policy::MinSize, class Writer = FileWriter>
+template <class SerializationPolicy = serialization_policy::MaxAccuracy, class Writer = FileWriter>
 class FeatureBuilderWriter
 {
 public:

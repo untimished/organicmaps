@@ -1,52 +1,41 @@
 #include "platform/platform.hpp"
 
-#include "platform/local_country_file.hpp"
-
-#include "coding/base64.hpp"
 #include "coding/internal/file_data.hpp"
-#include "coding/sha1.hpp"
-#include "coding/writer.hpp"
 
 #include "base/file_name_utils.hpp"
 #include "base/logging.hpp"
+#include "base/random.hpp"
 #include "base/string_utils.hpp"
 
-#include "std/target_os.hpp"
-
 #include <algorithm>
-#include <random>
 #include <thread>
 
 #include "private.h"
 
-#include <errno.h>
-
-using namespace std;
+#include <cerrno>
 
 namespace
 {
-string RandomString(size_t length)
+std::string RandomString(size_t length)
 {
-  static string const kCharset =
+  /// @todo Used for temp file name, so lower-upper case is strange here, no?
+  static std::string_view constexpr kCharset =
       "0123456789"
       "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
       "abcdefghijklmnopqrstuvwxyz";
-  random_device rd;
-  mt19937 gen(rd());
-  uniform_int_distribution<size_t> dis(0, kCharset.size() - 1);
-  string str(length, 0);
-  generate_n(str.begin(), length, [&]() {
-    return kCharset[dis(gen)];
-  });
+
+  base::UniformRandom<size_t> rand(0, kCharset.size() - 1);
+  std::string str(length, 0);
+  std::generate_n(str.begin(), length, [&rand]() { return kCharset[rand()]; });
   return str;
 }
 
-bool IsSpecialDirName(string const & dirName)
+bool IsSpecialDirName(std::string const & dirName)
 {
   return dirName == "." || dirName == "..";
 }
 
-bool GetFileTypeChecked(string const & path, Platform::EFileType & type)
+bool GetFileTypeChecked(std::string const & path, Platform::EFileType & type)
 {
   Platform::EError const ret = Platform::GetFileType(path, type);
   if (ret != Platform::ERR_OK)
@@ -85,7 +74,7 @@ Platform::EError Platform::ErrnoToError()
 }
 
 // static
-bool Platform::RmDirRecursively(string const & dirName)
+bool Platform::RmDirRecursively(std::string const & dirName)
 {
   if (dirName.empty() || IsSpecialDirName(dirName))
     return false;
@@ -94,15 +83,15 @@ bool Platform::RmDirRecursively(string const & dirName)
 
   FilesList allFiles;
   GetFilesByRegExp(dirName, ".*", allFiles);
-  for (string const & file : allFiles)
+  for (std::string const & file : allFiles)
   {
-    string const path = base::JoinPath(dirName, file);
+    std::string const path = base::JoinPath(dirName, file);
 
     EFileType type;
     if (GetFileType(path, type) != ERR_OK)
       continue;
 
-    if (type == FILE_TYPE_DIRECTORY)
+    if (type == EFileType::Directory)
     {
       if (!IsSpecialDirName(file) && !RmDirRecursively(path))
         res = false;
@@ -120,26 +109,49 @@ bool Platform::RmDirRecursively(string const & dirName)
   return res;
 }
 
-void Platform::SetSettingsDir(string const & path)
+void Platform::SetSettingsDir(std::string const & path)
 {
   m_settingsDir = base::AddSlashIfNeeded(path);
 }
 
-string Platform::ReadPathForFile(string const & file, string searchScope) const
+std::string Platform::SettingsPathForFile(std::string const & file) const
+{
+  return base::JoinPath(SettingsDir(), file);
+}
+
+std::string Platform::WritablePathForFile(std::string const & file) const
+{
+  return base::JoinPath(WritableDir(), file);
+}
+
+std::string Platform::ReadPathForFile(std::string const & file, std::string searchScope) const
 {
   if (searchScope.empty())
     searchScope = "wrf";
 
-  string fullPath;
+  std::string fullPath;
   for (size_t i = 0; i < searchScope.size(); ++i)
   {
     switch (searchScope[i])
     {
-    case 'w': fullPath = m_writableDir + file; break;
-    case 'r': fullPath = m_resourcesDir + file; break;
-    case 's': fullPath = m_settingsDir + file; break;
-    case 'f': fullPath = file; break;
-    default : CHECK(false, ("Unsupported searchScope:", searchScope)); break;
+    case 'w':
+      ASSERT(!m_writableDir.empty(), ());
+      fullPath = base::JoinPath(m_writableDir, file);
+      break;
+    case 'r':
+      ASSERT(!m_resourcesDir.empty(), ());
+      fullPath = base::JoinPath(m_resourcesDir, file);
+      break;
+    case 's':
+      ASSERT(!m_settingsDir.empty(), ());
+      fullPath = base::JoinPath(m_settingsDir, file);
+      break;
+    case 'f':
+      fullPath = file;
+      break;
+    default :
+      CHECK(false, ("Unsupported searchScope:", searchScope));
+      break;
     }
     if (IsFileExistsByFullPath(fullPath))
       return fullPath;
@@ -149,31 +161,31 @@ string Platform::ReadPathForFile(string const & file, string searchScope) const
       "\nw: ", m_writableDir, "\nr: ", m_resourcesDir, "\ns: ", m_settingsDir));
 }
 
-string Platform::MetaServerUrl() const
+std::string Platform::MetaServerUrl() const
 {
   return METASERVER_URL;
 }
 
-string Platform::DefaultUrlsJSON() const
+std::string Platform::DefaultUrlsJSON() const
 {
   return DEFAULT_URLS_JSON;
 }
 
-bool Platform::RemoveFileIfExists(string const & filePath)
+bool Platform::RemoveFileIfExists(std::string const & filePath)
 {
   return IsFileExistsByFullPath(filePath) ? base::DeleteFileX(filePath) : true;
 }
 
-string Platform::TmpPathForFile() const
+std::string Platform::TmpPathForFile() const
 {
   size_t constexpr kNameLen = 32;
-  return TmpDir() + RandomString(kNameLen);
+  return base::JoinPath(TmpDir(), RandomString(kNameLen));
 }
 
-string Platform::TmpPathForFile(string const & prefix, string const & suffix) const
+std::string Platform::TmpPathForFile(std::string const & prefix, std::string const & suffix) const
 {
   size_t constexpr kRandomLen = 8;
-  return TmpDir() + prefix + RandomString(kRandomLen) + suffix;
+  return base::JoinPath(TmpDir(), prefix + RandomString(kRandomLen) + suffix);
 }
 
 void Platform::GetFontNames(FilesList & res) const
@@ -181,10 +193,13 @@ void Platform::GetFontNames(FilesList & res) const
   ASSERT(res.empty(), ());
 
   /// @todo Actually, this list should present once in all our code.
-  /// We can take it from data/external_resources.txt
-  char const * arrDef[] = {
+  char constexpr const * arrDef[] = {
     "00_NotoNaskhArabic-Regular.ttf",
+    "00_NotoSansBengali-Regular.ttf",
+    "00_NotoSansHebrew-Regular.ttf",
+    "00_NotoSansMalayalam-Regular.ttf",
     "00_NotoSansThai-Regular.ttf",
+    "00_NotoSerifDevanagari-Regular.ttf",
     "01_dejavusans.ttf",
     "02_droidsans-fallback.ttf",
     "03_jomolhari-id-a3d.ttf",
@@ -200,22 +215,22 @@ void Platform::GetFontNames(FilesList & res) const
   LOG(LINFO, ("Available font files:", (res)));
 }
 
-void Platform::GetFilesByExt(string const & directory, string const & ext, FilesList & outFiles)
+void Platform::GetFilesByExt(std::string const & directory, std::string_view ext, FilesList & outFiles)
 {
   // Transform extension mask to regexp (.mwm -> \.mwm$)
   ASSERT ( !ext.empty(), () );
   ASSERT_EQUAL ( ext[0], '.' , () );
-
-  GetFilesByRegExp(directory, '\\' + ext + '$', outFiles);
+  std::string regexp = "\\";
+  GetFilesByRegExp(directory, regexp.append(ext).append("$"), outFiles);
 }
 
 // static
-void Platform::GetFilesByType(string const & directory, unsigned typeMask,
+void Platform::GetFilesByType(std::string const & directory, unsigned typeMask,
                               TFilesWithType & outFiles)
 {
   FilesList allFiles;
   GetFilesByRegExp(directory, ".*", allFiles);
-  for (string const & file : allFiles)
+  for (auto const & file : allFiles)
   {
     EFileType type;
     if (GetFileType(base::JoinPath(directory, file), type) != ERR_OK)
@@ -226,34 +241,34 @@ void Platform::GetFilesByType(string const & directory, unsigned typeMask,
 }
 
 // static
-bool Platform::IsDirectory(string const & path)
+bool Platform::IsDirectory(std::string const & path)
 {
   EFileType fileType;
   if (GetFileType(path, fileType) != ERR_OK)
     return false;
-  return fileType == FILE_TYPE_DIRECTORY;
+  return fileType == EFileType::Directory;
 }
 
 // static
-void Platform::GetFilesRecursively(string const & directory, FilesList & filesList)
+void Platform::GetFilesRecursively(std::string const & directory, FilesList & filesList)
 {
   TFilesWithType files;
 
-  GetFilesByType(directory, Platform::FILE_TYPE_REGULAR, files);
+  GetFilesByType(directory, EFileType::Regular, files);
   for (auto const & p : files)
   {
     auto const & file = p.first;
-    CHECK_EQUAL(p.second, Platform::FILE_TYPE_REGULAR, ("dir:", directory, "file:", file));
+    CHECK_EQUAL(p.second, EFileType::Regular, ("dir:", directory, "file:", file));
     filesList.push_back(base::JoinPath(directory, file));
   }
 
   TFilesWithType subdirs;
-  GetFilesByType(directory, Platform::FILE_TYPE_DIRECTORY, subdirs);
+  GetFilesByType(directory, EFileType::Directory, subdirs);
 
   for (auto const & p : subdirs)
   {
     auto const & subdir = p.first;
-    CHECK_EQUAL(p.second, Platform::FILE_TYPE_DIRECTORY, ("dir:", directory, "subdir:", subdir));
+    CHECK_EQUAL(p.second, EFileType::Directory, ("dir:", directory, "subdir:", subdir));
     if (subdir == "." || subdir == "..")
       continue;
 
@@ -261,29 +276,28 @@ void Platform::GetFilesRecursively(string const & directory, FilesList & filesLi
   }
 }
 
-void Platform::SetWritableDirForTests(string const & path)
+void Platform::SetWritableDirForTests(std::string const & path)
 {
   m_writableDir = base::AddSlashIfNeeded(path);
 }
 
-void Platform::SetResourceDir(string const & path)
+void Platform::SetResourceDir(std::string const & path)
 {
   m_resourcesDir = base::AddSlashIfNeeded(path);
 }
 
 // static
-bool Platform::MkDirChecked(string const & dirName)
+bool Platform::MkDirChecked(std::string const & dirName)
 {
-  Platform::EError const ret = MkDir(dirName);
-  switch (ret)
+  switch (EError const ret = MkDir(dirName))
   {
-  case Platform::ERR_OK: return true;
-  case Platform::ERR_FILE_ALREADY_EXISTS:
+  case ERR_OK: return true;
+  case ERR_FILE_ALREADY_EXISTS:
   {
-    Platform::EFileType type;
+    EFileType type;
     if (!GetFileTypeChecked(dirName, type))
       return false;
-    if (type != Platform::FILE_TYPE_DIRECTORY)
+    if (type != Directory)
     {
       LOG(LERROR, (dirName, "exists, but not a dirName:", type));
       return false;
@@ -295,18 +309,18 @@ bool Platform::MkDirChecked(string const & dirName)
 }
 
 // static
-bool Platform::MkDirRecursively(string const & dirName)
+bool Platform::MkDirRecursively(std::string const & dirName)
 {
-  auto const sep = base::GetNativeSeparator();
-  string path = strings::StartsWith(dirName, sep) ? sep : "";
-  auto const tokens = strings::Tokenize(dirName, sep.c_str());
-  for (auto const & t : tokens)
+  CHECK(!dirName.empty(), ());
+
+  std::string::value_type const sep[] = { base::GetNativeSeparator(), 0};
+  std::string path = dirName.starts_with(sep[0]) ? sep : ".";
+  for (auto const & t : strings::Tokenize(dirName, sep))
   {
-    path = base::JoinPath(path, t);
+    path = base::JoinPath(path, std::string{t});
     if (!IsFileExistsByFullPath(path))
     {
-      auto const ret = MkDir(path);
-      switch (ret)
+      switch (MkDir(path))
       {
       case ERR_OK: break;
       case ERR_FILE_ALREADY_EXISTS:
@@ -323,9 +337,9 @@ bool Platform::MkDirRecursively(string const & dirName)
   return true;
 }
 
-unsigned Platform::CpuCores() const
+unsigned Platform::CpuCores()
 {
-  unsigned const cores = thread::hardware_concurrency();
+  unsigned const cores = std::thread::hardware_concurrency();
   return cores > 0 ? cores : 1;
 }
 
@@ -345,13 +359,13 @@ void Platform::ShutdownThreads()
 
 void Platform::RunThreads()
 {
-  ASSERT(!m_networkThread || (m_networkThread && m_networkThread->IsShutDown()), ());
-  ASSERT(!m_fileThread || (m_fileThread && m_fileThread->IsShutDown()), ());
-  ASSERT(!m_backgroundThread || (m_backgroundThread && m_backgroundThread->IsShutDown()), ());
+  ASSERT(!m_networkThread || m_networkThread->IsShutDown(), ());
+  ASSERT(!m_fileThread || m_fileThread->IsShutDown(), ());
+  ASSERT(!m_backgroundThread || m_backgroundThread->IsShutDown(), ());
 
-  m_networkThread = make_unique<base::thread_pool::delayed::ThreadPool>();
-  m_fileThread = make_unique<base::thread_pool::delayed::ThreadPool>();
-  m_backgroundThread = make_unique<base::thread_pool::delayed::ThreadPool>();
+  m_networkThread = std::make_unique<base::DelayedThreadPool>();
+  m_fileThread = std::make_unique<base::DelayedThreadPool>();
+  m_backgroundThread = std::make_unique<base::DelayedThreadPool>();
 }
 
 void Platform::SetGuiThread(std::unique_ptr<base::TaskLoop> guiThread)
@@ -371,7 +385,7 @@ void Platform::CancelTask(Thread thread, base::TaskLoop::TaskId id)
   }
 }
 
-string DebugPrint(Platform::EError err)
+std::string DebugPrint(Platform::EError err)
 {
   switch (err)
   {
@@ -392,7 +406,7 @@ string DebugPrint(Platform::EError err)
   UNREACHABLE();
 }
 
-string DebugPrint(Platform::ChargingStatus status)
+std::string DebugPrint(Platform::ChargingStatus status)
 {
   switch (status)
   {

@@ -1,11 +1,12 @@
 class DayColors: IColors {
   var clear = UIColor.clear
   var primaryDark = UIColor(24, 128, 68, alpha100)
-  var primary = UIColor(32, 152, 82, alpha100)
+  var primary = UIColor(0, 108, 53, alpha100)
   var secondary = UIColor(45, 137, 83, alpha100)
   // Light green color
   var primaryLight = UIColor(36, 180, 98, alpha100)
   var menuBackground = UIColor(255, 255, 255, alpha90)
+  var tabBarButtonBackground = UIColor(255, 255, 255, alpha70)
   var downloadBadgeBackground = UIColor(255, 55, 35, alpha100)
   // Background color && press color
   var pressBackground = UIColor(245, 245, 245, alpha100)
@@ -37,11 +38,6 @@ class DayColors: IColors {
   var statusBarBackground = UIColor(255, 255, 255, alpha36)
   var searchPromoBackground = UIColor(249, 251, 231, alpha100)
   var border = UIColor(0, 0, 0, alpha04)
-  var discountBackground = UIColor(240, 100, 60, alpha100)
-  var discountText = UIColor(60, 64, 68, alpha100)
-  var bookmarkSubscriptionBackground = UIColor(240, 252, 255, alpha100)
-  var bookmarkSubscriptionScrollBackground = UIColor(137, 217, 255, alpha100)
-  var bookmarkSubscriptionFooterBackground = UIColor(47, 58, 73, alpha100)
   var bookingBackground = UIColor(25, 69, 125, alpha100)
   var opentableBackground = UIColor(218, 55, 67, alpha100)
   var transparentGreen = UIColor(233, 244, 233, alpha26)
@@ -52,14 +48,6 @@ class DayColors: IColors {
   var ratingGreen = UIColor(67, 160, 71, alpha100)
   var facebookButtonBackground = UIColor(59, 89, 152, alpha100);
   var facebookButtonBackgroundDisabled = UIColor(59, 89, 152, alpha70);
-  var allPassSubscriptionTitle = UIColor(0, 0, 0, alpha100)
-  var allPassSubscriptionSubTitle = UIColor(0, 0, 0, alpha87)
-  var allPassSubscriptionDescription = UIColor(255, 255, 255, alpha100)
-  var allPassSubscriptionMonthlyBackground = UIColor(224, 224, 224, alpha80)
-  var allPassSubscriptionYearlyBackground = UIColor(30, 150, 240, alpha100)
-  var allPassSubscriptionMonthlyTitle = UIColor(255, 255, 255, alpha100)
-  var allPassSubscriptionDiscountBackground = UIColor(245, 210, 12, alpha100)
-  var allPassSubscriptionTermsTitle = UIColor(255, 255, 255, alpha70)
   var fadeBackground = UIColor(0, 0, 0, alpha80)
   var blackStatusBarBackground = UIColor(0, 0, 0, alpha80)
   var elevationPreviewTint = UIColor(193, 209, 224, alpha30)
@@ -70,6 +58,9 @@ class DayColors: IColors {
   var cityColor = UIColor(red: 0.4, green: 0.225, blue: 0.75, alpha: 1)
   var outdoorColor = UIColor(red: 0.235, green: 0.549, blue: 0.235, alpha: 1)
   var lonelyPlanetLogoColor = UIColor(red: 0, green: 0.286, blue: 0.565, alpha: 1)
+  var carplayPlaceholderBackground = UIColor(221, 221, 205, alpha100)
+  var iconOpaqueGrayTint = UIColor(117, 117, 117, alpha100)
+  var iconOpaqueGrayBackground = UIColor(231, 231, 231, alpha100)
 }
 
 class NightColors: IColors {
@@ -80,6 +71,7 @@ class NightColors: IColors {
   // Light green color
   var primaryLight = UIColor(65, 70, 75, alpha100)
   var menuBackground = UIColor(45, 50, 55, alpha90)
+  var tabBarButtonBackground = UIColor(60, 64, 68, alpha70)
   var downloadBadgeBackground = UIColor(230, 70, 60, alpha100)
   // Background color && press color
   var pressBackground = UIColor(50, 54, 58, alpha100)
@@ -111,11 +103,6 @@ class NightColors: IColors {
   var statusBarBackground =  UIColor(0, 0, 0, alpha32)
   var searchPromoBackground = UIColor(71, 75, 79, alpha100)
   var border = UIColor(255, 255, 255, alpha04)
-  var discountBackground = UIColor(240, 100, 60, alpha100)
-  var discountText = UIColor(60, 64, 68, alpha100)
-  var bookmarkSubscriptionBackground = UIColor(60, 64, 68, alpha100)
-  var bookmarkSubscriptionScrollBackground = UIColor(137, 217, 255, alpha100)
-  var bookmarkSubscriptionFooterBackground = UIColor(47, 58, 73, alpha100)
   var bookingBackground = UIColor(25, 69, 125, alpha100)
   var opentableBackground = UIColor(218, 55, 67, alpha100)
   var transparentGreen = UIColor(233, 244, 233, alpha26)
@@ -126,14 +113,6 @@ class NightColors: IColors {
   var ratingGreen = UIColor(67, 160, 71, alpha100)
   var facebookButtonBackground = UIColor(59, 89, 152, alpha100);
   var facebookButtonBackgroundDisabled = UIColor(59, 89, 152, alpha70);
-  var allPassSubscriptionTitle = UIColor(0, 0, 0, alpha100)
-  var allPassSubscriptionSubTitle = UIColor(0, 0, 0, alpha87)
-  var allPassSubscriptionDescription = UIColor(255, 255, 255, alpha100)
-  var allPassSubscriptionMonthlyBackground = UIColor(224, 224, 224, alpha80)
-  var allPassSubscriptionYearlyBackground = UIColor(30, 150, 240, alpha100)
-  var allPassSubscriptionMonthlyTitle = UIColor(255, 255, 255, alpha100)
-  var allPassSubscriptionDiscountBackground = UIColor(245, 210, 12, alpha100)
-  var allPassSubscriptionTermsTitle = UIColor(255, 255, 255, alpha70)
   var fadeBackground = UIColor(0, 0, 0, alpha80)
   var blackStatusBarBackground = UIColor(0, 0, 0, alpha80)
   var elevationPreviewTint = UIColor(0, 0, 0, alpha54)
@@ -144,4 +123,7 @@ class NightColors: IColors {
   var cityColor = UIColor(152, 103, 252, alpha100)
   var outdoorColor = UIColor(147, 191, 57, alpha100)
   var lonelyPlanetLogoColor = UIColor(red: 1, green: 1, blue: 1, alpha: 0.7)
+  var carplayPlaceholderBackground = UIColor(50, 54, 58, alpha100)
+  var iconOpaqueGrayTint = UIColor(197, 197, 197, alpha100)
+  var iconOpaqueGrayBackground = UIColor(84, 86, 90, alpha100)
 }

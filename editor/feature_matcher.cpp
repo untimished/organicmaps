@@ -1,6 +1,7 @@
 #include "editor/feature_matcher.hpp"
 
 #include "geometry/intersection_score.hpp"
+#include "geometry/mercator.hpp"
 
 #include "base/logging.hpp"
 #include "base/stl_helpers.hpp"
@@ -10,16 +11,6 @@
 #include <functional>
 #include <string>
 #include <utility>
-
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wcomma"
-#include <boost/geometry.hpp>
-#pragma clang diagnostic pop
-#include <boost/geometry/geometries/adapted/boost_tuple.hpp>
-#include <boost/geometry/geometries/point_xy.hpp>
-#include <boost/geometry/geometries/polygon.hpp>
-
-using namespace std;
 
 using editor::XMLFeature;
 
@@ -35,8 +26,8 @@ using Linestring = bg::model::linestring<PointXY>;
 using MultiLinestring = bg::model::multi_linestring<Linestring>;
 using AreaType = bg::default_area_result<Polygon>::type;
 
-using ForEachRefFn = function<void(XMLFeature const & xmlFt)>;
-using ForEachWayFn = function<void(pugi::xml_node const & way, string const & role)>;
+using ForEachRefFn = std::function<void(XMLFeature const & xmlFt)>;
+using ForEachWayFn = std::function<void(pugi::xml_node const & way, std::string const & role)>;
 
 double const kPointDiffEps = 1e-5;
 
@@ -50,7 +41,7 @@ void AddInnerIfNeeded(pugi::xml_document const & osmResponse, pugi::xml_node con
   if (refs.empty())
     return;
 
-  string const nodeRef = refs[0].attribute().value();
+  std::string const nodeRef = refs[0].attribute().value();
   auto const node = osmResponse.select_node(("osm/node[@id='" + nodeRef + "']").data()).node();
   ASSERT(node, ("OSM response have ref", nodeRef, "but have no node with such id.", osmResponse));
   XMLFeature xmlFt(node);
@@ -91,7 +82,7 @@ void ForEachRefInWay(pugi::xml_document const & osmResponse, pugi::xml_node cons
 {
   for (auto const & xNodeRef : way.select_nodes("nd/@ref"))
   {
-    string const nodeRef = xNodeRef.attribute().value();
+    std::string const nodeRef = xNodeRef.attribute().value();
     auto const node = osmResponse.select_node(("osm/node[@id='" + nodeRef + "']").data()).node();
     ASSERT(node, ("OSM response have ref", nodeRef, "but have no node with such id.", osmResponse));
     XMLFeature xmlFt(node);
@@ -105,7 +96,7 @@ void ForEachWayInRelation(pugi::xml_document const & osmResponse, pugi::xml_node
   auto const nodesSet = relation.select_nodes("member[@type='way']/@ref");
   for (auto const & xNodeRef : nodesSet)
   {
-    string const wayRef = xNodeRef.attribute().value();
+    std::string const wayRef = xNodeRef.attribute().value();
     auto const xpath = "osm/way[@id='" + wayRef + "']";
     auto const way = osmResponse.select_node(xpath.c_str()).node();
 
@@ -122,10 +113,7 @@ void ForEachWayInRelation(pugi::xml_document const & osmResponse, pugi::xml_node
     if (!roleNode && nodesSet.size() != 1)
       continue;
 
-    string role = "outer";
-    if (roleNode)
-      role = roleNode.attribute().value();
-
+    std::string const role = roleNode ? roleNode.attribute().value() : "outer";
     fn(way, role);
   }
 }
@@ -157,7 +145,7 @@ Polygon GetRelationsGeometry(pugi::xml_document const & osmResponse,
   MultiLinestring outerLines;
 
   auto const fn = [&osmResponse, &result, &outerLines](pugi::xml_node const & way,
-                                                       string const & role)
+                                                       std::string const & role)
   {
     if (role == "outer")
     {
@@ -196,7 +184,7 @@ Polygon GetWaysOrRelationsGeometry(pugi::xml_document const & osmResponse,
 /// |wayOrRelation| - either way or relation to be compared agains ourGeometry;
 /// |ourGeometry| - geometry of a FeatureType;
 double ScoreGeometry(pugi::xml_document const & osmResponse, pugi::xml_node const & wayOrRelation,
-                     vector<m2::PointD> const & ourGeometry)
+                     std::vector<m2::PointD> const & ourGeometry)
 {
   ASSERT(!ourGeometry.empty(), ("Our geometry cannot be empty"));
 
@@ -231,9 +219,9 @@ pugi::xml_node GetBestOsmNode(pugi::xml_document const & osmResponse, ms::LatLon
   {
     try
     {
-      XMLFeature xmlFt(xNode.node());
+      XMLFeature const xmlFeature(xNode.node());
 
-      double const nodeScore = ScoreLatLon(xmlFt, latLon);
+      double const nodeScore = ScoreLatLon(xmlFeature, latLon);
       if (nodeScore < 0)
         continue;
 
@@ -258,7 +246,7 @@ pugi::xml_node GetBestOsmNode(pugi::xml_document const & osmResponse, ms::LatLon
 }
 
 pugi::xml_node GetBestOsmWayOrRelation(pugi::xml_document const & osmResponse,
-                                       vector<m2::PointD> const & geometry)
+                                       std::vector<m2::PointD> const & geometry)
 {
   double bestScore = geometry::kPenaltyScore;
   pugi::xml_node bestMatchWay;
@@ -281,7 +269,7 @@ pugi::xml_node GetBestOsmWayOrRelation(pugi::xml_document const & osmResponse,
   return bestMatchWay;
 }
 
-double ScoreTriangulatedGeometries(vector<m2::PointD> const & lhs, vector<m2::PointD> const & rhs)
+double ScoreTriangulatedGeometries(std::vector<m2::PointD> const & lhs, std::vector<m2::PointD> const & rhs)
 {
   auto const score = geometry::GetIntersectionScoreForTriangulated(lhs, rhs);
 
@@ -292,8 +280,8 @@ double ScoreTriangulatedGeometries(vector<m2::PointD> const & lhs, vector<m2::Po
   return score;
 }
 
-double ScoreTriangulatedGeometriesByPoints(vector<m2::PointD> const & lhs,
-                                           vector<m2::PointD> const & rhs)
+double ScoreTriangulatedGeometriesByPoints(std::vector<m2::PointD> const & lhs,
+                                           std::vector<m2::PointD> const & rhs)
 {
   // The default comparison operator used in sort above (cmp1) and one that is
   // used in set_itersection (cmp2) are compatible in that sence that
@@ -310,9 +298,9 @@ double ScoreTriangulatedGeometriesByPoints(vector<m2::PointD> const & lhs,
                                         CounterIterator(),
                                         [](m2::PointD const & p1, m2::PointD const & p2)
                                         {
-                                          return p1 < p2 && !p1.EqualDxDy(p2, 1e-7);
+                                          return p1 < p2 && !p1.EqualDxDy(p2, mercator::kPointEqualityEps);
                                         }).GetCount();
 
-  return static_cast<double>(matched) / lhs.size();
+  return static_cast<double>(matched) / static_cast<double>(lhs.size());
 }
 }  // namespace matcher

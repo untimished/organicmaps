@@ -296,7 +296,7 @@ enum class Weekday
   Saturday
 };
 
-inline constexpr Weekday ToWeekday(uint64_t const day)
+inline constexpr Weekday ToWeekday(uint64_t day)
 {
   using TDay = decltype(day);
   return ((day <= static_cast<TDay>(Weekday::None) ||
@@ -310,7 +310,7 @@ inline constexpr Weekday operator ""_weekday(unsigned long long int day)
   return ToWeekday(day);
 }
 
-std::ostream & operator<<(std::ostream & ost, Weekday const wday);
+std::ostream & operator<<(std::ostream & ost, Weekday wday);
 
 class WeekdayRange
 {
@@ -497,7 +497,7 @@ private:
   DateOffset m_offset;
 };
 
-inline constexpr MonthDay::Month ToMonth(uint64_t const month)
+inline constexpr MonthDay::Month ToMonth(uint64_t month)
 {
   using TMonth = decltype(month);
   return ((month <= static_cast<TMonth>(MonthDay::Month::None) ||
@@ -693,6 +693,13 @@ std::ostream & operator<<(std::ostream & ost, RuleSequence::Modifier const modif
 std::ostream & operator<<(std::ostream & ost, RuleSequence const & sequence);
 std::ostream & operator<<(std::ostream & ost, TRuleSequences const & sequences);
 
+enum class RuleState
+{
+  Open,
+  Closed,
+  Unknown
+};
+
 class OpeningHours
 {
 public:
@@ -703,6 +710,16 @@ public:
   bool IsOpen(time_t const dateTime) const;
   bool IsClosed(time_t const dateTime) const;
   bool IsUnknown(time_t const dateTime) const;
+
+  struct InfoT
+  {
+    RuleState state;
+    /// Calculated only if state != RuleState::Unknown.
+    time_t nextTimeOpen;
+    time_t nextTimeClosed;
+  };
+
+  InfoT GetInfo(time_t const dateTime) const;
 
   bool IsValid() const;
 

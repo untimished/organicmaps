@@ -1,30 +1,14 @@
 project(kml_tests)
 
-set(
-  SRC
+set(SRC
+  gpx_tests.cpp
+  minzoom_quadtree_tests.cpp
   serdes_tests.cpp
   tests_data.hpp
-  minzoom_quadtree_tests.cpp
 )
 
 omim_add_test(${PROJECT_NAME} ${SRC})
 
-omim_link_libraries(
-  ${PROJECT_NAME}
+target_link_libraries(${PROJECT_NAME}
   kml
-  indexer
-  editor
-  platform
-  coding
-  geometry
-  base
-  icu
-  jansson
-  oauthcpp
-  protobuf
-  pugixml
-  expat
-  succinct
-  ${LIBZ}
 )
-link_qt5_core(${PROJECT_NAME})

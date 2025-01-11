@@ -28,8 +28,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include "gflags/gflags.h"
-#include "3party/pugixml/src/pugixml.hpp"
+#include <gflags/gflags.h>
+#include <pugixml.hpp>
 
 DEFINE_string(input, "", "Path to OpenLR file.");
 DEFINE_string(spark_output, "", "Path to output file in spark-oriented format");
@@ -278,7 +278,6 @@ int main(int argc, char * argv[])
   std::vector<DecodedPath> paths(segments.size());
   switch (FLAGS_algo_version)
   {
-  case 1: decoder.DecodeV1(segments, numThreads, paths); break;
   case 2: decoder.DecodeV2(segments, numThreads, paths); break;
   case 3: decoder.DecodeV3(segments, numThreads, paths); break;
   default: CHECK(false, ("Wrong algorithm version."));

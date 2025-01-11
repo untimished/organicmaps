@@ -1,54 +1,94 @@
-cmake_minimum_required(VERSION 3.18)
-
+cmake_minimum_required(VERSION 3.22.1)
 project(omim C CXX)
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_C_STANDARD 11)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_C_STANDARD 17)
 # Our code does not rely on gnu extensions.
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_C_EXTENSIONS OFF)
 
-# Force colored errors and warnings for Ninja.
-if (CMAKE_GENERATOR MATCHES "Ninja" AND NOT (DEFINED ENV{COLORS_DISABLE}))
-  if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-    add_compile_options (-fdiagnostics-color=always)
-  elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang" OR
-          "${CMAKE_CXX_COMPILER_ID}" STREQUAL "AppleClang")
-    add_compile_options (-fcolor-diagnostics)
+set(CMAKE_C_VISIBILITY_PRESET hidden)
+set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
+
+# Fixes warning ld: warning: ignoring duplicate libraries on Mac and Windows.
+if (POLICY CMP0156)
+  cmake_policy(SET CMP0156 NEW)
+endif()
+
+if (APPLE AND NOT ("${CMAKE_SYSTEM_NAME}" STREQUAL Android))
+  # OBJC/OBJCXX are needed to skip m/mm files in Unity builds.
+  # https://gitlab.kitware.com/cmake/cmake/-/issues/21963
+  enable_language(OBJC)
+  set(CMAKE_OBJC_EXTENSIONS OFF)
+  set(CMAKE_OBJC_STANDARD 11)
+  set(CMAKE_OBJC_FLAGS -fobjc-arc)
+  set(CMAKE_OBJC_VISIBILITY_PRESET hidden)
+  enable_language(OBJCXX)
+  set(CMAKE_OBJCXX_EXTENSIONS OFF)
+  set(CMAKE_OBJCXX_STANDARD 20)
+  set(CMAKE_OBJCXX_FLAGS -fobjc-arc)
+  set(CMAKE_OBJCXX_VISIBILITY_PRESET hidden)
+endif()
+
+message(STATUS "Using compiler ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
+
+option(COVERAGE_REPORT "Configure for coverage report" OFF)
+
+option(UNITY_DISABLE "Disable unity build" OFF)
+if (NOT UNITY_DISABLE AND NOT DEFINED ENV{UNITY_DISABLE})
+  set(CMAKE_UNITY_BUILD ON)
+  if (DEFINED ENV{UNITY_BUILD_BATCH_SIZE})
+    set(CMAKE_UNITY_BUILD_BATCH_SIZE $ENV{UNITY_BUILD_BATCH_SIZE})
+  else()
+    set(CMAKE_UNITY_BUILD_BATCH_SIZE 50)
+  endif()
+  message(STATUS "Using Unity Build with batch ${CMAKE_UNITY_BUILD_BATCH_SIZE}, export UNITY_DISABLE=1 or use -DUNITY_DISABLE=ON to disable it.")
+endif()
+
+option(CCACHE_DISABLE "Disable ccache" OFF)
+if (NOT CCACHE_DISABLE AND NOT DEFINED ENV{CCACHE_DISABLE})
+  find_program(CCACHE_PROGRAM ccache HINTS /usr/local/bin/)
+  if (CCACHE_PROGRAM)
+    message(STATUS "Using ccache, export CCACHE_DISABLE=1 or use -DCCACHE_DISABLE=ON to disable it.")
+    set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE "${CCACHE_PROGRAM}")
+    set_property(GLOBAL PROPERTY RULE_LAUNCH_LINK "${CCACHE_PROGRAM}")
+    set(CMAKE_C_COMPILER_LAUNCHER   "${CCACHE_PROGRAM}")
+    set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
   endif()
 endif()
 
-get_filename_component(OMIM_ROOT . ABSOLUTE)
+option(COLORS_DISABLE "Disable colored compiler output" OFF)
+if (NOT DEFINED ENV{COLORS_DISABLE} AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  message(STATUS "export COLORS_DISABLE=1 or use -DCOLORS_DISABLE=ON to disable colored compiler output.")
+  add_compile_options($<$<CXX_COMPILER_ID:GNU>:-fdiagnostics-color=always> $<$<CXX_COMPILER_ID:Clang,AppleClang>:-fcolor-diagnostics>)
+  add_link_options($<$<CXX_COMPILER_ID:GNU>:-fdiagnostics-color=always> $<$<CXX_COMPILER_ID:Clang,AppleClang>:-fcolor-diagnostics>)
+endif()
+
+option(WITH_SYSTEM_PROVIDED_3PARTY "Enable compilation with system provided dependencies" OFF)
+set(OMIM_ROOT ${CMAKE_SOURCE_DIR})
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${OMIM_ROOT}/cmake")
 
 include(OmimHelpers)
+include(OmimTesting)
 
-if (CMAKE_SYSTEM_NAME MATCHES "Linux")
-  set(LINUX_DETECTED TRUE)
-endif()
-
-if (CMAKE_SYSTEM_NAME MATCHES "Android")
-  set(ANDROID_DETECTED TRUE)
-  if ((${OS} MATCHES "mac"))
-    set(DARWIN TRUE)
-  endif()
-endif()
-
-
-omim_set_platform_var(PLATFORM_IPHONE "iphone-.*")
-omim_set_platform_var(PLATFORM_ANDROID "android-.*" ${ANDROID_DETECTED})
-omim_set_platform_var(PLATFORM_MAC "macx-.*" ${APPLE})
-omim_set_platform_var(PLATFORM_WIN "win32-.*" ${WIN32})
-omim_set_platform_var(PLATFORM_LINUX "linux-.*" ${LINUX_DETECTED})
-
-if (PLATFORM_LINUX OR PLATFORM_MAC OR PLATFORM_WIN)
-  set(PLATFORM_DESKTOP TRUE)
-else()
+set(PLATFORM_DESKTOP TRUE)
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  set(PLATFORM_LINUX TRUE)
+elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+  set(PLATFORM_MAC TRUE)
+elseif (CMAKE_SYSTEM_NAME STREQUAL "Windows")
+  set(PLATFORM_WIN TRUE)
+elseif (CMAKE_SYSTEM_NAME STREQUAL "Android")
+  set(PLATFORM_ANDROID TRUE)
   set(PLATFORM_DESKTOP FALSE)
+elseif (CMAKE_SYSTEM_NAME STREQUAL "iOS")
+  set(PLATFORM_IPHONE TRUE)
+  set(PLATFORM_DESKTOP FALSE)
+else()
+  message(FATAL_ERROR "Unsupported platform: ${CMAKE_SYSTEM_NAME}")
 endif()
-
-# End of setting the target platform
 
 # Sanitizer
 if (PLATFORM_DESKTOP)
@@ -68,18 +108,36 @@ if (NOT CMAKE_BUILD_TYPE)
 endif()
 
 # Global compile options for all configurations.
-add_compile_options(-ffast-math)
+if (MSVC)
+  add_compile_options(/utf-8)
+  add_link_options(/INCREMENTAL:NO)
+else()
+  add_compile_options(-ffast-math)
+endif()
 
+if (PLATFORM_WIN)
+  add_definitions(
+    -DWIN32_LEAN_AND_MEAN
+    -DNOMINMAX
+  )
+endif()
+
+# Built-in CMake configurations: Debug, Release, RelWithDebInfo, MinSizeRel
 if (${CMAKE_BUILD_TYPE} STREQUAL "Debug")
-  add_definitions(-DDEBUG -fno-omit-frame-pointer)
-elseif (${CMAKE_BUILD_TYPE} MATCHES "^Rel")
+  add_definitions(-DDEBUG)
+  if (NOT MSVC)
+    add_compile_options(-fno-omit-frame-pointer)
+  endif()
+elseif (${CMAKE_BUILD_TYPE} MATCHES "Rel")
   add_definitions(-DRELEASE)
-  add_compile_options(-Ofast)
+  if (NOT MSVC)
+    add_compile_options(-Ofast)  # Also enables -ffast-math
+  endif()
 else()
   message(FATAL_ERROR "Unknown build type: " ${CMAKE_BUILD_TYPE})
 endif()
 
-message("Build type: " ${CMAKE_BUILD_TYPE})
+message(STATUS "Build type: " ${CMAKE_BUILD_TYPE})
 # End of setting build type
 
 # Options
@@ -87,20 +145,37 @@ message("Build type: " ${CMAKE_BUILD_TYPE})
 # Call `make package` after cmake to build design tool.
 option(BUILD_DESIGNER "Build application as design tool" OFF)
 if (BUILD_DESIGNER)
-  message("Designer tool building is enabled")
+  message(STATUS "Designer tool building is enabled")
   add_definitions(-DBUILD_DESIGNER)
+endif()
+
+option(BUILD_STANDALONE "Build standalone application" OFF)
+if (BUILD_STANDALONE)
+  message(STATUS "Standalone building is enabled")
+  add_definitions(-DBUILD_STANDALONE)
 endif()
 
 option(USE_ASAN "Enable Address Sanitizer" OFF)
 option(USE_TSAN "Enable Thread Sanitizer" OFF)
 option(USE_LIBFUZZER "Enable LibFuzzer" OFF)
 option(PYBINDINGS "Create makefiles for building python bindings" OFF)
-option(SKIP_DESKTOP "Skip building of desktop application" OFF)
-option(BUILD_MAPSHOT "Build mapshot tool" OFF)
+option(SKIP_QT_GUI "Skip building of Qt GUI" OFF)
 option(USE_PCH "Use precompiled headers" OFF)
+option(NJOBS "Number of parallel processes" OFF)
+option(ENABLE_VULKAN_DIAGNOSTICS "Enable Vulkan diagnostics" OFF)
+option(ENABLE_TRACE "Enable Tracing" OFF)
 
-if (CMAKE_CXX_COMPILER_ID MATCHES "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 7.0)
-  message(FATAL_ERROR "Minimum supported g++ version is 7.0 yours is ${CMAKE_CXX_COMPILER_VERSION}")
+if (NJOBS)
+  message(STATUS "Number of parallel processes: ${NJOBS}")
+  set(CMAKE_JOB_POOLS custom=${NJOBS})
+  set(CMAKE_JOB_POOL_COMPILE custom)
+  set(CMAKE_JOB_POOL_LINK custom)
+  set(CMAKE_JOB_POOL_PRECOMPILE_HEADER custom)
+endif()
+
+# GCC 10.0 is required to support <charconv> header inclusion in base/string_utils.hpp
+if (CMAKE_CXX_COMPILER_ID MATCHES "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 10.0)
+  message(FATAL_ERROR "Minimum supported g++ version is 10.0, yours is ${CMAKE_CXX_COMPILER_VERSION}")
 endif()
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -116,11 +191,11 @@ if (PLATFORM_LINUX)
 endif()
 
 if (USE_ASAN)
-  message("Address Sanitizer is enabled")
+  message(STATUS "Address Sanitizer is enabled")
 endif()
 
 if (USE_TSAN)
-  message("Thread Sanitizer is enabled")
+  message(STATUS "Thread Sanitizer is enabled")
 endif()
 
 if (USE_ASAN AND USE_TSAN)
@@ -128,16 +203,26 @@ if (USE_ASAN AND USE_TSAN)
 endif()
 
 if (USE_LIBFUZZER)
-  message("LibFuzzer is enabled")
+  message(STATUS "LibFuzzer is enabled")
 endif()
 
 if (USE_PPROF)
-  message("Google Profiler is enabled")
+  message(STATUS "Google Profiler is enabled")
   add_definitions(-DUSE_PPROF)
 endif()
 
 if (USE_HEAPPROF)
-  message("Heap Profiler is enabled")
+  message(STATUS "Heap Profiler is enabled")
+endif()
+
+if (ENABLE_VULKAN_DIAGNOSTICS)
+  message(WARNING "Vulkan diagnostics are enabled. Be aware of performance impact!")
+  add_definitions(-DENABLE_VULKAN_DIAGNOSTICS)
+endif()
+
+if (ENABLE_TRACE)
+  message(STATUS "Tracing is enabled")
+  add_definitions(-DENABLE_TRACE)
 endif()
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -146,39 +231,27 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(EXECUTABLE_OUTPUT_PATH ${CMAKE_CURRENT_BINARY_DIR})
 set(LIBRARY_OUTPUT_PATH ${CMAKE_CURRENT_BINARY_DIR})
 
-if (NOT (DEFINED ENV{CCACHE_DISABLE}))
-  find_program(CCACHE_PROGRAM ccache HINTS /usr/local/bin/)
-  if (CCACHE_PROGRAM)
-    message(STATUS "Using ccache, export CCACHE_DISABLE=1 to disable it.")
-    set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE "${CCACHE_PROGRAM}")
-    set_property(GLOBAL PROPERTY RULE_LAUNCH_LINK "${CCACHE_PROGRAM}")
-    set(CMAKE_C_COMPILER_LAUNCHER   "${CCACHE_PROGRAM}")
-    set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
-  endif()
-endif()
-
-if (PLATFORM_LINUX)
-  find_program(GOLD_FOUND ld.gold)
-  if (GOLD_FOUND)
-    message(STATUS "Using ld.gold")
-    set(CMAKE_EXE_LINKER_FLAGS "-fuse-ld=gold")
-  endif()
-endif()
-
-if (DEFINED ENV{QT_PATH})
-  message("Qt path is set to: " $ENV{QT_PATH})
-  set(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} $ENV{QT_PATH})
-else()
-  file(GLOB QT_PATH_LIST "/usr/local/opt/qt*" "/usr/lib/x86_64-linux-gnu/qt*")
-  if (QT_PATH_LIST)
-    list(GET QT_PATH_LIST 0 QT_PATH)
-    message("Found Qt path: " ${QT_PATH})
-    set(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} ${QT_PATH})
+if (PLATFORM_LINUX OR PLATFORM_ANDROID)
+  find_program(LLD_FOUND ld.lld)
+  if (LLD_FOUND)
+    message(STATUS "Using ld.ldd linker")
+    set(CMAKE_EXE_LINKER_FLAGS "-fuse-ld=lld")
+  else()
+    find_program(GOLD_FOUND ld.gold)
+    if (GOLD_FOUND)
+      message(STATUS "Using ld.gold")
+      set(CMAKE_EXE_LINKER_FLAGS "-fuse-ld=gold")
+    endif()
   endif()
 endif()
 
 if (NOT SKIP_TESTS)
-  set(SKIP_TESTS FALSE)
+  enable_testing()
+  # Enables ctest -T memcheck with valgrind
+  include(CTest)
+  if (COVERAGE_REPORT)
+    include(OmimCoverage)
+  endif ()
 endif()
 
 if (NOT PYTHON_VERSION)
@@ -189,9 +262,6 @@ endif()
 # End of setting environment variables
 
 find_package(Threads REQUIRED)
-
-# Cannot call it at the beginning of the file because it depends on PYTHON_VERSION.
-include(BundledBoost)
 
 # Scripts
 
@@ -207,39 +277,25 @@ endif()
 
 if (NOT PLATFORM_IPHONE AND NOT PLATFORM_ANDROID)
   list(APPEND qt_components Core Network)
-  if (NOT SKIP_DESKTOP OR NOT SKIP_TESTS OR PYBINDINGS)
+  if (NOT SKIP_QT_GUI OR NOT SKIP_TESTS OR PYBINDINGS)
     list(APPEND qt_components Widgets)
   endif()
-  if (NOT SKIP_DESKTOP)
-    list(APPEND qt_components Gui Xml Svg)
+  if (NOT SKIP_QT_GUI)
+    list(APPEND qt_components Gui Xml Svg OpenGL OpenGLWidgets)
   endif()
-  find_package(Qt5 COMPONENTS REQUIRED ${qt_components})
-  if (Qt5_VERSION VERSION_LESS 5.5.0)
-    message(FATAL_ERROR "Minimum supported Qt5 version is 5.5")
+  # PATHS are hard-coded hints where to look for qt6 in addition to other places.
+  find_package(Qt6 COMPONENTS REQUIRED ${qt_components} PATHS $ENV{QT_PATH} /opt/homebrew/opt/qt@6 /usr/local/opt/qt@6 /usr/lib/x86_64-linux-gnu/qt6)
+
+  set(MINIMUM_REQUIRED_QT_VERSION 6.4.0)
+  if (Qt6Widgets_VERSION VERSION_LESS ${MINIMUM_REQUIRED_QT_VERSION})
+    message(FATAL_ERROR "Unsupported Qt version: ${Qt6Widgets_VERSION}, the minimum required is ${MINIMUM_REQUIRED_QT_VERSION}")
+  else()
+    message(STATUS "Found Qt version: ${Qt6Widgets_VERSION}")
   endif()
 endif()
 
-if (PLATFORM_LINUX)
-  find_package(OpenGL)
-endif()
-
-find_library(LIBZ NAMES z)
-if (LIBZ STREQUAL "LIBZ-NOTFOUND")
-  message(FATAL_ERROR "Failed to find libz library.")
-endif()
-
-if (NOT DEVELOPER_FRAMEWORKS_DIR)
-  message("Doing nothing, because we know nothing about developer frameworks dir")
-  #do nothing
-else()
-  include_directories(${DEVELOPER_FRAMEWORKS_DIR})
-endif()
-
-include_directories(
-  ${CMAKE_HOME_DIRECTORY}
-  ${Qt5Core_INCLUDE_DIRS}
-  ${Qt5Network_INCLUDE_DIRS}
-)
+# To allow #include "base/file_name.hpp" in all sources.
+include_directories(${CMAKE_HOME_DIRECTORY})
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
@@ -264,7 +320,7 @@ if (USE_LIBFUZZER)
 endif()
 
 if (USE_PCH)
-  message("Precompiled headers are ON")
+  message(STATUS "Precompiled headers are ON")
   set(OMIM_PCH_TARGET_NAME "omim_pch")
   add_precompiled_headers(
     ${OMIM_ROOT}/precompiled_headers.hpp
@@ -272,53 +328,36 @@ if (USE_PCH)
   )
 endif()
 
-# Suppress "Policy CMP0077 is not set: option() honors normal variables"
-# for the option(EXPAT_SHARED_LIBS) in 3party/expat/expat/CMakeLists.txt
-set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
-# Build libexpat.a instead of libexpat.so
-set(EXPAT_SHARED_LIBS OFF)
-
-# Include subdirectories
-add_subdirectory(3party/agg)
-add_subdirectory(3party/bsdiff-courgette)
-add_subdirectory(3party/expat/expat)
-add_subdirectory(3party/freetype)
-add_subdirectory(3party/gflags)
-add_subdirectory(3party/icu)
-add_subdirectory(3party/jansson)
-add_subdirectory(3party/liboauthcpp)
-add_subdirectory(3party/minizip)
-add_subdirectory(3party/opening_hours)
-add_subdirectory(3party/protobuf)
-add_subdirectory(3party/pugixml)
-add_subdirectory(3party/sdf_image)
-add_subdirectory(3party/stb_image)
-add_subdirectory(3party/succinct)
-add_subdirectory(3party/open-location-code)
-add_subdirectory(3party/vulkan_wrapper)
-
-if (PLATFORM_DESKTOP)
-  add_subdirectory(3party/libtess2)
+# Should be on the root level, not in 3party, so tests can get these dependencies.
+if (PLATFORM_LINUX OR PLATFORM_WIN)
+  find_package(ICU COMPONENTS uc i18n data REQUIRED)
+  find_package(Freetype REQUIRED)
+  find_package(harfbuzz REQUIRED)
 endif()
 
-# Only options related to warnings should be placed here.
-# Other options should be set before all add_subdirectory calls.
-add_compile_options(
-  "-Wall"
-)
+if (WITH_SYSTEM_PROVIDED_3PARTY)
+  set(GFLAGS_USE_TARGET_NAMESPACE ON)
+  find_package(gflags REQUIRED)
 
-add_clang_compile_options("-Wshorten-64-to-32")
-if (CMAKE_CXX_COMPILER_ID MATCHES "GNU" AND
-    CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 7.0)
-  add_gcc_cpp_compile_options("-Wno-noexcept-type")
+  find_package(expat CONFIG REQUIRED)
+  find_package(jansson CONFIG REQUIRED)
+  find_package(pugixml REQUIRED)
+  find_package(utf8cpp REQUIRED)
 endif()
 
-find_package(PythonInterp ${PYTHON_VERSION})
-if (PYTHONINTERP_FOUND)
-  message("Found python to use in qt/, shaders/ and 3party/: ${PYTHON_EXECUTABLE}")
-else()
-  message(FATAL_ERROR "Could not find python to use in qt/, shaders/ and 3party/.")
+find_package(ZLIB REQUIRED)
+
+# Include 3party dependencies.
+add_subdirectory(3party)
+
+# Not needed for the usual build process, but it fixes QtCreator editor,
+# that doesn't see gflags/gflags.h in binary dir (gflags has tricky cmake configuration).
+if (PLATFORM_DESKTOP AND NOT WITH_SYSTEM_PROVIDED_3PARTY)
+  include_directories("${PROJECT_BINARY_DIR}/3party/gflags/include")
 endif()
+
+# Used in qt/ and shaders/
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 add_subdirectory(base)
 add_subdirectory(coding)
@@ -332,6 +371,7 @@ add_subdirectory(geometry)
 add_subdirectory(indexer)
 add_subdirectory(kml)
 add_subdirectory(map)
+add_subdirectory(cppjansson)
 add_subdirectory(platform)
 add_subdirectory(routing)
 add_subdirectory(routing_common)
@@ -343,35 +383,21 @@ add_subdirectory(traffic)
 add_subdirectory(transit)
 
 if (PLATFORM_DESKTOP)
-  if (BUILD_MAPSHOT)
-    add_subdirectory(mapshot)
-    add_subdirectory(software_renderer)
-  endif()
-  add_subdirectory(feature_list)
+  omim_add_tool_subdirectory(feature_list)
   add_subdirectory(generator)
   add_subdirectory(openlr)
   add_subdirectory(poly_borders)
-  add_subdirectory(topography_generator)
+  omim_add_tool_subdirectory(topography_generator)
   add_subdirectory(track_analyzing)
-  add_subdirectory(track_generator)
-  if (NOT SKIP_DESKTOP)
+  omim_add_tool_subdirectory(track_generator)
+  if (NOT SKIP_QT_GUI)
     add_subdirectory(qt)
-    add_subdirectory(skin_generator)
+    omim_add_tool_subdirectory(skin_generator)
   endif()
 endif()
 
-omim_add_test_subdirectory(3party/gmock)
 omim_add_test_subdirectory(qt_tstfrm)
 
 if (PLATFORM_ANDROID)
-  add_subdirectory(android/jni)
+  add_subdirectory(android/app/src/main/cpp)
 endif()
-
-add_custom_target(BuildVersion ALL
-  COMMAND ${CMAKE_COMMAND}
-  ARGS
-  -D OMAPS_CURRENT_PROJECT_ROOT=${OMIM_ROOT}
-  -D PATH_WITH_BUILD_VERSION_HPP=${OMIM_ROOT}
-  -D PROJECT_NAME=${PROJECT_NAME}
-  -P ${OMIM_ROOT}/cmake/BuildVersion.cmake
-)

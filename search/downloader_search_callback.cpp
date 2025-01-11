@@ -18,6 +18,7 @@
 
 namespace
 {
+/// @todo Can't change on string_view now, because of unordered_map<string> synonyms.
 bool GetGroupCountryIdFromFeature(storage::Storage const & storage, FeatureType & ft,
                                   std::string & name)
 {
@@ -28,8 +29,10 @@ bool GetGroupCountryIdFromFeature(storage::Storage const & storage, FeatureType 
 
   for (auto const langIndex : langIndices)
   {
-    if (!ft.GetName(langIndex, name))
+    name = ft.GetName(langIndex);
+    if (name.empty())
       continue;
+
     if (storage.IsInnerNode(name))
       return true;
     auto const it = synonyms.find(name);
@@ -115,11 +118,9 @@ void DownloaderSearchCallback::operator()(search::Results const & results)
   downloaderSearchResults.m_query = m_params.m_query;
   downloaderSearchResults.m_endMarker = results.IsEndMarker();
 
-  if (m_params.m_onResults)
+  m_delegate.RunUITask([onResults = m_params.m_onResults, results = std::move(downloaderSearchResults)]() mutable
   {
-    auto onResults = m_params.m_onResults;
-    m_delegate.RunUITask(
-        [onResults, downloaderSearchResults]() { onResults(downloaderSearchResults); });
-  }
+    onResults(std::move(results));
+  });
 }
 }  // namespace search

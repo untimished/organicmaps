@@ -3,8 +3,8 @@
 #import "MWMMapViewControlsManager.h"
 #import "SwiftBridge.h"
 
-
 #include <CoreApi/Framework.h>
+#include <CoreApi/Logger.h>
 
 namespace
 {
@@ -18,6 +18,8 @@ NSString * const kUDAutoNightModeOff = @"AutoNightModeOff";
 NSString * const kThemeMode = @"ThemeMode";
 NSString * const kSpotlightLocaleLanguageId = @"SpotlightLocaleLanguageId";
 NSString * const kUDTrackWarningAlertWasShown = @"TrackWarningAlertWasShown";
+NSString * const kiCLoudSynchronizationEnabledKey = @"iCLoudSynchronizationEnabled";
+NSString * const kUDFileLoggingEnabledKey = @"FileLoggingEnabledKey";
 }  // namespace
 
 @implementation MWMSettings
@@ -77,9 +79,9 @@ NSString * const kUDTrackWarningAlertWasShown = @"TrackWarningAlertWasShown";
   if ([MWMCarPlayService shared].isCarplayActivated) {
     UIUserInterfaceStyle style = [[MWMCarPlayService shared] interfaceStyle];
     switch (style) {
-    case UIUserInterfaceStyleLight: return MWMThemeDay;
-    case UIUserInterfaceStyleDark: return MWMThemeNight;
-    case UIUserInterfaceStyleUnspecified: break;
+      case UIUserInterfaceStyleLight: return MWMThemeDay;
+      case UIUserInterfaceStyleDark: return MWMThemeNight;
+      case UIUserInterfaceStyleUnspecified: break;
     }
   }
   auto ud = NSUserDefaults.standardUserDefaults;
@@ -116,16 +118,12 @@ NSString * const kUDTrackWarningAlertWasShown = @"TrackWarningAlertWasShown";
 {
   NSUserDefaults * ud = NSUserDefaults.standardUserDefaults;
   [ud setObject:spotlightLocaleLanguageId forKey:kSpotlightLocaleLanguageId];
-  [ud synchronize];
 }
 
 + (BOOL)largeFontSize { return GetFramework().LoadLargeFontsSize(); }
 + (void)setLargeFontSize:(BOOL)largeFontSize
 {
-  bool const isLargeSize = static_cast<bool>(largeFontSize);
-  auto & f = GetFramework();
-  f.SaveLargeFontsSize(isLargeSize);
-  f.SetLargeFontsSize(isLargeSize);
+  GetFramework().SetLargeFontsSize(static_cast<bool>(largeFontSize));
 }
 
 + (BOOL)transliteration { return GetFramework().LoadTransliteration(); }
@@ -146,6 +144,45 @@ NSString * const kUDTrackWarningAlertWasShown = @"TrackWarningAlertWasShown";
 {
   NSUserDefaults * ud = NSUserDefaults.standardUserDefaults;
   [ud setBool:shown forKey:kUDTrackWarningAlertWasShown];
-  [ud synchronize];
 }
+
++ (NSString *)donateUrl
+{
+  std::string url;
+  return settings::Get(settings::kDonateUrl, url) ? @(url.c_str()) : nil;
+}
+
++ (BOOL)isNY
+{
+  bool isNY;
+  return settings::Get("NY", isNY) ? isNY : false;
+}
+
++ (BOOL)iCLoudSynchronizationEnabled
+{
+  return [NSUserDefaults.standardUserDefaults boolForKey:kiCLoudSynchronizationEnabledKey];
+}
+
++ (void)setICLoudSynchronizationEnabled:(BOOL)iCLoudSyncEnabled
+{
+  [NSUserDefaults.standardUserDefaults setBool:iCLoudSyncEnabled forKey:kiCLoudSynchronizationEnabledKey];
+  [NSNotificationCenter.defaultCenter postNotificationName:NSNotification.iCloudSynchronizationDidChangeEnabledState object:nil];
+}
+
++ (void)initializeLogging {
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    [self setFileLoggingEnabled:[self isFileLoggingEnabled]];
+  });
+}
+
++ (BOOL)isFileLoggingEnabled {
+  return [NSUserDefaults.standardUserDefaults boolForKey:kUDFileLoggingEnabledKey];
+}
+
++ (void)setFileLoggingEnabled:(BOOL)fileLoggingEnabled {
+  [NSUserDefaults.standardUserDefaults setBool:fileLoggingEnabled forKey:kUDFileLoggingEnabledKey];
+  [Logger setFileLoggingEnabled:fileLoggingEnabled];
+}
+
 @end

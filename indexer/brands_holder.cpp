@@ -1,21 +1,15 @@
 #include "indexer/brands_holder.hpp"
 
-#include "indexer/search_string_utils.hpp"
-
 #include "platform/platform.hpp"
 
 #include "coding/reader.hpp"
 #include "coding/reader_streambuf.hpp"
-#include "coding/string_utf8_multilang.hpp"
 
-#include "base/logging.hpp"
+#include "base/string_utils.hpp"
 
 #include <sstream>
-#include <utility>
 
 #include "defines.hpp"
-
-using namespace std;
 
 namespace
 {
@@ -40,22 +34,11 @@ bool BrandsHolder::Brand::Name::operator<(BrandsHolder::Brand::Name const & rhs)
   return m_name < rhs.m_name;
 }
 
-BrandsHolder::BrandsHolder(unique_ptr<Reader> && reader)
+BrandsHolder::BrandsHolder(std::unique_ptr<Reader> && reader)
 {
-  ReaderStreamBuf buffer(move(reader));
-  istream s(&buffer);
+  ReaderStreamBuf buffer(std::move(reader));
+  std::istream s(&buffer);
   LoadFromStream(s);
-}
-
-void BrandsHolder::ForEachNameByKey(std::string const & key,
-                                    std::function<void(Brand::Name const &)> const & toDo) const
-{
-  auto const it = m_keyToName.find(key);
-  if (it == m_keyToName.end())
-    return;
-
-  for (auto const & name : it->second->m_synonyms)
-    toDo(name);
 }
 
 void BrandsHolder::ForEachNameByKeyAndLang(std::string const & key, std::string const & lang,
@@ -68,24 +51,24 @@ void BrandsHolder::ForEachNameByKeyAndLang(std::string const & key, std::string 
   });
 }
 
-void BrandsHolder::LoadFromStream(istream & s)
+void BrandsHolder::LoadFromStream(std::istream & s)
 {
   m_keys.clear();
   m_keyToName.clear();
 
   State state = State::ParseBrand;
-  string line;
+  std::string line;
   Brand brand;
-  string key;
+  std::string key;
 
   char const kKeyPrefix[] = "brand.";
-  size_t const kKeyPrefixLength = strlen(kKeyPrefix);
+  size_t const kKeyPrefixLength = std::strlen(kKeyPrefix);
 
   int lineNumber = 0;
   while (s.good())
   {
     ++lineNumber;
-    getline(s, line);
+    std::getline(s, line);
     strings::Trim(line);
     // Allow comments starting with '#' character.
     if (!line.empty() && line[0] == '#')
@@ -118,12 +101,7 @@ void BrandsHolder::LoadFromStream(istream & s)
       CHECK_NOT_EQUAL(langCode, StringUtf8Multilang::kUnsupportedLanguageCode, ());
 
       while (++iter)
-      {
-        Brand::Name name(*iter, langCode);
-
-        if (!name.m_name.empty())
-          brand.m_synonyms.push_back(name);
-      }
+        brand.m_synonyms.emplace_back(*iter, langCode);
     }
   }
 
@@ -131,21 +109,21 @@ void BrandsHolder::LoadFromStream(istream & s)
   AddBrand(brand, key);
 }
 
-void BrandsHolder::AddBrand(Brand & brand, string const & key)
+void BrandsHolder::AddBrand(Brand & brand, std::string const & key)
 {
   if (key.empty())
     return;
 
   CHECK(!brand.m_synonyms.empty(), ());
 
-  shared_ptr<Brand> p(new Brand());
+  std::shared_ptr<Brand> p(new Brand());
   p->Swap(brand);
 
   m_keyToName.emplace(key, p);
   CHECK(m_keys.insert(key).second, ("Key duplicate", key));
 }
 
-string DebugPrint(BrandsHolder::Brand::Name const & name)
+std::string DebugPrint(BrandsHolder::Brand::Name const & name)
 {
   std::ostringstream out;
   out << "BrandName[" << StringUtf8Multilang::GetLangByCode(name.m_locale) << ", " << name.m_name

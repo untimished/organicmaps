@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -9,6 +10,12 @@ namespace ge0
 class Ge0Parser
 {
 public:
+  // Used by map/mwm_url.cpp.
+  static constexpr std::array<std::string_view, 6> kGe0Prefixes = {{
+      "https://omaps.app/", "om://", "http://omaps.app/",
+      "ge0://", "http://ge0.me/", "https://ge0.me/"
+  }};
+
   struct Result
   {
     double m_zoomLevel = 0.0;
@@ -20,10 +27,9 @@ public:
   Ge0Parser();
 
   bool Parse(std::string const & url, Result & result);
-
-protected:
   bool ParseAfterPrefix(std::string const & url, size_t from, Result & result);
 
+protected:
   uint8_t DecodeBase64Char(char const c);
   static double DecodeZoom(uint8_t const zoomByte);
   bool DecodeLatLon(std::string const & s, double & lat, double & lon);

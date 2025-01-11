@@ -1,14 +1,11 @@
 #include "drape/overlay_handle.hpp"
 
-#include "drape/constants.hpp"
-
 #include "base/macros.hpp"
-
 #include "base/internal/message.hpp"
-#include "base/logging.hpp"
+
+#include "indexer/drawing_rule_def.hpp"
 
 #include <algorithm>
-#include <ios>
 #include <sstream>
 
 namespace dp
@@ -28,46 +25,29 @@ private:
 };
 
 OverlayHandle::OverlayHandle(OverlayID const & id, dp::Anchor anchor,
-                             uint64_t priority, int minVisibleScale, bool isBillboard)
+                             uint64_t priority, uint8_t minVisibleScale, bool isBillboard)
   : m_id(id)
   , m_anchor(anchor)
   , m_priority(priority)
-  , m_overlayRank(OverlayRank0)
   , m_extendingSize(0.0)
   , m_pivotZ(0.0)
+  , m_overlayRank(OverlayRank0)
   , m_minVisibleScale(minVisibleScale)
   , m_isBillboard(isBillboard)
   , m_isVisible(false)
-  , m_enableCaching(false)
+  , m_caching(false)
   , m_extendedShapeDirty(true)
   , m_extendedRectDirty(true)
+  , m_isReady(false)
+  , m_isSpecialLayerOverlay(false)
+  , m_displayFlag(false)
 {}
 
-void OverlayHandle::SetCachingEnable(bool enable)
+void OverlayHandle::EnableCaching(bool enable)
 {
-  m_enableCaching = enable;
+  m_caching = enable;
   m_extendedShapeDirty = true;
   m_extendedRectDirty = true;
-}
-
-bool OverlayHandle::IsVisible() const
-{
-  return m_isVisible;
-}
-
-void OverlayHandle::SetIsVisible(bool isVisible)
-{
-  m_isVisible = isVisible;
-}
-
-int OverlayHandle::GetMinVisibleScale() const
-{
-  return m_minVisibleScale;
-}
-
-bool OverlayHandle::IsBillboard() const
-{
-  return m_isBillboard;
 }
 
 m2::PointD OverlayHandle::GetPivot(ScreenBase const & screen, bool perspective) const
@@ -133,31 +113,19 @@ bool OverlayHandle::HasDynamicAttributes() const
 void OverlayHandle::AddDynamicAttribute(BindingInfo const & binding, uint32_t offset, uint32_t count)
 {
   ASSERT(binding.IsDynamic(), ());
-  ASSERT(std::find_if(m_offsets.begin(), m_offsets.end(),
-                      OffsetNodeFinder(binding.GetID())) == m_offsets.end(), ());
-  m_offsets.insert(std::make_pair(binding, MutateRegion(offset, count)));
-}
-
-OverlayID const & OverlayHandle::GetOverlayID() const
-{
-  return m_id;
-}
-
-uint64_t const & OverlayHandle::GetPriority() const
-{
-  return m_priority;
+  VERIFY(m_offsets.emplace(binding, MutateRegion(offset, count)).second, ());
 }
 
 OverlayHandle::TOffsetNode const & OverlayHandle::GetOffsetNode(uint8_t bufferID) const
 {
-  auto const it = std::find_if(m_offsets.begin(), m_offsets.end(), OffsetNodeFinder(bufferID));
+  auto const it = m_offsets.find(bufferID);
   ASSERT(it != m_offsets.end(), ());
   return *it;
 }
 
 m2::RectD OverlayHandle::GetExtendedPixelRect(ScreenBase const & screen) const
 {
-  if (m_enableCaching && !m_extendedRectDirty)
+  if (m_caching && !m_extendedRectDirty)
     return m_extendedRectCache;
 
   m_extendedRectCache = GetPixelRect(screen, screen.isPerspective());
@@ -168,7 +136,7 @@ m2::RectD OverlayHandle::GetExtendedPixelRect(ScreenBase const & screen) const
 
 OverlayHandle::Rects const & OverlayHandle::GetExtendedPixelShape(ScreenBase const & screen) const
 {
-  if (m_enableCaching && !m_extendedShapeDirty)
+  if (m_caching && !m_extendedShapeDirty)
     return m_extendedShapeCache;
 
   m_extendedShapeCache.clear();
@@ -251,40 +219,25 @@ bool SquareHandle::IsBound() const { return m_isBound; }
 std::string SquareHandle::GetOverlayDebugInfo()
 {
   std::ostringstream out;
-  out << "POI Priority(" << std::hex << GetPriority() << ") " << std::dec
-      << DebugPrint(GetOverlayID());
+  out << "POI Priority(" << std::hex << std::setw(16) << std::setfill('0') << GetPriority()
+      << ") " << std::dec << DebugPrint(GetOverlayID());
   return out.str();
 }
 #endif
 
-uint64_t CalculateOverlayPriority(int minZoomLevel, uint8_t rank, float depth)
+/// @param[in] rank         Rank of the feature (bigger is better)
+/// @param[in] depth        Manual priority from styles (bigger is better)
+uint64_t CalculateOverlayPriority(uint8_t rank, float depth)
 {
-  // Overlay priority consider the following:
-  // - Minimum visible zoom level (the less the better);
-  // - Manual priority from styles (equals to the depth);
-  // - Rank of the feature (the more the better);
-  // [1 byte - zoom][4 bytes - priority][1 byte - rank][2 bytes - 0xFFFF].
-  uint8_t const minZoom = 0xFF - static_cast<uint8_t>(std::max(minZoomLevel, 0));
+  // Negative range is used for optional captions which are below all other overlays.
+  ASSERT(-drule::kOverlaysMaxPriority <= depth && depth < drule::kOverlaysMaxPriority, (depth));
+  depth += drule::kOverlaysMaxPriority;
 
-  float const kMinDepth = -100000.0f;
-  float const kMaxDepth = 100000.0f;
-  float const d = base::Clamp(depth, kMinDepth, kMaxDepth) - kMinDepth;
-  auto const priority = static_cast<uint32_t>(d);
-
-  return (static_cast<uint64_t>(minZoom) << 56) |
-         (static_cast<uint64_t>(priority) << 24) |
+  // Pack into uint64_t priority value (bigger is better).
+  // [1 byte - 0xFF][4 bytes - priority][1 byte - rank][2 bytes - 0xFFFF].
+  return (static_cast<uint64_t>(depth) << 24) |
          (static_cast<uint64_t>(rank) << 16) |
-         static_cast<uint64_t>(0xFFFF);
-}
-
-uint64_t CalculateSpecialModePriority(uint16_t specialPriority)
-{
-  // [5 bytes - 0xFFFFFFFFFF][1 byte - 0x00][2 bytes - special priority]
-  static uint64_t constexpr kMask = ~static_cast<uint64_t>(0xFFFFFF);
-  uint64_t priority = dp::kPriorityMaskAll;
-  priority &= kMask;
-  priority |= specialPriority;
-  return priority;
+         dp::kPriorityMaskZoomLevel;
 }
 
 uint64_t CalculateSpecialModeUserMarkPriority(uint16_t specialPriority)

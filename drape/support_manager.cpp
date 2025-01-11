@@ -6,8 +6,6 @@
 
 #include "base/logging.hpp"
 
-#include "std/target_os.hpp"
-
 #include <algorithm>
 #include <array>
 #include <string>
@@ -16,13 +14,13 @@ namespace dp
 {
 struct SupportManager::Configuration
 {
-  std::string m_deviceName;
+  std::string_view m_deviceName;
   Version m_apiVersion;
   Version m_driverVersion;
 };
 
-char const * kSupportedAntialiasing = "Antialiasing";
-static char const * kVulkanForbidden = "VulkanForbidden";
+std::string_view kSupportedAntialiasing = "Antialiasing";
+std::string_view constexpr kVulkanForbidden = "VulkanForbidden";
 
 void SupportManager::Init(ref_ptr<GraphicsContext> context)
 {
@@ -41,7 +39,7 @@ void SupportManager::Init(ref_ptr<GraphicsContext> context)
 
   if (m_rendererName.find("Adreno") != std::string::npos)
   {
-    std::array<std::string, 5> const models = { "200", "203", "205", "220", "225" };
+    std::array<std::string_view, 5> constexpr models = { "200", "203", "205", "220", "225" };
     for (auto const & model : models)
     {
       if (m_rendererName.find(model) != std::string::npos)
@@ -86,8 +84,7 @@ void SupportManager::Init(ref_ptr<GraphicsContext> context)
 //#ifdef OMIM_OS_ANDROID
 //    std::vector<std::string> const models = {"Mali-G71", "Mali-T880", "Adreno (TM) 540",
 //                                             "Adreno (TM) 530", "Adreno (TM) 430"};
-//    m_isAntialiasingEnabledByDefault =
-//        (std::find(models.begin(), models.end(), m_rendererName) != models.end());
+//    m_isAntialiasingEnabledByDefault = base::IsExist(models, m_rendererName);
 //#else
 //    m_isAntialiasingEnabledByDefault = true;
 //#endif
@@ -102,7 +99,7 @@ void SupportManager::ForbidVulkan()
   settings::Set(kVulkanForbidden, true);
 }
 
-bool SupportManager::IsVulkanForbidden() const
+bool SupportManager::IsVulkanForbidden()
 {
   bool forbidden;
   if (!settings::Get(kVulkanForbidden, forbidden))
@@ -110,59 +107,83 @@ bool SupportManager::IsVulkanForbidden() const
   return forbidden;
 }
 
-bool SupportManager::IsVulkanForbidden(std::string const & deviceName,
-                                       Version apiVersion, Version driverVersion) const
+bool SupportManager::IsVulkanForbidden(std::string const & deviceName, Version apiVersion,
+                                       Version driverVersion, bool isCustomROM)
 {
-  /// @todo Should we ban all PowerVR Rogue devices?
+  LOG(LINFO, ("Device =", deviceName, "API =", apiVersion, "Driver =", driverVersion));
+
   static char const * kBannedDevices[] = {
-    "PowerVR Rogue G6110", "PowerVR Rogue GE8100", "PowerVR Rogue GE8300"
+    /// @todo Should we ban all PowerVR Rogue devices?
+    // https://github.com/organicmaps/organicmaps/issues/1379
+    "PowerVR Rogue G6110", "PowerVR Rogue GE8100", "PowerVR Rogue GE8300",
+    // https://github.com/organicmaps/organicmaps/issues/5539
+    "Adreno (TM) 418",
   };
 
-  // On these configurations we've detected fatal driver-specific Vulkan errors.
-  static std::array<Configuration, 3> const kBannedConfigurations = {
-      Configuration{"Adreno (TM) 506", {1, 0, 31}, {42, 264, 975}},
-      Configuration{"Adreno (TM) 506", {1, 1, 66}, {512, 313, 0}},
-      Configuration{"Adreno (TM) 530", {1, 1, 66}, {512, 313, 0}}
-  };
-
-  for (auto const & d : kBannedDevices)
+  for (auto const d : kBannedDevices)
   {
     if (d == deviceName)
       return true;
   }
 
+  if (isCustomROM)
+  {
+    // Crash on LineageOS, stock Android works ok (with same api = 1.0.82; driver = 28.0.0).
+    // https://github.com/organicmaps/organicmaps/issues/2739
+    // https://github.com/organicmaps/organicmaps/issues/9255
+    // SM-G930F (S7, heroltexx, hero2ltexx). Crash on vkCreateSwapchainKHR and we don't even get to SupportManager::Init.
+    // SM-G920F (S6)
+    if (deviceName.starts_with("Mali-T"))
+      return true;
+  }
+
+  // On these configurations we've detected fatal driver-specific Vulkan errors.
+  static Configuration constexpr kBannedConfigurations[] = {
+      Configuration{"Adreno (TM) 506", {1, 0, 31}, {42, 264, 975}},
+      Configuration{"Adreno (TM) 506", {1, 1, 66}, {512, 313, 0}},
+      // Xiaomi Redmi Note 5
+      Configuration{"Adreno (TM) 506", {1, 1, 128}, {512, 502, 0}},
+      Configuration{"Adreno (TM) 530", {1, 1, 66}, {512, 313, 0}},
+
+      /// @todo Route line is flickering in nav mode.
+      /// Samsung Galaxy S8 (SM-G950F)
+      Configuration{"Mali-G71", {1, 0, 97}, {16, 0, 0}},
+
+      /// @todo Dashed lines stopped drawing after updating LineShape::Construct<DashedLineBuilder>.
+      /// Huawei P20
+      Configuration{"Mali-G72", {1, 1, 97}, {18, 0, 0}},
+      /// Samsung SM-A505FN (a50), hangs when showing the subway layer.
+      Configuration{"Mali-G72", {1, 1, 131}, {26, 0, 0}},
+  };
+
   for (auto const & c : kBannedConfigurations)
   {
-    if (c.m_deviceName == deviceName && c.m_apiVersion == apiVersion &&
-        c.m_driverVersion == driverVersion)
-    {
+    if (c.m_deviceName == deviceName && c.m_apiVersion == apiVersion && c.m_driverVersion == driverVersion)
       return true;
-    }
   }
   return false;
 }
 
+// Finally, the result of this function is used in GraphicsContext::HasPartialTextureUpdates.
 bool SupportManager::IsVulkanTexturePartialUpdateBuggy(int sdkVersion,
                                                        std::string const & deviceName,
                                                        Version apiVersion,
-                                                       Version driverVersion) const
+                                                       Version driverVersion)
 {
-  int constexpr kMinSdkVersionForVulkan10 = 29;
-  if (sdkVersion >= kMinSdkVersionForVulkan10)
+  /// @todo Assume that all Android 10+ (API 29) doesn't support Vulkan partial texture updates.
+  /// Can't say for sure is it right or not ..
+  if (sdkVersion >= 29)
     return true;
 
   // For these configurations partial updates of texture clears whole texture except part updated
-  static std::array<Configuration, 1> const kBadConfigurations = {
-      {{"Mali-G76", {1, 1, 97}, {18, 0, 0}}},
+  static Configuration constexpr kBadConfigurations[] = {
+      {"Mali-G76", {1, 1, 97}, {18, 0, 0}},
   };
 
   for (auto const & c : kBadConfigurations)
   {
-    if (c.m_deviceName == deviceName && c.m_apiVersion == apiVersion &&
-        c.m_driverVersion == driverVersion)
-    {
+    if (c.m_deviceName == deviceName && c.m_apiVersion == apiVersion && c.m_driverVersion == driverVersion)
       return true;
-    }
   }
   return false;
 }

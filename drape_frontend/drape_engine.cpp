@@ -1,22 +1,27 @@
 #include "drape_frontend/drape_engine.hpp"
 
-#include "drape_frontend/message_subclasses.hpp"
 #include "drape_frontend/gui/drape_gui.hpp"
+#include "drape_frontend/message_subclasses.hpp"
 #include "drape_frontend/my_position_controller.hpp"
 #include "drape_frontend/visual_params.hpp"
 
 #include "drape/drape_routine.hpp"
-#include "drape/glyph_generator.hpp"
 #include "drape/support_manager.hpp"
 
 #include "platform/settings.hpp"
 
 #include <unordered_map>
 
-using namespace std::placeholders;
-
 namespace df
 {
+using namespace std::placeholders;
+
+namespace
+{
+std::string_view constexpr kLocationStateMode = "LastLocationStateMode";
+std::string_view constexpr kLastEnterBackground = "LastEnterBackground";
+}
+
 DrapeEngine::DrapeEngine(Params && params)
   : m_myPositionModeChanged(std::move(params.m_myPositionModeChanged))
   , m_viewport(std::move(params.m_viewport))
@@ -25,33 +30,27 @@ DrapeEngine::DrapeEngine(Params && params)
 
   VisualParams::Init(params.m_vs, df::CalculateTileSize(m_viewport.GetWidth(), m_viewport.GetHeight()));
 
-  df::VisualParams::Instance().SetFontScale(params.m_fontsScaleFactor);
+  SetFontScaleFactor(params.m_fontsScaleFactor);
 
   gui::DrapeGui::Instance().SetSurfaceSize(m2::PointF(m_viewport.GetWidth(), m_viewport.GetHeight()));
 
-  m_glyphGenerator = make_unique_dp<dp::GlyphGenerator>(df::VisualParams::Instance().GetGlyphSdfScale());
-  m_textureManager = make_unique_dp<dp::TextureManager>(make_ref(m_glyphGenerator));
+  m_textureManager = make_unique_dp<dp::TextureManager>();
   m_threadCommutator = make_unique_dp<ThreadsCommutator>();
   m_requestedTiles = make_unique_dp<RequestedTiles>();
 
-  location::EMyPositionMode mode = params.m_initialMyPositionMode.first;
-  if (!params.m_initialMyPositionMode.second && !settings::Get(settings::kLocationStateMode, mode))
-  {
-    mode = location::PendingPosition;
-  }
-  else if (mode == location::FollowAndRotate)
+  using namespace location;
+  EMyPositionMode mode = PendingPosition;
+  if (settings::Get(kLocationStateMode, mode) && mode == FollowAndRotate)
   {
     // If the screen rect setting in follow and rotate mode is missing or invalid, it could cause
     // invalid animations, so the follow and rotate mode should be discarded.
     m2::AnyRectD rect;
     if (!(settings::Get("ScreenClipRect", rect) && df::GetWorldRect().IsRectInside(rect.GetGlobalRect())))
-      mode = location::Follow;
+      mode = Follow;
   }
 
-  double timeInBackground = 0.0;
-  double lastEnterBackground = 0.0;
-  if (settings::Get("LastEnterBackground", lastEnterBackground))
-    timeInBackground = base::Timer::LocalTime() - lastEnterBackground;
+  if (!settings::Get(kLastEnterBackground, m_startBackgroundTime))
+    m_startBackgroundTime = base::Timer::LocalTime();
 
   std::vector<PostprocessRenderer::Effect> effects;
 
@@ -67,7 +66,7 @@ DrapeEngine::DrapeEngine(Params && params)
   //}
 
   MyPositionController::Params mpParams(mode,
-                                        timeInBackground,
+                                        base::Timer::LocalTime() - m_startBackgroundTime,
                                         params.m_hints,
                                         params.m_isRoutingActive,
                                         params.m_isAutozoomEnabled,
@@ -82,7 +81,6 @@ DrapeEngine::DrapeEngine(Params && params)
                                     std::bind(&DrapeEngine::ModelViewChanged, this, _1),
                                     std::bind(&DrapeEngine::TapEvent, this, _1),
                                     std::bind(&DrapeEngine::UserPositionChanged, this, _1, _2),
-                                    std::bind(&DrapeEngine::UserPositionPendingTimeout, this),
                                     make_ref(m_requestedTiles),
                                     std::move(params.m_overlaysShowStatsCallback),
                                     params.m_allow3dBuildings,
@@ -91,22 +89,15 @@ DrapeEngine::DrapeEngine(Params && params)
                                     std::move(effects),
                                     params.m_onGraphicsContextInitialized);
 
-  m_frontend = make_unique_dp<FrontendRenderer>(std::move(frParams));
-
-  BackendRenderer::Params brParams(params.m_apiVersion,
-                                   frParams.m_commutator,
-                                   frParams.m_oglContextFactory,
-                                   frParams.m_texMng,
-                                   params.m_model,
-                                   params.m_model.UpdateCurrentCountryFn(),
-                                   make_ref(m_requestedTiles),
-                                   params.m_allow3dBuildings,
-                                   params.m_trafficEnabled,
-                                   params.m_isolinesEnabled,
-                                   params.m_simplifiedTrafficColors,
-                                   params.m_onGraphicsContextInitialized);
+  BackendRenderer::Params brParams(
+      params.m_apiVersion, frParams.m_commutator, frParams.m_oglContextFactory, frParams.m_texMng,
+      params.m_model, params.m_model.UpdateCurrentCountryFn(), make_ref(m_requestedTiles),
+      params.m_allow3dBuildings, params.m_trafficEnabled, params.m_isolinesEnabled,
+      params.m_simplifiedTrafficColors, std::move(params.m_arrow3dCustomDecl),
+      params.m_onGraphicsContextInitialized);
 
   m_backend = make_unique_dp<BackendRenderer>(std::move(brParams));
+  m_frontend = make_unique_dp<FrontendRenderer>(std::move(frParams));
 
   m_widgetsInfo = std::move(params.m_info);
 
@@ -114,7 +105,7 @@ DrapeEngine::DrapeEngine(Params && params)
   RecacheMapShapes();
 
   if (params.m_showChoosePositionMark)
-    EnableChoosePositionMode(true, std::move(params.m_boundAreaTriangles), false, m2::PointD());
+    EnableChoosePositionMode(true, std::move(params.m_boundAreaTriangles), nullptr);
 
   ResizeImpl(m_viewport.GetWidth(), m_viewport.GetHeight());
 }
@@ -136,7 +127,6 @@ DrapeEngine::~DrapeEngine()
 
   gui::DrapeGui::Instance().Destroy();
   m_textureManager->Release();
-  m_glyphGenerator.reset();
 }
 
 void DrapeEngine::RecoverSurface(int w, int h, bool recreateContextDependentResources)
@@ -196,6 +186,11 @@ void DrapeEngine::Scale(double factor, m2::PointD const & pxPoint, bool isAnim)
 void DrapeEngine::Move(double factorX, double factorY, bool isAnim)
 {
   AddUserEvent(make_unique_dp<MoveEvent>(factorX, factorY, isAnim));
+}
+
+void DrapeEngine::Scroll(double distanceX, double distanceY)
+{
+  AddUserEvent(make_unique_dp<ScrollEvent>(distanceX, distanceY));
 }
 
 void DrapeEngine::Rotate(double azimuth, bool isAnim)
@@ -342,7 +337,7 @@ void DrapeEngine::UpdateUserMarks(UserMarksProvider * provider, bool firstTime)
                nullptr /* filter */, *removedIdCollection);
 
     collectRenderData(provider->GetCreatedMarkIds(), provider->GetCreatedLineIds(), groupFilter);
-    collectRenderData(provider->GetUpdatedMarkIds(), {} /* lineIds */, groupFilter);
+    collectRenderData(provider->GetUpdatedMarkIds(), provider->GetUpdatedLineIds(), groupFilter);
 
     for (auto const groupId : provider->GetBecameVisibleGroupIds())
     {
@@ -448,9 +443,14 @@ void DrapeEngine::ModelViewChanged(ScreenBase const & screen)
 
 void DrapeEngine::MyPositionModeChanged(location::EMyPositionMode mode, bool routingActive)
 {
-  settings::Set(settings::kLocationStateMode, mode);
-  if (m_myPositionModeChanged != nullptr)
+  settings::Set(kLocationStateMode, mode);
+  if (m_myPositionModeChanged)
     m_myPositionModeChanged(mode, routingActive);
+}
+
+location::EMyPositionMode DrapeEngine::GetMyPositionMode() const
+{
+  return m_frontend->GetMyPositionMode();
 }
 
 void DrapeEngine::TapEvent(TapInfo const & tapInfo)
@@ -463,12 +463,6 @@ void DrapeEngine::UserPositionChanged(m2::PointD const & position, bool hasPosit
 {
   if (m_userPositionChangedHandler != nullptr)
     m_userPositionChangedHandler(position, hasPosition);
-}
-
-void DrapeEngine::UserPositionPendingTimeout()
-{
-  if (m_userPositionPendingTimeoutHandler != nullptr)
-    m_userPositionPendingTimeoutHandler();
 }
 
 void DrapeEngine::ResizeImpl(int w, int h)
@@ -486,7 +480,7 @@ void DrapeEngine::SetCompassInfo(location::CompassInfo const & info)
 }
 
 void DrapeEngine::SetGpsInfo(location::GpsInfo const & info, bool isNavigable,
-                             const location::RouteMatchingInfo & routeInfo)
+                             location::RouteMatchingInfo const & routeInfo)
 {
   m_threadCommutator->PostMessage(ThreadsCommutator::RenderThread,
                                   make_unique_dp<GpsInfoMessage>(info, isNavigable, routeInfo),
@@ -532,7 +526,7 @@ void DrapeEngine::SetModelViewListener(ModelViewChangedHandler && fn)
   m_modelViewChangedHandler = std::move(fn);
 }
 
-#if defined(OMIM_OS_MAC) || defined(OMIM_OS_LINUX)
+#if defined(OMIM_OS_DESKTOP)
 void DrapeEngine::NotifyGraphicsReady(GraphicsReadyHandler const & fn, bool needInvalidate)
 {
   m_threadCommutator->PostMessage(ThreadsCommutator::ResourceUploadThread,
@@ -549,11 +543,6 @@ void DrapeEngine::SetTapEventInfoListener(TapEventInfoHandler && fn)
 void DrapeEngine::SetUserPositionListener(UserPositionChangedHandler && fn)
 {
   m_userPositionChangedHandler = std::move(fn);
-}
-
-void DrapeEngine::SetUserPositionPendingTimeoutListener(UserPositionPendingTimeoutHandler && fn)
-{
-  m_userPositionPendingTimeoutHandler = std::move(fn);
 }
 
 void DrapeEngine::SelectObject(SelectionShape::ESelectedObject obj, m2::PointD const & pt,
@@ -660,6 +649,17 @@ void DrapeEngine::Allow3dMode(bool allowPerspectiveInNavigation, bool allow3dBui
                                   MessagePriority::Normal);
 }
 
+void DrapeEngine::SetMapLangIndex(int8_t mapLangIndex)
+{
+  m_threadCommutator->PostMessage(ThreadsCommutator::ResourceUploadThread,
+                                  make_unique_dp<SetMapLangIndexMessage>(mapLangIndex),
+                                  MessagePriority::Normal);
+
+  m_threadCommutator->PostMessage(ThreadsCommutator::RenderThread,
+                                  make_unique_dp<SetMapLangIndexMessage>(mapLangIndex),
+                                  MessagePriority::Normal);
+}
+
 void DrapeEngine::EnablePerspective()
 {
   m_threadCommutator->PostMessage(ThreadsCommutator::RenderThread,
@@ -684,7 +684,7 @@ void DrapeEngine::ClearGpsTrackPoints()
 }
 
 void DrapeEngine::EnableChoosePositionMode(bool enable, std::vector<m2::TriangleD> && boundAreaTriangles,
-                                           bool hasPosition, m2::PointD const & position)
+                                           m2::PointD const * optionalPosition)
 {
   m_choosePositionMode = enable;
   bool kineticScroll = m_kineticScrollEnabled;
@@ -702,7 +702,7 @@ void DrapeEngine::EnableChoosePositionMode(bool enable, std::vector<m2::Triangle
   }
   m_threadCommutator->PostMessage(ThreadsCommutator::RenderThread,
                                   make_unique_dp<SetAddNewPlaceModeMessage>(enable, std::move(boundAreaTriangles),
-                                                                            kineticScroll, hasPosition, position),
+                                                                            kineticScroll, optionalPosition),
                                   MessagePriority::Normal);
 }
 
@@ -724,8 +724,9 @@ void DrapeEngine::SetKineticScrollEnabled(bool enabled)
                                   MessagePriority::Normal);
 }
 
-void DrapeEngine::OnEnterForeground(double backgroundTime)
+void DrapeEngine::OnEnterForeground()
 {
+  double const backgroundTime = base::Timer::LocalTime() - m_startBackgroundTime;
   m_threadCommutator->PostMessage(ThreadsCommutator::RenderThread,
                                   make_unique_dp<OnEnterForegroundMessage>(backgroundTime),
                                   MessagePriority::High);
@@ -733,9 +734,21 @@ void DrapeEngine::OnEnterForeground(double backgroundTime)
 
 void DrapeEngine::OnEnterBackground()
 {
-  m_threadCommutator->PostMessage(ThreadsCommutator::RenderThread,
-                                  make_unique_dp<OnEnterBackgroundMessage>(),
-                                  MessagePriority::High);
+  m_startBackgroundTime = base::Timer::LocalTime();
+  settings::Set(kLastEnterBackground, m_startBackgroundTime);
+
+  /// @todo By VNG: Make direct call to FR, because logic with PostMessage is not working now.
+  /// Rendering engine becomes disabled first and posted message won't be processed in a correct timing
+  /// and will remain pending in queue, waiting until rendering queue will became active.
+  /// As a result, we will get OnEnterBackground notification when we already entered foreground (sic!).
+  /// One minus with direct call is that we are not in FR rendering thread, but I don't see a problem here now.
+  /// To make it works as expected with PostMessage, we should refactor platform notifications,
+  /// especially Android with its AppBackgroundTracker.
+  m_frontend->OnEnterBackground();
+
+//  m_threadCommutator->PostMessage(ThreadsCommutator::RenderThread,
+//                                  make_unique_dp<OnEnterBackgroundMessage>(),
+//                                  MessagePriority::High);
 }
 
 void DrapeEngine::RequestSymbolsSize(std::vector<std::string> const & symbols,
@@ -822,11 +835,6 @@ void DrapeEngine::EnableIsolines(bool enable)
 
 void DrapeEngine::SetFontScaleFactor(double scaleFactor)
 {
-  double const kMinScaleFactor = 0.5;
-  double const kMaxScaleFactor = 2.0;
-
-  scaleFactor = base::Clamp(scaleFactor, kMinScaleFactor, kMaxScaleFactor);
-
   VisualParams::Instance().SetFontScale(scaleFactor);
 }
 
@@ -936,7 +944,12 @@ drape_ptr<UserLineRenderParams> DrapeEngine::GenerateLineRenderInfo(UserLineMark
   auto renderInfo = make_unique_dp<UserLineRenderParams>();
   renderInfo->m_minZoom = mark->GetMinZoom();
   renderInfo->m_depthLayer = mark->GetDepthLayer();
-  renderInfo->m_spline = m2::SharedSpline(mark->GetPoints());
+
+  mark->ForEachGeometry([&renderInfo](std::vector<m2::PointD> && points)
+  {
+    renderInfo->m_splines.emplace_back(std::move(points));
+  });
+
   renderInfo->m_layers.reserve(mark->GetLayerCount());
   for (size_t layerIndex = 0, layersCount = mark->GetLayerCount(); layerIndex < layersCount; ++layerIndex)
   {
@@ -969,5 +982,12 @@ void DrapeEngine::UpdateMyPositionRoutingOffset(bool useDefault, int offsetY)
   m_threadCommutator->PostMessage(ThreadsCommutator::RenderThread,
                                   make_unique_dp<UpdateMyPositionRoutingOffsetMessage>(useDefault, offsetY),
                                   MessagePriority::Normal);
+}
+
+void DrapeEngine::SetCustomArrow3d(std::optional<Arrow3dCustomDecl> arrow3dCustomDecl)
+{
+  m_threadCommutator->PostMessage(
+      ThreadsCommutator::ResourceUploadThread,
+      make_unique_dp<Arrow3dRecacheMessage>(std::move(arrow3dCustomDecl)), MessagePriority::High);
 }
 }  // namespace df

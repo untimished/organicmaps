@@ -32,6 +32,7 @@
 #include <iomanip>
 #include <ios>
 #include <ostream>
+#include <sstream>
 #include <tuple>
 #include <type_traits>
 #include <vector>
@@ -96,26 +97,24 @@ class StreamFlagsKeeper
   std::ios_base::fmtflags m_flags;
 };
 
+
 template <typename TNumber>
-constexpr bool IsChar(TNumber) noexcept
-{
-  return std::is_same<signed char, TNumber>::value ||
-         std::is_same<unsigned char, TNumber>::value ||
-         std::is_same<char, TNumber>::value;
-};
-
-template <typename TNumber, typename std::enable_if<!IsChar(TNumber{}), void*>::type = nullptr>
 void PrintPaddedNumber(std::ostream & ost, TNumber const number, uint32_t const padding = 1)
 {
-  static_assert(std::is_integral<TNumber>::value, "number should be of integral type.");
-  StreamFlagsKeeper keeper(ost);
-  ost << std::setw(padding) << std::setfill('0') << number;
-}
+  static constexpr bool isChar = std::is_same_v<signed char, TNumber> ||
+      std::is_same_v<unsigned char, TNumber> ||
+      std::is_same_v<char, TNumber>;
 
-template <typename TNumber, typename std::enable_if<IsChar(TNumber{}), void*>::type = nullptr>
-void PrintPaddedNumber(std::ostream & ost, TNumber const number, uint32_t const padding = 1)
-{
-  PrintPaddedNumber(ost, static_cast<int32_t>(number), padding);
+  if constexpr (isChar)
+  {
+    PrintPaddedNumber(ost, static_cast<int32_t>(number), padding);
+  }
+  else
+  {
+    static_assert(std::is_integral<TNumber>::value, "number should be of integral type.");
+    StreamFlagsKeeper keeper(ost);
+    ost << std::setw(padding) << std::setfill('0') << number;
+  }
 }
 
 void PrintHoursMinutes(std::ostream & ost,
@@ -186,6 +185,7 @@ std::ostream & operator<<(std::ostream & ost, TimeEvent::Event const event)
   {
     case TimeEvent::Event::None:
       ost << "None";
+      break;
     case TimeEvent::Event::Sunrise:
       ost << "sunrise";
       break;
@@ -386,7 +386,7 @@ bool operator==(Timespan const & lhs, Timespan const & rhs)
 
   return lhs.GetStart() == rhs.GetStart() &&
          lhs.GetEnd() == rhs.GetEnd() &&
-         lhs.GetPeriod() == lhs.GetPeriod();
+         lhs.GetPeriod() == rhs.GetPeriod();
 }
 
 // NthWeekdayOfTheMonthEntry -----------------------------------------------------------------------
@@ -424,7 +424,7 @@ bool WeekdayRange::operator==(WeekdayRange const & rhs) const
          m_nths == rhs.m_nths;
 }
 
-std::ostream & operator<<(std::ostream & ost, Weekday const wday)
+std::ostream & operator<<(std::ostream & ost, Weekday wday)
 {
   switch (wday)
   {
@@ -896,6 +896,26 @@ bool OpeningHours::IsClosed(time_t const dateTime) const
 bool OpeningHours::IsUnknown(time_t const dateTime) const
 {
   return osmoh::IsUnknown(m_rule, dateTime);
+}
+
+OpeningHours::InfoT OpeningHours::GetInfo(time_t const dateTime) const
+{
+  InfoT info;
+  info.state = GetState(m_rule, dateTime);
+  if (info.state != RuleState::Unknown)
+  {
+   if (info.state == RuleState::Open)
+      info.nextTimeOpen = dateTime;
+    else
+      info.nextTimeOpen = osmoh::GetNextTimeState(m_rule, dateTime, RuleState::Open);
+
+    if (info.state == RuleState::Closed)
+      info.nextTimeClosed = dateTime;
+    else
+      info.nextTimeClosed = osmoh::GetNextTimeState(m_rule, dateTime, RuleState::Closed);
+  }
+
+  return info;
 }
 
 bool OpeningHours::IsValid() const

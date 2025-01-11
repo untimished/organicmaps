@@ -4,11 +4,8 @@
 #include "base/macros.hpp"
 
 #include <algorithm>
-#include <cstddef>
-#include <functional>
 #include <map>
-#include <memory>
-#include <utility>
+#include <string>
 #include <vector>
 
 namespace base
@@ -57,7 +54,7 @@ public:
   void AddSubtree(Char const & c, std::unique_ptr<Subtree> subtree)
   {
     ASSERT(!GetSubtree(c), ());
-    m_subtrees.emplace(c, move(subtree));
+    m_subtrees.emplace(c, std::move(subtree));
   }
 
   void EraseSubtree(Char const & c) { m_subtrees.erase(c); }
@@ -206,7 +203,7 @@ public:
   public:
     using Char = MemTrie::Char;
 
-    Iterator(MemTrie::Node const & node) : m_node(node) {}
+    Iterator(Node const & node) : m_node(node) {}
 
     // Iterates over all possible moves from this Iterator's node
     // and calls |toDo| with two arguments:
@@ -221,14 +218,14 @@ public:
     template <typename ToDo>
     void ForEachInNode(ToDo && toDo) const
     {
-      m_node.m_values.ForEach(std::forward<ToDo>(toDo));
+      m_node.m_values.ForEach(toDo);
     }
 
     String GetLabel() const { return m_node.m_edge.template As<String>(); }
     ValuesHolder const & GetValues() const { return m_node.m_values; }
 
   private:
-    MemTrie::Node const & m_node;
+    Node const & m_node;
   };
 
   // Adds a key-value pair to the trie.
@@ -291,7 +288,7 @@ public:
   void ForEachInTrie(ToDo && toDo) const
   {
     String prefix;
-    ForEachInSubtree(m_root, prefix, std::forward<ToDo>(toDo));
+    ForEachInSubtree(m_root, prefix, toDo);
   }
 
   // Calls |toDo| for each key-value pair in the node that is reachable
@@ -302,7 +299,7 @@ public:
   {
     MoveTo(prefix, true /* fullMatch */,
            [&](Node const & node, Edge const & /* edge */, size_t /* offset */) {
-             node.m_values.ForEach(std::forward<ToDo>(toDo));
+             node.m_values.ForEach(toDo);
            });
   }
 
@@ -323,7 +320,7 @@ public:
       String p = prefix;
       for (; offset < edge.Size(); ++offset)
         p.push_back(edge[offset]);
-      ForEachInSubtree(node, p, std::forward<ToDo>(toDo));
+      ForEachInSubtree(node, p, toDo);
     });
   }
 
@@ -382,7 +379,7 @@ private:
     {
       ASSERT_LESS_OR_EQUAL(n, Size(), ());
 
-      Edge const prefix(m_label.rbegin(), m_label.rbegin() + n);
+      Edge prefix(m_label.rbegin(), m_label.rbegin() + n);
       m_label.erase(m_label.begin() + Size() - n, m_label.end());
       return prefix;
     }

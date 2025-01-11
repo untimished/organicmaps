@@ -4,8 +4,6 @@
 
 #pragma once
 
-#include "base/base.hpp"
-
 namespace base
 {
 namespace impl
@@ -61,4 +59,4 @@ impl::GuardImpl<TFunctor> make_scope_guard(TFunctor const & F)
 
 #define SCOPE_GUARD(name, func)                            \
   ::base::scope_guard name = base::make_scope_guard(func); \
-  static_cast<void>(name);
+  static_cast<void>(name)

@@ -4,16 +4,12 @@
 #include "generator/feature_builder.hpp"
 #include "generator/osm_element.hpp"
 
-#include <strstream>
+#include <fstream>
 #include <memory>
 #include <string>
 
 namespace generator
 {
-namespace cache
-{
-class IntermediateDataReaderInterface;
-}  // namespace cache
 
 /// \brief Collects all maxspeed tags value and saves them to a csv file.
 /// Every line describes maxspeed, maxspeed:forward and maxspeed:backward
@@ -25,14 +21,13 @@ public:
   explicit MaxspeedsCollector(std::string const & filename);
 
   // CollectorInterface overrides:
-  std::shared_ptr<CollectorInterface> Clone(
-      std::shared_ptr<cache::IntermediateDataReaderInterface> const & = {}) const override;
+  std::shared_ptr<CollectorInterface> Clone(IDRInterfacePtr const & = {}) const override;
 
   void CollectFeature(feature::FeatureBuilder const &, OsmElement const & p) override;
   void Finish() override;
 
-  void Merge(CollectorInterface const & collector) override;
-  void MergeInto(MaxspeedsCollector & collector) const override;
+  IMPLEMENT_COLLECTOR_IFACE(MaxspeedsCollector);
+  void MergeInto(MaxspeedsCollector & collector) const;
 
 protected:
   void Save() override;

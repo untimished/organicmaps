@@ -11,6 +11,7 @@
 #include <list>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <string>
@@ -23,9 +24,19 @@
 //@{
 template <typename T> inline std::string DebugPrint(T const & t);
 
-std::string DebugPrint(std::string const & t);
+inline std::string DebugPrint(std::string s) { return s; }
 inline std::string DebugPrint(char const * t);
+inline std::string DebugPrint(char * t) { return DebugPrint(static_cast<char const *>(t)); }
 inline std::string DebugPrint(char t);
+inline std::string DebugPrint(char32_t t);
+
+/// @name We are going step-by-step to C++20. Use UTF8 string literals instead.
+/// @{
+std::string DebugPrint(char16_t const * t) = delete;
+std::string DebugPrint(char16_t * t) = delete;
+std::string DebugPrint(char32_t const * t) = delete;
+std::string DebugPrint(char32_t * t) = delete;
+/// @}
 
 template <typename U, typename V> inline std::string DebugPrint(std::pair<U, V> const & p);
 template <typename T> inline std::string DebugPrint(std::list<T> const & v);
@@ -52,24 +63,45 @@ template <typename T> inline std::string DebugPrint(T const & t)
 inline std::string DebugPrint(char const * t)
 {
   if (t)
-    return DebugPrint(std::string(t));
-  else
-    return std::string("NULL string pointer");
+    return {t};
+  return {"NULL string pointer"};
 }
 
 inline std::string DebugPrint(char t)
 {
-  return DebugPrint(std::string(1, t));
+  // return {1, t} wrongly constructs "\0x1t" string.
+  return std::string(1, t);
 }
 
-inline std::string DebugPrint(signed char t)
+namespace internal
 {
-  return DebugPrint(static_cast<int>(t));
+std::string ToUtf8(std::u16string_view utf16);
+std::string ToUtf8(std::u32string_view utf32);
+}  // namespace internal
+
+inline std::string DebugPrint(std::u16string const & utf16)
+{
+  return internal::ToUtf8(utf16);
 }
 
-inline std::string DebugPrint(unsigned char t)
+inline std::string DebugPrint(std::u16string_view utf16)
 {
-  return DebugPrint(static_cast<unsigned int>(t));
+  return internal::ToUtf8(utf16);
+}
+
+inline std::string DebugPrint(std::u32string const & utf32)
+{
+  return internal::ToUtf8(utf32);
+}
+
+inline std::string DebugPrint(std::u32string_view utf32)
+{
+  return internal::ToUtf8(utf32);
+}
+
+inline std::string DebugPrint(char32_t t)
+{
+  return internal::ToUtf8(std::u32string_view{&t, 1});
 }
 
 inline std::string DebugPrint(std::chrono::time_point<std::chrono::system_clock> const & ts)
@@ -99,7 +131,30 @@ std::string DebugPrintSequence(IterT beg, IterT end)
   return out.str();
 }
 
-template <typename T, size_t N> inline std::string DebugPrint(T (&arr) [N])
+template <typename T>
+std::string DebugPrint(std::optional<T> const & p)
+{
+  if (p)
+  {
+    std::ostringstream out;
+    out << "optional(" << DebugPrint(p.value()) << ")";
+    return out.str();
+  }
+  else
+    return "nullopt";
+}
+
+std::string inline DebugPrint(std::nullopt_t const & p)
+{
+  return "nullopt";
+}
+
+// Avoid calling it for string literals.
+template <typename T, size_t N,
+         typename = std::enable_if_t<!std::is_same<typename std::remove_cv<T>::type, char>::value &&
+                                     !std::is_same<typename std::remove_cv<T>::type, char16_t>::value &&
+                                     !std::is_same<typename std::remove_cv<T>::type, char32_t>::value>>
+inline std::string DebugPrint(T (&arr) [N])
 {
   return DebugPrintSequence(arr, arr + N);
 }
@@ -168,7 +223,7 @@ template <typename T> inline std::string DebugPrint(std::unique_ptr<T> const & v
 
 namespace base
 {
-inline std::string Message() { return std::string(); }
+inline std::string Message() { return {}; }
 
 template <typename T>
 std::string Message(T const & t)

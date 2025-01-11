@@ -17,8 +17,8 @@
 #include <optional>
 #include <vector>
 
-#include "3party/boost/boost/algorithm/string/classification.hpp"
-#include "3party/boost/boost/algorithm/string/split.hpp"
+#include <boost/algorithm/string/classification.hpp>
+#include <boost/algorithm/string/split.hpp>
 
 #include "3party/minizip/minizip.hpp"
 
@@ -229,7 +229,7 @@ bool ParseTrackFile(unzip::File & zipReader, Track & trackData) noexcept
 
 optional<Track> ParseTrackArchiveData(string const & content, TemporaryFile & tmpArchiveFile)
 {
-  string binaryData = FromHex(content.data(), content.size());
+  string binaryData = FromHex(content);
   optional<string> archiveBody;
 
   if (HasZipSignature(binaryData))
@@ -261,7 +261,7 @@ optional<Track> ParseTrackArchiveData(string const & content, TemporaryFile & tm
   if (unzip::Close(zipReader) != unzip::Code::Ok)
     LOG(LERROR, ("Unable to close temporary zip archive"));
 
-  return result ? optional<Track>(move(trackData)) : nullopt;
+  return result ? optional<Track>(std::move(trackData)) : nullopt;
 }
 
 optional<UserTrackInfo> ParseLogRecord(string const & record, TemporaryFile & tmpArchiveFile)
@@ -278,7 +278,7 @@ optional<UserTrackInfo> ParseLogRecord(string const & record, TemporaryFile & tm
   optional<Track> track = ParseTrackArchiveData(items[kTrackRecordDataIndex], tmpArchiveFile);
 
   if (track)
-    return optional<UserTrackInfo>({items[kTrackRecordUserIdIndex], move(*track)});
+    return optional<UserTrackInfo>({items[kTrackRecordUserIdIndex], std::move(*track)});
 
   return nullopt;
 }

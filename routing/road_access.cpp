@@ -6,100 +6,84 @@
 #include <chrono>
 #include <sstream>
 
-using namespace std;
+namespace routing
+{
 
 namespace
 {
-string const kNames[] = {"No", "Private", "Destination", "Yes", "Count"};
+std::string const kNames[] = {"No", "Private", "Destination", "Yes", "Count"};
 
 template <typename KV>
-void PrintKV(ostringstream & oss, KV const & kvs, size_t maxKVToShow)
+std::string DebugPrintKV(KV const & kvs, size_t maxKVToShow)
 {
-  size_t i = 0;
-  for (auto const & kv : kvs)
-  {
-    if (i > 0)
-      oss << ", ";
-    oss << DebugPrint(kv.first) << " " << DebugPrint(kv.second);
-    ++i;
-    if (i == maxKVToShow)
-      break;
-  }
-  if (kvs.size() > maxKVToShow)
-    oss << ", ...";
+  // Print all range for now.
+  return DebugPrintSequence(kvs.begin(), kvs.end());
 }
 }  // namespace
 
-namespace routing
-{
-// RoadAccess --------------------------------------------------------------------------------------
-// @TODO(bykoinako) It's a fast fix for release. The idea behind it is to remember the time of
-// creation RoadAccess instance and return it instread of getting time when m_currentTimeGetter() is
-// called. But it's not understadbale now why m_currentTimeGetter() is called when
-// cross_mwm section is built.
-RoadAccess::RoadAccess() : m_currentTimeGetter([time = GetCurrentTimestamp()]() { return time; }) {}
+/** RoadAccess --------------------------------------------------------------------------------------
+ * @todo (bykoinako) It's a fast fix for release. The idea behind it is to remember the time of
+ * creation RoadAccess instance and return it instead of getting time when m_currentTimeGetter() is
+ * called. But it's not understandable now why m_currentTimeGetter() is called when
+ * cross_mwm section is built.
+ *
+ * @todo (vng) Return back lazy time calculation.
+ * It's called in cross_mwm_section via IndexGraph::CalculateEdgeWeight.
+ * Fixed by setting custom time getter in BuildRoutingCrossMwmSection -> FillWeights.
+ */
+RoadAccess::RoadAccess() : m_currentTimeGetter([]() { return GetCurrentTimestamp(); }) {}
 
-pair<RoadAccess::Type, RoadAccess::Confidence> RoadAccess::GetAccess(
+std::pair<RoadAccess::Type, RoadAccess::Confidence> RoadAccess::GetAccess(
     uint32_t featureId, RouteWeight const & weightToFeature) const
 {
-  return GetAccess(featureId, m_currentTimeGetter() + weightToFeature.GetWeight());
+  return GetAccess(featureId, weightToFeature.GetWeight());
 }
 
-pair<RoadAccess::Type, RoadAccess::Confidence> RoadAccess::GetAccess(
+std::pair<RoadAccess::Type, RoadAccess::Confidence> RoadAccess::GetAccess(
     RoadPoint const & point, RouteWeight const & weightToPoint) const
 {
-  return GetAccess(point, m_currentTimeGetter() + weightToPoint.GetWeight());
+  return GetAccess(point, weightToPoint.GetWeight());
 }
 
-pair<RoadAccess::Type, RoadAccess::Confidence> RoadAccess::GetAccess(uint32_t featureId,
-                                                                     time_t momentInTime) const
+std::pair<RoadAccess::Type, RoadAccess::Confidence> RoadAccess::GetAccess(
+    uint32_t featureId, double weight) const
 {
   auto const itConditional = m_wayToAccessConditional.find(featureId);
-  // @TODO This check should be removed when access:conditional is switch on.
-  CHECK(m_pointToAccessConditional.empty(),
-        ("access:conditional is switched off now but m_pointToAccessConditional is not empty.",
-            m_pointToAccessConditional.size()));
   if (itConditional != m_wayToAccessConditional.cend())
   {
+    auto const time = m_currentTimeGetter();
     auto const & conditional = itConditional->second;
     for (auto const & access : conditional.GetAccesses())
     {
-      auto const op = GetConfidenceForAccessConditional(momentInTime, access.m_openingHours);
-      if (!op)
-        continue;
-
-      return {access.m_type, *op};
+      auto const op = GetConfidenceForAccessConditional(time + weight, access.m_openingHours);
+      if (op)
+        return {access.m_type, *op};
     }
   }
 
   return GetAccessWithoutConditional(featureId);
 }
 
-pair<RoadAccess::Type, RoadAccess::Confidence> RoadAccess::GetAccess(RoadPoint const & point,
-                                                                     time_t momentInTime) const
+std::pair<RoadAccess::Type, RoadAccess::Confidence> RoadAccess::GetAccess(
+    RoadPoint const & point, double weight) const
 {
   auto const itConditional = m_pointToAccessConditional.find(point);
-  // @TODO This check should be removed when access:conditional is switch on.
-  CHECK(m_pointToAccessConditional.empty(),
-        ("access:conditional is switched off now but m_pointToAccessConditional is not empty.",
-         m_pointToAccessConditional.size()));
   if (itConditional != m_pointToAccessConditional.cend())
   {
+    auto const time = m_currentTimeGetter();
     auto const & conditional = itConditional->second;
     for (auto const & access : conditional.GetAccesses())
     {
-      auto const op = GetConfidenceForAccessConditional(momentInTime, access.m_openingHours);
-      if (!op)
-        continue;
-
-      return {access.m_type, *op};
+      auto const op = GetConfidenceForAccessConditional(time + weight, access.m_openingHours);
+      if (op)
+        return {access.m_type, *op};
     }
   }
 
   return GetAccessWithoutConditional(point);
 }
 
-pair<RoadAccess::Type, RoadAccess::Confidence> RoadAccess::GetAccessWithoutConditional(
+std::pair<RoadAccess::Type, RoadAccess::Confidence> RoadAccess::GetAccessWithoutConditional(
     uint32_t featureId) const
 {
   // todo(@m) This may or may not be too slow. Consider profiling this and using
@@ -111,7 +95,7 @@ pair<RoadAccess::Type, RoadAccess::Confidence> RoadAccess::GetAccessWithoutCondi
   return {Type::Yes, Confidence::Sure};
 }
 
-pair<RoadAccess::Type, RoadAccess::Confidence> RoadAccess::GetAccessWithoutConditional(
+std::pair<RoadAccess::Type, RoadAccess::Confidence> RoadAccess::GetAccessWithoutConditional(
     RoadPoint const & point) const
 {
   auto const it = m_pointToAccess.find(point);
@@ -129,7 +113,7 @@ bool RoadAccess::operator==(RoadAccess const & rhs) const
 }
 
 // static
-optional<RoadAccess::Confidence> RoadAccess::GetConfidenceForAccessConditional(
+std::optional<RoadAccess::Confidence> RoadAccess::GetConfidenceForAccessConditional(
     time_t momentInTime, osmoh::OpeningHours const & openingHours)
 {
   auto const left = momentInTime - kConfidenceIntervalSeconds / 2;
@@ -139,7 +123,7 @@ optional<RoadAccess::Confidence> RoadAccess::GetConfidenceForAccessConditional(
   auto const rightOpen = openingHours.IsOpen(right);
 
   if (!leftOpen && !rightOpen)
-    return nullopt;
+    return {};
 
   return leftOpen && rightOpen ? Confidence::Sure : Confidence::Maybe;
 }
@@ -147,19 +131,19 @@ optional<RoadAccess::Confidence> RoadAccess::GetConfidenceForAccessConditional(
 // Functions ---------------------------------------------------------------------------------------
 time_t GetCurrentTimestamp()
 {
-  using system_clock = chrono::system_clock;
+  using system_clock = std::chrono::system_clock;
   return system_clock::to_time_t(system_clock::now());
 }
 
-string ToString(RoadAccess::Type type)
+std::string ToString(RoadAccess::Type type)
 {
   if (type <= RoadAccess::Type::Count)
     return kNames[static_cast<size_t>(type)];
-  ASSERT(false, ("Bad road access type", static_cast<size_t>(type)));
-  return "Bad RoadAccess::Type";
+  CHECK(false, ("Bad road access type", static_cast<size_t>(type)));
+  return {};
 }
 
-void FromString(string const & s, RoadAccess::Type & result)
+void FromString(std::string_view s, RoadAccess::Type & result)
 {
   for (size_t i = 0; i <= static_cast<size_t>(RoadAccess::Type::Count); ++i)
   {
@@ -169,23 +153,20 @@ void FromString(string const & s, RoadAccess::Type & result)
       return;
     }
   }
-  result = RoadAccess::Type::Count;
   CHECK(false, ("Could not read RoadAccess from the string", s));
 }
 
-string DebugPrint(RoadAccess::Conditional const & conditional)
+std::string DebugPrint(RoadAccess::Conditional const & conditional)
 {
-  stringstream ss;
-  ss << " { ";
+  std::ostringstream oss;
+  oss << "Conditional { ";
   for (auto const & access : conditional.GetAccesses())
-  {
-    ss << DebugPrint(access.m_type) << " @ (" << access.m_openingHours.GetRule() << "), ";
-  }
-  ss << " } ";
-  return ss.str();
+    oss << DebugPrint(access.m_type) << " @ (" << access.m_openingHours.GetRule() << "), ";
+  oss << " }";
+  return oss.str();
 }
 
-string DebugPrint(RoadAccess::Confidence confidence)
+std::string DebugPrint(RoadAccess::Confidence confidence)
 {
   switch (confidence)
   {
@@ -195,21 +176,19 @@ string DebugPrint(RoadAccess::Confidence confidence)
   UNREACHABLE();
 }
 
-string DebugPrint(RoadAccess::Type type) { return ToString(type); }
+std::string DebugPrint(RoadAccess::Type type) { return ToString(type); }
 
-string DebugPrint(RoadAccess const & r)
+std::string DebugPrint(RoadAccess const & r)
 {
-  size_t const kMaxIdsToShow = 10;
-  ostringstream oss;
-  oss << "WayToAccess { FeatureTypes [";
-  PrintKV(oss, r.GetWayToAccess(), kMaxIdsToShow);
-  oss << "], PointToAccess [";
-  PrintKV(oss, r.GetPointToAccess(), kMaxIdsToShow);
-  oss << "], WayToAccessConditional [";
-  PrintKV(oss, r.GetWayToAccessConditional(), kMaxIdsToShow);
-  oss << "], PointToAccessConditional [";
-  PrintKV(oss, r.GetPointToAccessConditional(), kMaxIdsToShow);
-  oss << "] }";
+  size_t constexpr kMaxIdsToShow = 10;
+
+  std::ostringstream oss;
+  oss << "RoadAccess { WayToAccess " << DebugPrintKV(r.GetWayToAccess(), kMaxIdsToShow)
+      << "; PointToAccess "<< DebugPrintKV(r.GetPointToAccess(), kMaxIdsToShow)
+      << "; WayToAccessConditional "<< DebugPrintKV(r.GetWayToAccessConditional(), kMaxIdsToShow)
+      << "; PointToAccessConditional " << DebugPrintKV(r.GetPointToAccessConditional(), kMaxIdsToShow)
+      << " }";
   return oss.str();
 }
+
 }  // namespace routing

@@ -49,7 +49,7 @@ class CfgReader:
         3. From default values.
 
     For using the option from system env you can build an option name as
-    MM__ + [SECTION_NAME] + _ + [VALUE_NAME].
+    MM__GEN__ + [SECTION_NAME] + _ + [VALUE_NAME].
     """
 
     def __init__(self, default_settings_path: AnyStr):
@@ -72,7 +72,6 @@ class CfgReader:
 
 
 DEFAULT_PLANET_URL = "https://planet.openstreetmap.org/pbf/planet-latest.osm.pbf"
-DEFAULT_PLANET_MD5_URL = md5_ext(DEFAULT_PLANET_URL)
 
 # Main section:
 # If DEBUG is True, a little special planet is downloaded.
@@ -98,7 +97,7 @@ NODE_STORAGE = "mem" if total_virtual_memory() / 10 ** 9 >= 64 else "map"
 # Stages section:
 NEED_PLANET_UPDATE = False
 THREADS_COUNT_FEATURES_STAGE = multiprocessing.cpu_count()
-DATA_ARCHIVE_DIR = USER_RESOURCE_PATH
+DATA_ARCHIVE_DIR = ""
 DIFF_VERSION_DEPTH = 2
 
 # Logging section:
@@ -106,7 +105,6 @@ LOG_FILE_PATH = os.path.join(MAIN_OUT_PATH, "generation.log")
 
 # External resources section:
 PLANET_URL = DEFAULT_PLANET_URL
-PLANET_MD5_URL = DEFAULT_PLANET_MD5_URL
 PLANET_COASTS_URL = ""
 UGC_URL = ""
 HOTELS_URL = ""
@@ -122,6 +120,7 @@ UK_POSTCODES_URL = ""
 US_POSTCODES_URL = ""
 SRTM_PATH = ""
 ISOLINES_PATH = ""
+ADDRESSES_PATH = ""
 
 # Stats section:
 STATS_TYPES_CONFIG = os.path.join(ETC_DIR, "stats_types_config.txt")
@@ -143,14 +142,6 @@ OSM_TOOLS_CC_FLAGS = [
 # Planet and coasts:
 PLANET_COASTS_GEOM_URL = os.path.join(PLANET_COASTS_URL, "latest_coasts.geom")
 PLANET_COASTS_RAWGEOM_URL = os.path.join(PLANET_COASTS_URL, "latest_coasts.rawgeom")
-
-if DEBUG:
-    PLANET_URL = "https://www.dropbox.com/s/m3ru5tnj8g9u4cz/planet-latest.o5m?raw=1"
-    PLANET_MD5_URL = (
-        "https://www.dropbox.com/s/8wdl2hy22jgisk5/planet-latest.o5m.md5?raw=1"
-    )
-    NODE_STORAGE = "map"
-    NEED_PLANET_UPDATE = False
 
 # Common:
 THREADS_COUNT = multiprocessing.cpu_count()
@@ -222,6 +213,8 @@ def init(default_settings_path: AnyStr):
     )
     NODE_STORAGE = cfg.get_opt("Generator tool", "NODE_STORAGE", NODE_STORAGE)
 
+    assert os.path.exists(OMIM_PATH) is True, f"Can't find OMIM_PATH (set to {OMIM_PATH})"
+
     if not os.path.exists(USER_RESOURCE_PATH):
         from data_files import find_data_files
 
@@ -242,11 +235,11 @@ def init(default_settings_path: AnyStr):
     global THREADS_COUNT_FEATURES_STAGE
     NEED_PLANET_UPDATE = cfg.get_opt("Stages", "NEED_PLANET_UPDATE", NEED_PLANET_UPDATE)
     DATA_ARCHIVE_DIR = cfg.get_opt_path(
-        "Generator tool", "DATA_ARCHIVE_DIR", DATA_ARCHIVE_DIR
+        "Stages", "DATA_ARCHIVE_DIR", DATA_ARCHIVE_DIR
     )
-    DIFF_VERSION_DEPTH = cfg.get_opt(
-        "Generator tool", "DIFF_VERSION_DEPTH", DIFF_VERSION_DEPTH
-    )
+    DIFF_VERSION_DEPTH = int(cfg.get_opt(
+        "Stages", "DIFF_VERSION_DEPTH", DIFF_VERSION_DEPTH
+    ))
 
     threads_count = int(
         cfg.get_opt(
@@ -284,9 +277,10 @@ def init(default_settings_path: AnyStr):
     global FOOD_TRANSLATIONS_URL
     global SRTM_PATH
     global ISOLINES_PATH
+    global ADDRESSES_PATH
 
     PLANET_URL = cfg.get_opt_path("External", "PLANET_URL", PLANET_URL)
-    PLANET_MD5_URL = cfg.get_opt_path("External", "PLANET_MD5_URL", PLANET_MD5_URL)
+    PLANET_MD5_URL = cfg.get_opt_path("External", "PLANET_MD5_URL", md5_ext(PLANET_URL))
     PLANET_COASTS_URL = cfg.get_opt_path(
         "External", "PLANET_COASTS_URL", PLANET_COASTS_URL
     )
@@ -311,6 +305,7 @@ def init(default_settings_path: AnyStr):
     )
     SRTM_PATH = cfg.get_opt_path("External", "SRTM_PATH", SRTM_PATH)
     ISOLINES_PATH = cfg.get_opt_path("External", "ISOLINES_PATH", ISOLINES_PATH)
+    ADDRESSES_PATH = cfg.get_opt_path("External", "ADDRESSES_PATH", ADDRESSES_PATH)
 
     # Stats section:
     global STATS_TYPES_CONFIG

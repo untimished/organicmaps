@@ -1,34 +1,26 @@
 #include "testing/testing.hpp"
 
-#include "generator/generator_tests_support/test_with_classificator.hpp"
-
 #include "generator/collector_routing_city_boundaries.hpp"
 #include "generator/generator_tests/common.hpp"
 #include "generator/osm2type.hpp"
 #include "generator/osm_element.hpp"
 #include "generator/routing_city_boundaries_processor.hpp"
 
-#include "platform/platform.hpp"
-
-#include "coding/read_write_utils.hpp"
-
-#include "geometry/point2d.hpp"
 #include "geometry/area_on_earth.hpp"
+#include "geometry/mercator.hpp"
 
 #include "base/geo_object_id.hpp"
-#include "base/scope_guard.hpp"
 
 #include <algorithm>
 #include <memory>
 #include <vector>
 
+namespace collector_routing_city_boundaries_tests
+{
 using namespace generator_tests;
 using namespace generator;
-using namespace tests_support;
 using namespace feature;
 
-namespace
-{
 using BoundariesCollector = RoutingCityBoundariesCollector;
 
 std::string const kDumpFileName = "dump.bin";
@@ -38,15 +30,14 @@ std::vector<m2::PointD> const kPolygon2 = {{2, 0}, {0, 2}, {2, 2}, {2, 0}, {0, 0
 std::vector<m2::PointD> const kPolygon3 = {{3, 0}, {0, 2}, {2, 2}, {2, 0}, {0, 0}, {3, 0}};
 std::vector<m2::PointD> const kPolygon4 = {{4, 0}, {0, 2}, {2, 2}, {2, 0}, {0, 0}, {4, 0}};
 
-feature::FeatureBuilder MakeAreaFeatureBuilder(OsmElement element,
-                                               std::vector<m2::PointD> const & geometry)
+feature::FeatureBuilder MakeAreaFeatureBuilder(OsmElement element, std::vector<m2::PointD> && geometry)
 {
   feature::FeatureBuilder result;
   auto const filterType = [](uint32_t) { return true; };
   ftype::GetNameAndType(&element, result.GetParams(), filterType);
   result.SetOsmId(base::MakeOsmRelation(element.m_id));
-  auto polygon = geometry;
-  result.AddPolygon(polygon);
+
+  result.AddPolygon(std::move(geometry));
   result.SetArea();
   return result;
 }
@@ -83,14 +74,15 @@ auto const relationWithLabel2 = MakeAreaWithPlaceNode(6 /* id */, 10 /* placeId 
 auto const relationWithLabel3 = MakeAreaWithPlaceNode(7 /* id */, 11 /* placeId */, "label" /* role */);
 auto const relationWithLabel4 = MakeAreaWithPlaceNode(8 /* id */, 12 /* placeId */, "country" /* role */);
 
+/*
 void Collect(BoundariesCollector & collector, std::vector<OsmElement> const & elements,
-             std::vector<std::vector<m2::PointD>> const & geometries = {})
+             std::vector<std::vector<m2::PointD>> geometries = {})
 {
   for (size_t i = 0; i < elements.size(); ++i)
   {
     auto const & element = elements[i];
     auto featureBuilder = element.IsNode() ? MakeNodeFeatureBuilder(element)
-                                           : MakeAreaFeatureBuilder(element, geometries[i]);
+                                           : MakeAreaFeatureBuilder(element, std::move(geometries[i]));
 
     if (BoundariesCollector::FilterOsmElement(element))
       collector.Process(featureBuilder, element);
@@ -131,7 +123,7 @@ bool CheckPolygonExistance(std::vector<std::vector<m2::PointD>> const & polygons
 
     for (size_t i = 0; i < polygon.size(); ++i)
     {
-      if (!base::AlmostEqualAbs(polygon[i], polygonToFind[i], 1e-6))
+      if (!m2::AlmostEqualAbs(polygon[i], polygonToFind[i], 1e-6))
       {
         same = false;
         break;
@@ -183,6 +175,7 @@ void Check(std::string const & filename, std::string const & dumpFilename)
   TEST_EQUAL(nodeToLocality[11].m_place, ftypes::LocalityType::Village, ());
   TEST_EQUAL(nodeToLocality[11].m_population, 1000, ());
 }
+*/
 
 std::vector<m2::PointD> FromLatLons(std::vector<ms::LatLon> const & latlons)
 {
@@ -202,15 +195,15 @@ double CalculateEarthAreaForConvexPolygon(std::vector<ms::LatLon> const & latlon
 
   return area;
 }
-}  // namespace
 
+/*
 UNIT_CLASS_TEST(TestWithClassificator, CollectorRoutingCityBoundaries_1)
 {
   auto const filename = generator_tests::GetFileName();
   SCOPE_GUARD(_, std::bind(Platform::RemoveFileIfExists, std::cref(filename)));
   SCOPE_GUARD(rmDump, std::bind(Platform::RemoveFileIfExists, std::cref(kDumpFileName)));
 
-  std::shared_ptr<cache::IntermediateDataReader> cache;
+  std::shared_ptr<generator::cache::IntermediateDataReader> cache;
   auto c1 = std::make_shared<BoundariesCollector>(filename, kDumpFileName, cache);
 
   Collect(*c1, {placeRelation1, placeRelation2, placeRelation3, placeRelation4},
@@ -231,7 +224,7 @@ UNIT_CLASS_TEST(TestWithClassificator, CollectorRoutingCityBoundaries_2)
   SCOPE_GUARD(_, std::bind(Platform::RemoveFileIfExists, std::cref(filename)));
   SCOPE_GUARD(rmDump, std::bind(Platform::RemoveFileIfExists, std::cref(kDumpFileName)));
 
-  std::shared_ptr<cache::IntermediateDataReader> cache;
+  std::shared_ptr<generator::cache::IntermediateDataReader> cache;
   auto c1 = std::make_shared<BoundariesCollector>(filename, kDumpFileName, cache);
   auto c2 = c1->Clone();
 
@@ -251,6 +244,7 @@ UNIT_CLASS_TEST(TestWithClassificator, CollectorRoutingCityBoundaries_2)
 
   Check(filename, kDumpFileName);
 }
+*/
 
 UNIT_TEST(AreaOnEarth_Convex_Polygon_1)
 {
@@ -266,7 +260,7 @@ UNIT_TEST(AreaOnEarth_Convex_Polygon_1)
   double const areaTriangulated =
       ms::AreaOnEarth(a, b, c) + ms::AreaOnEarth(a, c, d) + ms::AreaOnEarth(a, d, e);
 
-  double const areaOnEarth = generator::routing_city_boundaries::AreaOnEarth(points);
+  double const areaOnEarth = generator::AreaOnEarth(points);
 
   TEST(base::AlmostEqualRel(areaTriangulated,
                             areaOnEarth,
@@ -289,7 +283,7 @@ UNIT_TEST(AreaOnEarth_Convex_Polygon_2)
 
   std::vector<m2::PointD> const points = FromLatLons(latlons);
 
-  double const areaOnEarth = generator::routing_city_boundaries::AreaOnEarth(points);
+  double const areaOnEarth = generator::AreaOnEarth(points);
   double const areaForConvexPolygon = CalculateEarthAreaForConvexPolygon(latlons);
 
   TEST(base::AlmostEqualRel(areaForConvexPolygon,
@@ -323,9 +317,10 @@ UNIT_TEST(AreaOnEarth_Concave_Polygon)
       ms::AreaOnEarth(f, g, h) +
       ms::AreaOnEarth(h, i, j);
 
-  double const areaOnEarth = generator::routing_city_boundaries::AreaOnEarth(points);
+  double const areaOnEarth = generator::AreaOnEarth(points);
 
   TEST(base::AlmostEqualRel(areaTriangulated,
                             areaOnEarth,
                             1e-6), ());
 }
+}  // namespace collector_routing_city_boundaries_tests

@@ -1,29 +1,29 @@
 #include "map/search_mark.hpp"
 
 #include "map/bookmark_manager.hpp"
-#include "map/place_page_info.hpp"
 
 #include "drape_frontend/drape_engine.hpp"
-#include "drape_frontend/visual_params.hpp"
 
+#include "indexer/ftypes_matcher.hpp"
 #include "indexer/scales.hpp"
 
-#include "platform/localization.hpp"
 #include "platform/platform.hpp"
 
 #include "base/stl_helpers.hpp"
 
-#include "defines.hpp"
-
 #include <algorithm>
 #include <array>
-#include <limits>
 
 
-enum class SearchMarkPoint::SearchMarkType : uint32_t
+enum SearchMarkPoint::SearchMarkType : uint8_t
 {
   Default = 0,
   Hotel,
+  Hostel,
+  Chalet,
+  Apartment,
+  Campsite,
+  CaravanSite,
   Cafe,
   Bakery,
   Bar,
@@ -31,29 +31,40 @@ enum class SearchMarkPoint::SearchMarkType : uint32_t
   Restaurant,
   FastFood,
   Casino,
+  Lottery,
   Cinema,
+  Theatre,
+  Stadium,
+  Museum,
+  Art,
+  Information,
   Marketplace,
   Nightclub,
   Playground,
+  Bank,
+  Fuel,
   ShopAlcohol,
   ShopButcher,
   ShopClothes,
   ShopConfectionery,
   ShopConvenience,
-  ShopCosmetics,
+  ShopBeauty,
   ShopDepartmentStore,
   ShopGift,
   ShopGreengrocer,
   ShopJewelry,
-  ShopMall,
   ShopSeafood,
   ShopShoes,
   ShopSports,
   ShopSupermarket,
   ShopToys,
   ThemePark,
-  WaterPark,
   Zoo,
+  Pitch,
+  Swimming,
+  Hospital,
+  Clinic,
+  Pharmacy,
 
   NotFound,  // Service value used in developer tools.
   Count
@@ -63,15 +74,19 @@ using SearchMarkType = SearchMarkPoint::SearchMarkType;
 
 namespace
 {
-df::ColorConstant const kPoiVisitedMaskColor = "PoiVisitedMask";
 df::ColorConstant const kColorConstant = "SearchmarkDefault";
 
 float const kVisitedSymbolOpacity = 0.7f;
 float const kOutOfFiltersSymbolOpacity = 0.4f;
 
-std::array<std::string, static_cast<size_t>(SearchMarkType::Count)> const kSymbols = {
+std::array<std::string, SearchMarkType::Count> const kSymbols = {
     "search-result",                        // Default.
-    "norating-default-l",                   // Hotel
+    "search-result-hotel",                  // Hotel.
+    "search-result-hostel",                 // Hostel.
+    "search-result-chalet",                 // Chalet.
+    "search-result-apartment",              // Apartment.
+    "search-result-campsite",               // Campsite.
+    "search-result-caravan-site",           // Caravan site.
     "search-result-cafe",                   // Cafe.
     "search-result-bakery",                 // Bakery.
     "search-result-bar",                    // Bar.
@@ -79,39 +94,49 @@ std::array<std::string, static_cast<size_t>(SearchMarkType::Count)> const kSymbo
     "search-result-restaurant",             // Restaurant.
     "search-result-fastfood",               // FastFood.
     "search-result-casino",                 // Casino.
+    "search-result-lottery",                // Lottery.
     "search-result-cinema",                 // Cinema.
+    "search-result-theatre",                // Theatre.
+    "search-result-stadium",                // Stadium.
+    "search-result-museum",                 // Museum.
+    "search-result-art",                    // Art.
+    "search-result-information",            // Information.
     "search-result-marketplace",            // Marketplace.
     "search-result-nightclub",              // Nightclub.
     "search-result-playground",             // Playground.
+    "search-result-bank",                   // Bank.
+    "search-result-fuel",                   // Fuel.
     "search-result-shop-alcohol",           // ShopAlcohol.
     "search-result-shop-butcher",           // ShopButcher.
     "search-result-shop-clothes",           // ShopClothes.
     "search-result-shop-confectionery",     // ShopConfectionery.
     "search-result-shop-convenience",       // ShopConvenience.
-    "search-result-shop-cosmetics",         // ShopCosmetics.
+    "search-result-shop-beauty",            // ShopBeauty.
     "search-result-shop-department_store",  // ShopDepartmentStore.
     "search-result-shop-gift",              // ShopGift.
     "search-result-shop-greengrocer",       // ShopGreengrocer.
     "search-result-shop-jewelry",           // ShopJewelry.
-    "search-result-shop-mall",              // ShopMall.
     "search-result-shop-seafood",           // ShopSeafood.
     "search-result-shop-shoes",             // ShopShoes.
     "search-result-shop-sports",            // ShopSports.
     "search-result-shop-supermarket",       // ShopSupermarket.
     "search-result-shop-toys",              // ShopToys.
     "search-result-theme-park",             // ThemePark.
-    "search-result-water-park",             // WaterPark.
     "search-result-zoo",                    // Zoo.
+    "search-result-pitch",                  // Pitch.
+    "search-result-swimming",               // Swimming.
+    "search-result-hospital",               // Hospital.
+    "search-result-clinic",                 // Clinic.
+    "search-result-pharmacy",               // Pharmacy.
 
+    
     "non-found-search-result",  // NotFound.
 };
 
-std::string GetSymbol(SearchMarkType searchMarkType)
+std::string const & GetSymbol(SearchMarkType searchMarkType)
 {
-  auto const index = static_cast<size_t>(searchMarkType);
-  ASSERT_LESS(index, kSymbols.size(), ());
-
-  return kSymbols[index];
+  ASSERT_LESS(searchMarkType, kSymbols.size(), ());
+  return kSymbols[searchMarkType];
 }
 
 class SearchMarkTypeChecker
@@ -139,44 +164,85 @@ private:
   SearchMarkTypeChecker()
   {
     auto const & c = classif();
-    std::vector<std::pair<std::vector<std::string>, SearchMarkType>> const table = {
+    std::pair<std::vector<std::string_view>, SearchMarkType> const table[] = {
       {{"amenity", "cafe"},          SearchMarkType::Cafe},
       {{"shop", "bakery"},           SearchMarkType::Bakery},
+      {{"shop", "pastry"},           SearchMarkType::Bakery},
       {{"amenity", "bar"},           SearchMarkType::Bar},
       {{"amenity", "pub"},           SearchMarkType::Pub},
       {{"amenity", "biergarten"},    SearchMarkType::Pub},
       {{"amenity", "restaurant"},    SearchMarkType::Restaurant},
       {{"amenity", "fast_food"},     SearchMarkType::FastFood},
+      {{"amenity", "food_court"},    SearchMarkType::FastFood},
       {{"amenity", "casino"},        SearchMarkType::Casino},
+      {{"shop", "bookmaker"},        SearchMarkType::Lottery},
+      {{"shop", "lottery"},          SearchMarkType::Lottery},
       {{"amenity", "cinema"},        SearchMarkType::Cinema},
+      {{"amenity", "theatre"},       SearchMarkType::Theatre},
+      {{"leisure", "stadium"},       SearchMarkType::Stadium},
+      {{"tourism", "museum"},        SearchMarkType::Museum},
+      {{"amenity", "arts_centre"},   SearchMarkType::Art},
+      {{"tourism", "gallery"},       SearchMarkType::Art},
+      {{"tourism", "information"},                      SearchMarkType::Information},
+      {{"tourism", "information", "office"},            SearchMarkType::Information},
+      {{"tourism", "information", "visitor_centre"},    SearchMarkType::Information},
       {{"amenity", "marketplace"},   SearchMarkType::Marketplace},
       {{"amenity", "nightclub"},     SearchMarkType::Nightclub},
       {{"leisure", "playground"},    SearchMarkType::Playground},
+      {{"amenity", "bank"},          SearchMarkType::Bank},
+      {{"shop", "money_lender"},     SearchMarkType::Bank},
+      {{"amenity", "fuel"},          SearchMarkType::Fuel},
       {{"shop", "alcohol"},          SearchMarkType::ShopAlcohol},
       {{"shop", "beverages"},        SearchMarkType::ShopAlcohol},
       {{"shop", "wine"},             SearchMarkType::ShopAlcohol},
       {{"shop", "butcher"},          SearchMarkType::ShopButcher},
       {{"shop", "clothes"},          SearchMarkType::ShopClothes},
       {{"shop", "confectionery"},    SearchMarkType::ShopConfectionery},
+      {{"shop", "chocolate"},        SearchMarkType::ShopConfectionery},
+      {{"craft", "confectionery"},   SearchMarkType::ShopConfectionery},
       {{"shop", "convenience"},      SearchMarkType::ShopConvenience},
-      {{"shop", "variety_store"},    SearchMarkType::ShopConvenience},
-      {{"shop", "cosmetics"},        SearchMarkType::ShopCosmetics},
+      {{"shop", "grocery"},          SearchMarkType::ShopConvenience},
+      {{"shop", "deli"},             SearchMarkType::ShopConvenience},
+      {{"shop", "farm"},             SearchMarkType::ShopConvenience},
+      {{"shop", "health_food"},      SearchMarkType::ShopConvenience},
+      {{"shop", "beauty"},           SearchMarkType::ShopBeauty},
+      {{"shop", "cosmetics"},        SearchMarkType::ShopBeauty},
       {{"shop", "department_store"}, SearchMarkType::ShopDepartmentStore},
       {{"shop", "gift"},             SearchMarkType::ShopGift},
       {{"shop", "greengrocer"},      SearchMarkType::ShopGreengrocer},
       {{"shop", "jewelry"},          SearchMarkType::ShopJewelry},
-      {{"shop", "mall"},             SearchMarkType::ShopMall},
       {{"shop", "seafood"},          SearchMarkType::ShopSeafood},
       {{"shop", "shoes"},            SearchMarkType::ShopShoes},
+      {{"craft", "shoemaker"},       SearchMarkType::ShopShoes},
       {{"shop", "sports"},           SearchMarkType::ShopSports},
       {{"shop", "supermarket"},      SearchMarkType::ShopSupermarket},
       {{"shop", "toys"},             SearchMarkType::ShopToys},
       {{"tourism", "theme_park"},    SearchMarkType::ThemePark},
-      {{"leisure", "water_park"},    SearchMarkType::WaterPark},
-      {{"tourism", "zoo"},           SearchMarkType::Zoo}
+      {{"tourism", "zoo"},           SearchMarkType::Zoo},
+      {{"tourism", "chalet"},        SearchMarkType::Chalet},
+      {{"tourism", "alpine_hut"},    SearchMarkType::Chalet},
+      {{"tourism", "wilderness_hut"},SearchMarkType::Chalet},
+      {{"tourism", "hotel"},         SearchMarkType::Hotel},
+      {{"tourism", "motel"},         SearchMarkType::Hotel},
+      {{"leisure", "resort"},        SearchMarkType::Hotel},
+      {{"tourism", "hostel"},        SearchMarkType::Hostel},
+      {{"tourism", "apartment"},     SearchMarkType::Apartment},
+      {{"tourism", "guest_house"},   SearchMarkType::Apartment},
+      {{"tourism", "camp_site"},     SearchMarkType::Campsite},
+      {{"tourism", "caravan_site"},  SearchMarkType::CaravanSite},
+      {{"amenity", "hospital"},      SearchMarkType::Hospital},
+      {{"amenity", "clinic"},        SearchMarkType::Clinic},
+      {{"amenity", "doctors"},       SearchMarkType::Clinic},
+      {{"amenity", "pharmacy"},      SearchMarkType::Pharmacy},
+      {{"leisure", "pitch"},         SearchMarkType::Pitch},
+      {{"leisure", "ice_rink"},      SearchMarkType::Pitch},
+      {{"leisure", "sports_centre"}, SearchMarkType::Pitch},
+      {{"leisure", "sports_hall"},   SearchMarkType::Pitch},
+      {{"leisure", "swimming_pool"}, SearchMarkType::Swimming},
+      {{"leisure", "water_park"},    SearchMarkType::Swimming},
     };
 
-    m_searchMarkTypes.reserve(table.size());
+    m_searchMarkTypes.reserve(std::size(table));
     for (auto const & p : table)
       m_searchMarkTypes.push_back({c.GetTypeByPath(p.first), p.second});
 
@@ -194,33 +260,35 @@ SearchMarkType GetSearchMarkType(uint32_t type)
 }  // namespace
 
 SearchMarkPoint::SearchMarkPoint(m2::PointD const & ptOrg)
-  : UserMark(ptOrg, UserMark::Type::SEARCH)
+: UserMark(ptOrg, UserMark::Type::SEARCH)
+, m_type(SearchMarkType::Default)
+, m_isPreparing(false)
+, m_hasSale(false)
+, m_isSelected(false)
+, m_isVisited(false)
+, m_isAvailable(true)
 {
 }
 
 m2::PointD SearchMarkPoint::GetPixelOffset() const
 {
-  if (!IsHotel())
-    return {0.0, 4.0};
-  return {};
+  return {0.0, 6.0};
 }
 
 drape_ptr<df::UserPointMark::SymbolNameZoomInfo> SearchMarkPoint::GetSymbolNames() const
 {
   auto const symbolName = GetSymbolName();
-  if (symbolName.empty())
+  if (symbolName == nullptr)
     return nullptr;
 
   auto symbolZoomInfo = make_unique_dp<SymbolNameZoomInfo>();
-  symbolZoomInfo->emplace(1 /*kWorldZoomLevel*/, symbolName);
+  symbolZoomInfo->emplace(1 /*kWorldZoomLevel*/, *symbolName);
   return symbolZoomInfo;
 }
 
 drape_ptr<df::UserPointMark::SymbolOffsets> SearchMarkPoint::GetSymbolOffsets() const
 {
-  m2::PointF offset;
-  if (!IsHotel())
-    offset = m2::PointF{0.0, 1.0};
+  m2::PointF offset(0, 1);
   return make_unique_dp<SymbolOffsets>(static_cast<size_t>(scales::UPPER_STYLE_SCALE), offset);
 }
 
@@ -271,40 +339,39 @@ void SearchMarkPoint::SetFromType(uint32_t type)
   SetAttributeValue(m_type, GetSearchMarkType(type));
 }
 
-void SearchMarkPoint::SetHotelType()
-{
-  SetAttributeValue(m_type, SearchMarkType::Hotel);
-}
-
 void SearchMarkPoint::SetNotFoundType()
 {
   SetAttributeValue(m_type, SearchMarkType::NotFound);
 }
 
+#define SET_BOOL_ATTRIBUTE(dest, src) if (dest != src) { dest = src; SetDirty(); }
+
 void SearchMarkPoint::SetPreparing(bool isPreparing)
 {
-  SetAttributeValue(m_isPreparing, isPreparing);
+  SET_BOOL_ATTRIBUTE(m_isPreparing, isPreparing);
 }
 
 void SearchMarkPoint::SetSale(bool hasSale)
 {
-  SetAttributeValue(m_hasSale, hasSale);
+  SET_BOOL_ATTRIBUTE(m_hasSale, hasSale);
 }
 
 void SearchMarkPoint::SetSelected(bool isSelected)
 {
-  SetAttributeValue(m_isSelected, isSelected);
+  SET_BOOL_ATTRIBUTE(m_isSelected, isSelected);
 }
 
 void SearchMarkPoint::SetVisited(bool isVisited)
 {
-  SetAttributeValue(m_isVisited, isVisited);
+  SET_BOOL_ATTRIBUTE(m_isVisited, isVisited);
 }
 
 void SearchMarkPoint::SetAvailable(bool isAvailable)
 {
-  SetAttributeValue(m_isAvailable, isAvailable);
+  SET_BOOL_ATTRIBUTE(m_isAvailable, isAvailable);
 }
+
+#undef SET_BOOL_ATTRIBUTE
 
 void SearchMarkPoint::SetReason(std::string const & reason)
 {
@@ -317,34 +384,36 @@ bool SearchMarkPoint::IsAvailable() const { return m_isAvailable; }
 
 std::string const & SearchMarkPoint::GetReason() const { return m_reason; }
 
-bool SearchMarkPoint::IsHotel() const { return m_type == SearchMarkType::Hotel; }
-
 bool SearchMarkPoint::HasReason() const { return !m_reason.empty(); }
 
-std::string SearchMarkPoint::GetSymbolName() const
+std::string const * SearchMarkPoint::GetSymbolName() const
 {
-  std::string symbolName;
+  std::string const * symbolName = nullptr;
+
   if (!SearchMarks::HaveSizes())
     return symbolName;
 
   if (m_type >= SearchMarkType::Count)
   {
-    ASSERT(false, ("Unknown search mark symbol."));
-    symbolName = GetSymbol(SearchMarkType::Default);
+    ASSERT(false, (m_type));
+    symbolName = &GetSymbol(SearchMarkType::Default);
   }
   else
   {
-    symbolName = GetSymbol(m_type);
+    symbolName = &GetSymbol(m_type);
   }
 
-  if (symbolName.empty() || !SearchMarks::GetSize(symbolName))
-    return {};
+  if (!SearchMarks::GetSize(*symbolName))
+  {
+    ASSERT(false, (*symbolName));
+    symbolName = nullptr;
+  }
 
   return symbolName;
 }
 
 // static
-std::map<std::string, m2::PointF> SearchMarks::m_searchMarkSizes;
+std::map<std::string, m2::PointF> SearchMarks::s_markSizes;
 
 SearchMarks::SearchMarks()
   : m_bmManager(nullptr)
@@ -357,7 +426,7 @@ void SearchMarks::SetDrapeEngine(ref_ptr<df::DrapeEngine> engine)
     return;
 
   std::vector<std::string> symbols;
-  for (uint32_t t = 0; t < static_cast<uint32_t>(SearchMarkType::Count); ++t)
+  for (uint8_t t = 0; t < SearchMarkType::Count; ++t)
     symbols.push_back(GetSymbol(static_cast<SearchMarkType>(t)));
 
   base::SortUnique(symbols);
@@ -367,7 +436,7 @@ void SearchMarks::SetDrapeEngine(ref_ptr<df::DrapeEngine> engine)
   {
     GetPlatform().RunTask(Platform::Thread::Gui, [this, sizes = std::move(sizes)]() mutable
     {
-      m_searchMarkSizes = std::move(sizes);
+      s_markSizes = std::move(sizes);
       UpdateMaxDimension();
     });
   });
@@ -380,18 +449,14 @@ void SearchMarks::SetBookmarkManager(BookmarkManager * bmManager)
 
 m2::PointD SearchMarks::GetMaxDimension(ScreenBase const & modelView) const
 {
-  double const pixelToMercator = modelView.GetScale();
-  CHECK_GREATER_OR_EQUAL(pixelToMercator, 0.0, ());
-  CHECK_GREATER_OR_EQUAL(m_maxDimension.x, 0.0, ());
-  CHECK_GREATER_OR_EQUAL(m_maxDimension.y, 0.0, ());
-  return m_maxDimension * pixelToMercator;
+  return m_maxDimension * modelView.GetScale();
 }
 
 // static
 std::optional<m2::PointD> SearchMarks::GetSize(std::string const & symbolName)
 {
-  auto const it = m_searchMarkSizes.find(symbolName);
-  if (it == m_searchMarkSizes.end())
+  auto const it = s_markSizes.find(symbolName);
+  if (it == s_markSizes.end())
     return {};
   return m2::PointD(it->second);
 }
@@ -517,15 +582,14 @@ bool SearchMarks::IsSelected(FeatureID const & id) const
 
 void SearchMarks::ClearTrackedProperties()
 {
-  {
-    std::scoped_lock<std::mutex> lock(m_lock);
-    m_unavailable.clear();
-  }
+//  {
+//    std::scoped_lock<std::mutex> lock(m_lock);
+//    m_unavailable.clear();
+//  }
   m_selectedFeature = {};
 }
 
-void SearchMarks::ProcessMarks(
-    std::function<base::ControlFlow(SearchMarkPoint *)> && processor) const
+void SearchMarks::ProcessMarks(std::function<base::ControlFlow(SearchMarkPoint *)> && processor) const
 {
   if (m_bmManager == nullptr || processor == nullptr)
     return;
@@ -541,16 +605,9 @@ void SearchMarks::ProcessMarks(
 
 void SearchMarks::UpdateMaxDimension()
 {
-  for (auto const & [symbolName, symbolSize] : m_searchMarkSizes)
-  {
-    UNUSED_VALUE(symbolName);
-    if (m_maxDimension.x < symbolSize.x)
-      m_maxDimension.x = symbolSize.x;
-    if (m_maxDimension.y < symbolSize.y)
-      m_maxDimension.y = symbolSize.y;
-  }
-
-  // factor to roughly account for the width addition of price/pricing text
-  double constexpr kBadgeTextFactor = 2.5;
-  m_maxDimension.x *= kBadgeTextFactor;
+  // Use only generic search mark as 'filter' dimension. Users claim about missing results.
+  // https://github.com/organicmaps/organicmaps/issues/2070
+  auto const it = s_markSizes.find(kSymbols[SearchMarkType::Default]);
+  if (it != s_markSizes.end())
+    m_maxDimension = it->second;
 }

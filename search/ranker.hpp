@@ -6,16 +6,10 @@
 #include "search/intermediate_result.hpp"
 #include "search/keyword_lang_matcher.hpp"
 #include "search/locality_finder.hpp"
-#include "search/mode.hpp"
 #include "search/region_info_getter.hpp"
 #include "search/result.hpp"
 #include "search/reverse_geocoder.hpp"
-#include "search/search_params.hpp"
 #include "search/suggest.hpp"
-#include "search/utils.hpp"
-
-#include "indexer/categories_holder.hpp"
-#include "indexer/feature_decl.hpp"
 
 #include "geometry/point2d.hpp"
 #include "geometry/rect2d.hpp"
@@ -23,9 +17,6 @@
 #include "base/string_utils.hpp"
 
 #include <algorithm>
-#include <cstddef>
-#include <cstdint>
-#include <iterator>
 #include <string>
 #include <vector>
 
@@ -48,7 +39,6 @@ class Ranker
 public:
   struct Params
   {
-    int8_t m_currentLocaleCode = CategoriesHolder::kEnglishCode;
     m2::RectD m_viewport;
     m2::PointD m_pivot;
     std::string m_pivotRegion;
@@ -59,17 +49,7 @@ public:
     bool m_viewportSearch = false;
     bool m_categorialRequest = false;
 
-    std::string m_query;
-    QueryTokens m_tokens;
-    // Prefix of the last token in the query.
-    // We need it here to make suggestions.
-    strings::UniString m_prefix;
-
-    m2::PointD m_accuratePivotCenter = m2::PointD(0, 0);
-
-    // Minimal distance between search results in meters, needed for
-    // filtering of identical search results.
-    double m_minDistanceBetweenResultsM = 100.0;
+    QueryString m_query;
 
     Locales m_categoryLocales;
 
@@ -96,7 +76,7 @@ public:
   // Makes the final result that is shown to the user from a ranker's result.
   // |needAddress| and |needHighlighting| enable filling of optional fields
   // that may take a considerable amount of time to compute.
-  Result MakeResult(RankerResult const & r, bool needAddress, bool needHighlighting) const;
+  Result MakeResult(RankerResult const & rankerResult, bool needAddress, bool needHighlighting) const;
 
   void SuggestStrings();
 
@@ -124,7 +104,7 @@ private:
   void GetBestMatchName(FeatureType & f, std::string & name) const;
   void MatchForSuggestions(strings::UniString const & token, int8_t locale,
                            std::string const & prolog);
-  void ProcessSuggestions(std::vector<RankerResult> & vec) const;
+  void ProcessSuggestions(std::vector<RankerResult> const & vec) const;
 
   std::string GetLocalizedRegionInfoForResult(RankerResult const & result) const;
 

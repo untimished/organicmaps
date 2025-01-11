@@ -1,7 +1,6 @@
 project(indexer_tests)
 
-set(
-  SRC
+set(SRC
   bounds.hpp
   brands_tests.cpp
   categories_test.cpp
@@ -13,23 +12,26 @@ set(
   classificator_tests.cpp
   complex_serdes_tests.cpp
   complex_serdes_utils_tests.cpp
+  custom_keyvalue_tests.cpp
   data_source_test.cpp
   drules_selector_parser_test.cpp
   editable_map_object_test.cpp
   feature_metadata_test.cpp
   feature_names_test.cpp
   feature_to_osm_tests.cpp
+  feature_types_test.cpp
   features_offsets_table_test.cpp
   features_vector_test.cpp
   index_builder_test.cpp
   interval_index_test.cpp
+  kayak_test.cpp
   metadata_serdes_tests.cpp
   mwm_set_test.cpp
   postcodes_matcher_tests.cpp
   rank_table_test.cpp
   read_features_tests.cpp
+  road_shields_parser_tests.cpp
   scale_index_reading_tests.cpp
-  scales_test.cpp
   search_string_utils_test.cpp
   sort_and_merge_intervals_test.cpp
   string_slice_tests.cpp
@@ -45,33 +47,8 @@ set(
 
 omim_add_test(${PROJECT_NAME} ${SRC})
 
-omim_link_libraries(
-  ${PROJECT_NAME}
+target_link_libraries(${PROJECT_NAME}
   generator_tests_support
-  search_tests_support
   platform_tests_support
-  generator
-  search
-  routing
-  routing_common
   indexer
-  storage
-  editor
-  platform
-  coding
-  geometry
-  base
-  icu
-  jansson
-  tess2
-  protobuf
-  succinct
-  opening_hours
-  oauthcpp
-  pugixml
-  traffic
-  ${CMAKE_DL_LIBS}
-  ${LIBZ}
 )
-
-link_qt5_core(${PROJECT_NAME})

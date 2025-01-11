@@ -5,6 +5,7 @@
 #import "MWMBookmarkGroup.h"
 #import "MWMCarPlayBookmarkObject.h"
 #import "MWMTrack+Core.h"
+#import "RecentlyDeletedCategory+Core.h"
 
 #include "Framework.h"
 
@@ -17,7 +18,7 @@
 
 #include <utility>
 
-static kml::PredefinedColor convertBookmarkColor(MWMBookmarkColor bookmarkColor) {
+static kml::PredefinedColor kmlColorFromBookmarkColor(MWMBookmarkColor bookmarkColor) {
   switch (bookmarkColor) {
     case MWMBookmarkColorNone:
       return kml::PredefinedColor::None;
@@ -66,6 +67,8 @@ static MWMBookmarksSortingType convertSortingType(BookmarkManager::SortingType c
       return MWMBookmarksSortingTypeByDistance;
     case BookmarkManager::SortingType::ByTime:
       return MWMBookmarksSortingTypeByTime;
+    case BookmarkManager::SortingType::ByName:
+      return MWMBookmarksSortingTypeByName;
   }
 }
 
@@ -77,6 +80,19 @@ static BookmarkManager::SortingType convertSortingTypeToCore(MWMBookmarksSorting
       return BookmarkManager::SortingType::ByDistance;
     case MWMBookmarksSortingTypeByTime:
       return BookmarkManager::SortingType::ByTime;
+    case MWMBookmarksSortingTypeByName:
+      return BookmarkManager::SortingType::ByName;
+  }
+}
+
+static KmlFileType convertFileTypeToCore(MWMKmlFileType fileType) {
+  switch (fileType) {
+    case MWMKmlFileTypeText:
+      return KmlFileType::Text;
+    case MWMKmlFileTypeBinary:
+      return KmlFileType::Binary;
+    case MWMKmlFileTypeGpx:
+      return KmlFileType::Gpx;
   }
 }
 
@@ -188,29 +204,36 @@ static BookmarkManager::SortingType convertSortingTypeToCore(MWMBookmarksSorting
   self.bm.LoadBookmarks();
 }
 
-#pragma mark - Categories
-
-- (BOOL)isCategoryNotEmpty:(MWMMarkGroupID)groupId {
-  return self.bm.HasBmCategory(groupId) &&
-         (self.bm.GetUserMarkIds(groupId).size() + self.bm.GetTrackIds(groupId).size());
+- (void)loadBookmarkFile:(NSURL *)url
+{
+  self.bm.LoadBookmark(url.path.UTF8String, false /* isTemporaryFile */);
 }
 
-- (BOOL)isSearchAllowed:(MWMMarkGroupID)groupId {
-  return self.bm.IsSearchAllowed(groupId);
+- (void)reloadCategoryAtFilePath:(NSString *)filePath
+{
+  self.bm.ReloadBookmark(filePath.UTF8String);
+}
+
+- (void)deleteCategoryAtFilePath:(NSString *)filePath
+{
+  auto const groupId = self.bm.GetCategoryByFileName(filePath.UTF8String);
+  if (groupId)
+    [self deleteCategory:groupId];
+}
+
+#pragma mark - Categories
+
+- (BOOL)areAllCategoriesEmpty
+{
+  return self.bm.AreAllCategoriesEmpty();
+}
+
+- (BOOL)isCategoryEmpty:(MWMMarkGroupID)groupId {
+  return self.bm.HasBmCategory(groupId) && self.bm.IsCategoryEmpty(groupId);
 }
 
 - (void)prepareForSearch:(MWMMarkGroupID)groupId {
   self.bm.PrepareForSearch(groupId);
-}
-
-- (MWMGroupIDCollection)groupsIdList
-{
-  auto const & list = self.bm.GetBmGroupsIdList();
-  NSMutableArray<NSNumber *> * collection = @[].mutableCopy;
-  for (auto const & groupId : list)
-    [collection addObject:@(groupId)];
-
-  return collection.copy;
 }
 
 - (NSString *)getCategoryName:(MWMMarkGroupID)groupId
@@ -291,6 +314,11 @@ static BookmarkManager::SortingType convertSortingTypeToCore(MWMBookmarksSorting
   return !data.m_description.empty() || !data.m_annotation.empty();
 }
 
+- (BOOL)isHtmlDescription:(MWMMarkGroupID)groupId {
+  auto const description = GetPreferredBookmarkStr(self.bm.GetCategoryData(groupId).m_description);
+  return strings::IsHTML(description);
+}
+
 - (MWMMarkGroupID)createCategoryWithName:(NSString *)name
 {
   auto groupId = self.bm.CreateBookmarkCategory(name.UTF8String);
@@ -328,7 +356,7 @@ static BookmarkManager::SortingType convertSortingTypeToCore(MWMBookmarksSorting
 
 - (void)deleteCategory:(MWMMarkGroupID)groupId
 {
-  self.bm.GetEditSession().DeleteBmCategory(groupId);
+  self.bm.GetEditSession().DeleteBmCategory(groupId, false /* move to the Trash */);
   [self loopObservers:^(id<MWMBookmarksObserver> observer) {
     if ([observer respondsToSelector:@selector(onBookmarksCategoryDeleted:)])
       [observer onBookmarksCategoryDeleted:groupId];
@@ -338,6 +366,21 @@ static BookmarkManager::SortingType convertSortingTypeToCore(MWMBookmarksSorting
 - (BOOL)checkCategoryName:(NSString *)name
 {
   return !self.bm.IsUsedCategoryName(name.UTF8String);
+}
+
+- (BOOL)hasCategory:(MWMMarkGroupID)groupId
+{
+  return self.bm.HasBmCategory(groupId);
+}
+
+- (BOOL)hasBookmark:(MWMMarkID)bookmarkId
+{
+  return self.bm.HasBookmark(bookmarkId);
+}
+
+- (BOOL)hasTrack:(MWMTrackID)trackId
+{
+  return self.bm.HasTrack(trackId);
 }
 
 - (NSArray<NSNumber *> *)availableSortingTypes:(MWMMarkGroupID)groupId hasMyPosition:(BOOL)hasMyPosition{
@@ -460,30 +503,30 @@ static BookmarkManager::SortingType convertSortingTypeToCore(MWMBookmarksSorting
 }
 
 - (void)deleteTrack:(MWMTrackID)trackId {
-    self.bm.GetEditSession().DeleteTrack(trackId);
+  self.bm.GetEditSession().DeleteTrack(trackId);
 }
 
 - (MWMBookmark *)bookmarkWithId:(MWMMarkID)bookmarkId {
-    return [[MWMBookmark alloc] initWithMarkId:bookmarkId bookmarkData:self.bm.GetBookmark(bookmarkId)];
+  return [[MWMBookmark alloc] initWithMarkId:bookmarkId bookmarkData:self.bm.GetBookmark(bookmarkId)];
 }
 
 - (MWMTrack *)trackWithId:(MWMTrackID)trackId {
-    return [[MWMTrack alloc] initWithTrackId:trackId trackData:self.bm.GetTrack(trackId)];
+  return [[MWMTrack alloc] initWithTrackId:trackId trackData:self.bm.GetTrack(trackId)];
 }
 
 - (MWMBookmarkGroup *)categoryForBookmarkId:(MWMMarkID)bookmarkId {
-    auto const groupId = self.bm.GetBookmark(bookmarkId)->GetGroupId();
-    return [self categoryWithId:groupId];
+  auto const groupId = self.bm.GetBookmark(bookmarkId)->GetGroupId();
+  return [self categoryWithId:groupId];
 }
 
 - (MWMBookmarkGroup *)categoryForTrackId:(MWMTrackID)trackId {
-    auto const groupId = self.bm.GetTrack(trackId)->GetGroupId();
-    return [self categoryWithId:groupId];
+  auto const groupId = self.bm.GetTrack(trackId)->GetGroupId();
+  return [self categoryWithId:groupId];
 }
 
 - (NSString *)descriptionForBookmarkId:(MWMMarkID)bookmarkId {
-    auto const description = self.bm.GetBookmark(bookmarkId)->GetDescription();
-    return [NSString stringWithUTF8String:description.c_str()];
+  auto const description = self.bm.GetBookmark(bookmarkId)->GetDescription();
+  return [NSString stringWithUTF8String:description.c_str()];
 }
 
 - (NSArray<MWMBookmark *> *)bookmarksForGroup:(MWMMarkGroupID)groupId {
@@ -497,88 +540,98 @@ static BookmarkManager::SortingType convertSortingTypeToCore(MWMBookmarksSorting
 
 - (void)searchBookmarksGroup:(MWMMarkGroupID)groupId
                         text:(NSString *)text
-                  completion:(SearchBookmarksCompletionBlock)completion {
-  search::BookmarksSearchParams searchParams;
-  searchParams.m_query = text.UTF8String;
-  searchParams.m_groupId = groupId;
-
+                  completion:(SearchBookmarksCompletionBlock)completion
+{
   auto const searchId = ++self.lastSearchId;
   __weak auto weakSelf = self;
-  searchParams.m_onStarted = [] {};
-  searchParams.m_onResults = [weakSelf, searchId, completion](search::BookmarksSearchParams::Results const &results,
-                                                              search::BookmarksSearchParams::Status status) {
-    __strong auto self = weakSelf;
-    if (!self || searchId != self.lastSearchId)
-      return;
 
-    auto filteredResults = results;
-    self.bm.FilterInvalidBookmarks(filteredResults);
+  using search::BookmarksSearchParams;
+  BookmarksSearchParams params{
+    text.UTF8String,
+    groupId,
+    // m_onResults
+    [weakSelf, searchId, completion](BookmarksSearchParams::Results results, BookmarksSearchParams::Status status)
+    {
+      __strong auto self = weakSelf;
+      if (!self || searchId != self.lastSearchId)
+        return;
 
-    NSMutableArray *result = [NSMutableArray array];
-    for (auto bookmarkId : filteredResults)
-      [result addObject:[[MWMBookmark alloc] initWithMarkId:bookmarkId bookmarkData:self.bm.GetBookmark(bookmarkId)]];
+      self.bm.FilterInvalidBookmarks(results);
 
-    completion([result copy]);
+      NSMutableArray *result = [NSMutableArray array];
+      for (auto bookmarkId : results)
+        [result addObject:[[MWMBookmark alloc] initWithMarkId:bookmarkId bookmarkData:self.bm.GetBookmark(bookmarkId)]];
+
+      completion(result);
+    }
   };
 
-  GetFramework().GetSearchAPI().SearchInBookmarks(searchParams);
+  GetFramework().GetSearchAPI().SearchInBookmarks(std::move(params));
 }
 
 
 #pragma mark - Tracks
 
 - (MWMTrackIDCollection)trackIdsForCategory:(MWMMarkGroupID)categoryId {
-  auto const &trackIds = self.bm.GetTrackIds(categoryId);
-  NSMutableArray<NSNumber *> *collection = [[NSMutableArray alloc] initWithCapacity:trackIds.size()];
+  auto const & trackIds = self.bm.GetTrackIds(categoryId);
+  NSMutableArray<NSNumber *> * collection = [[NSMutableArray alloc] initWithCapacity:trackIds.size()];
+
   for (auto trackId : trackIds)
     [collection addObject:@(trackId)];
-  return [collection copy];
+  return collection;
 }
 
 - (NSArray<MWMTrack *> *)tracksForGroup:(MWMMarkGroupID)groupId {
-  auto const &trackIds = self.bm.GetTrackIds(groupId);
-  NSMutableArray *result = [NSMutableArray array];
-  for (auto trackId : trackIds) {
+  auto const & trackIds = self.bm.GetTrackIds(groupId);
+  NSMutableArray * result = [[NSMutableArray alloc] initWithCapacity:trackIds.size()];
+
+  for (auto trackId : trackIds)
     [result addObject:[[MWMTrack alloc] initWithTrackId:trackId trackData:self.bm.GetTrack(trackId)]];
-  }
-  return [result copy];
+  return result;
 }
 
 - (NSArray<MWMBookmarkGroup *> *)collectionsForGroup:(MWMMarkGroupID)groupId {
-  auto const &collectionIds = self.bm.GetChildrenCollections(groupId);
-  NSMutableArray *result = [NSMutableArray array];
-  for (auto collectionId : collectionIds) {
+  auto const & collectionIds = self.bm.GetChildrenCollections(groupId);
+  NSMutableArray * result = [[NSMutableArray alloc] initWithCapacity:collectionIds.size()];
+
+  for (auto collectionId : collectionIds)
     [result addObject:[[MWMBookmarkGroup alloc] initWithCategoryId:collectionId bookmarksManager:self]];
-  }
-  return [result copy];
+  return result;
 }
 
 - (NSArray<MWMBookmarkGroup *> *)categoriesForGroup:(MWMMarkGroupID)groupId {
-  auto const &categoryIds = self.bm.GetChildrenCategories(groupId);
-  NSMutableArray *result = [NSMutableArray array];
-  for (auto categoryId : categoryIds) {
+  auto const & categoryIds = self.bm.GetChildrenCategories(groupId);
+  NSMutableArray * result = [[NSMutableArray alloc] initWithCapacity:categoryIds.size()];
+
+  for (auto categoryId : categoryIds)
     [result addObject:[[MWMBookmarkGroup alloc] initWithCategoryId:categoryId bookmarksManager:self]];
-  }
-  return [result copy];
+  return result;
 }
 
 #pragma mark - Category sharing
 
-- (void)shareCategory:(MWMMarkGroupID)groupId
-{
-  self.bm.PrepareFileForSharing(groupId, [self](auto sharingResult)
-  {
-    MWMBookmarksShareStatus status;
-    switch (sharingResult.m_code)
-    {
+- (void)shareCategory:(MWMMarkGroupID)groupId fileType:(MWMKmlFileType)fileType completion:(SharingResultCompletionHandler)completion {
+  self.bm.PrepareFileForSharing({groupId}, [self, completion](auto sharingResult) {
+    [self handleSharingResult:sharingResult completion:completion];
+  }, convertFileTypeToCore(fileType));
+}
+
+- (void)shareAllCategoriesWithCompletion:(SharingResultCompletionHandler)completion {
+  self.bm.PrepareAllFilesForSharing([self, completion](auto sharingResult) {
+    [self handleSharingResult:sharingResult completion:completion];
+  });
+}
+
+- (void)handleSharingResult:(BookmarkManager::SharingResult)sharingResult completion:(SharingResultCompletionHandler)completion  {
+  NSURL *urlToALocalFile = nil;
+  MWMBookmarksShareStatus status;
+  switch (sharingResult.m_code) {
     case BookmarkManager::SharingResult::Code::Success:
-    {
-      self.shareCategoryURL = [NSURL fileURLWithPath:@(sharingResult.m_sharingPath.c_str())
-                                            isDirectory:NO];
-      ASSERT(self.shareCategoryURL, ("Invalid share category url"));
+      urlToALocalFile = [NSURL fileURLWithPath:@(sharingResult.m_sharingPath.c_str()) isDirectory:NO];
+      ASSERT(urlToALocalFile, ("Invalid share category URL"));
+      self.shareCategoryURL = urlToALocalFile;
       status = MWMBookmarksShareStatusSuccess;
       break;
-    }
     case BookmarkManager::SharingResult::Code::EmptyCategory:
       status = MWMBookmarksShareStatusEmptyCategory;
       break;
@@ -588,56 +641,45 @@ static BookmarkManager::SortingType convertSortingTypeToCore(MWMBookmarksSorting
     case BookmarkManager::SharingResult::Code::FileError:
       status = MWMBookmarksShareStatusFileError;
       break;
-    }
-    
-    [self loopObservers:^(id<MWMBookmarksObserver> observer) {
-      if ([observer respondsToSelector:@selector(onBookmarksCategoryFilePrepared:)])
-        [observer onBookmarksCategoryFilePrepared:status];
-    }];
-  });
+  }
+  completion(status, urlToALocalFile);
 }
 
-- (NSURL *)shareCategoryURL
-{
-  NSAssert(_shareCategoryURL != nil, @"Invalid share category url");
-  return _shareCategoryURL;
-}
-
-- (void)finishShareCategory
-{
+- (void)finishShareCategory {
   if (!self.shareCategoryURL)
     return;
-  
+
   base::DeleteFileX(self.shareCategoryURL.path.UTF8String);
   self.shareCategoryURL = nil;
 }
 
 #pragma mark - Notifications
 
-- (void)setNotificationsEnabled:(BOOL)enabled
-{
+- (void)setNotificationsEnabled:(BOOL)enabled {
   self.bm.SetNotificationsEnabled(enabled);
 }
 
-- (BOOL)areNotificationsEnabled
-{
+- (BOOL)areNotificationsEnabled {
   return self.bm.AreNotificationsEnabled();
 }
 
 #pragma mark - Catalog
 
-- (NSArray<MWMBookmarkGroup *> *)userCategories
-{
-  NSMutableArray<MWMBookmarkGroup *> * result = [NSMutableArray array];
-  auto const & list = self.bm.GetBmGroupsIdList();
+- (NSArray<MWMBookmarkGroup *> *)sortedUserCategories {
+  auto const & list = self.bm.GetSortedBmGroupIdList();
+  NSMutableArray<MWMBookmarkGroup *> * result = [[NSMutableArray alloc] initWithCapacity:list.size()];
+
   for (auto const & groupId : list)
     [result addObject:[self categoryWithId:groupId]];
-
-  return [result copy];
+  return result;
 }
 
 - (MWMBookmarkGroup *)categoryWithId:(MWMMarkGroupID)groupId {
   return [[MWMBookmarkGroup alloc] initWithCategoryId:groupId bookmarksManager:self];
+}
+
+- (size_t)userCategoriesCount {
+  return self.bm.GetBmGroupsCount();
 }
 
 - (void)updateBookmark:(MWMMarkID)bookmarkId
@@ -645,61 +687,93 @@ static BookmarkManager::SortingType convertSortingTypeToCore(MWMBookmarksSorting
                  title:(NSString *)title
                  color:(MWMBookmarkColor)color
            description:(NSString *)description {
+  ASSERT_NOT_EQUAL(groupId, kml::kInvalidMarkGroupId, ());
   auto const currentGroupId = self.bm.GetBookmark(bookmarkId)->GetGroupId();
   auto editSession = self.bm.GetEditSession();
-  if (groupId != kml::kInvalidMarkGroupId) {
+  if (currentGroupId != groupId)
     editSession.MoveBookmark(bookmarkId, currentGroupId, groupId);
-  }
 
   auto bookmark = editSession.GetBookmarkForEdit(bookmarkId);
-  if (!bookmark)
-    return;
+  ASSERT(bookmark, ("Invalid bookmark id:", bookmarkId));
 
-  auto kmlColor = convertBookmarkColor(color);
-  if (kmlColor != bookmark->GetColor()) {
+  auto kmlColor = kmlColorFromBookmarkColor(color);
+  if (kmlColor != bookmark->GetColor())
     self.bm.SetLastEditedBmColor(kmlColor);
-  }
 
   bookmark->SetColor(kmlColor);
   bookmark->SetDescription(description.UTF8String);
-  if (title.UTF8String != bookmark->GetPreferredName()) {
+  if (title.UTF8String != bookmark->GetPreferredName())
     bookmark->SetCustomName(title.UTF8String);
-  }
 }
 
-- (void)moveBookmark:(MWMMarkID)bookmarkId
-           toGroupId:(MWMMarkGroupID)groupId {
-    auto const currentGroupId = self.bm.GetBookmark(bookmarkId)->GetGroupId();
+- (void)updateBookmark:(MWMMarkID)bookmarkId setColor:(MWMBookmarkColor)color {
+  auto editSession = self.bm.GetEditSession();
+
+  auto bookmark = editSession.GetBookmarkForEdit(bookmarkId);
+  ASSERT(bookmark, ("Invalid bookmark id:", bookmarkId));
+
+  auto kmlColor = kmlColorFromBookmarkColor(color);
+  if (kmlColor != bookmark->GetColor())
+    self.bm.SetLastEditedBmColor(kmlColor);
+
+  bookmark->SetColor(kmlColor);
+}
+
+- (void)moveBookmark:(MWMMarkID)bookmarkId toGroupId:(MWMMarkGroupID)groupId {
+  ASSERT_NOT_EQUAL(groupId, kml::kInvalidMarkGroupId, ());
+  auto const currentGroupId = self.bm.GetBookmark(bookmarkId)->GetGroupId();
+  if (currentGroupId != groupId) {
     auto editSession = self.bm.GetEditSession();
-    if (groupId != kml::kInvalidMarkGroupId) {
-        editSession.MoveBookmark(bookmarkId, currentGroupId, groupId);
-    }
+    editSession.MoveBookmark(bookmarkId, currentGroupId, groupId);
+  }
 }
 
 - (void)updateTrack:(MWMTrackID)trackId
          setGroupId:(MWMMarkGroupID)groupId
+              color:(UIColor *)color
               title:(NSString *)title {
-    auto const currentGroupId = self.bm.GetTrack(trackId)->GetGroupId();
-    auto editSession = self.bm.GetEditSession();
-    if (groupId != kml::kInvalidMarkGroupId) {
-        editSession.MoveTrack(trackId, currentGroupId, groupId);
-    }
+  ASSERT_NOT_EQUAL(groupId, kml::kInvalidMarkGroupId, ());
+  auto const currentGroupId = self.bm.GetTrack(trackId)->GetGroupId();
+  auto editSession = self.bm.GetEditSession();
+  if (currentGroupId != groupId)
+    editSession.MoveTrack(trackId, currentGroupId, groupId);
 
-    auto track = editSession.GetTrackForEdit(trackId);
-    if (!track) {
-        return;
-    }
-    
-    track->SetName(title.UTF8String);
+  auto track = editSession.GetTrackForEdit(trackId);
+  ASSERT(track, ("Invalid track id:", trackId));
+
+  auto const currentColor = track->GetColor(0);
+  auto const newColor = [MWMBookmarksManager getColorFromUIColor:color];
+
+  if (newColor != currentColor)
+    track->SetColor(newColor);
+
+  track->SetName(title.UTF8String);
 }
 
-- (void)moveTrack:(MWMTrackID)trackId
-        toGroupId:(MWMMarkGroupID)groupId {
-    auto const currentGroupId = self.bm.GetTrack(trackId)->GetGroupId();
+- (void)updateTrack:(MWMTrackID)trackId setColor:(UIColor *)color {
+  auto editSession = self.bm.GetEditSession();
+
+  auto track = editSession.GetTrackForEdit(trackId);
+  ASSERT(track, ("Invalid track id:", trackId));
+
+  auto const currentColor = track->GetColor(0);
+  auto const newColor = [MWMBookmarksManager getColorFromUIColor:color];
+
+  if (newColor != currentColor)
+    track->SetColor(newColor);
+}
+
+- (void)moveTrack:(MWMTrackID)trackId toGroupId:(MWMMarkGroupID)groupId {
+  ASSERT_NOT_EQUAL(groupId, kml::kInvalidMarkGroupId, ());
+  auto const currentGroupId = self.bm.GetTrack(trackId)->GetGroupId();
+  if (currentGroupId != groupId) {
     auto editSession = self.bm.GetEditSession();
-    if (groupId != kml::kInvalidMarkGroupId) {
-        editSession.MoveTrack(trackId, currentGroupId, groupId);
-    }
+    editSession.MoveTrack(trackId, currentGroupId, groupId);
+  }
+}
+
+- (BOOL)hasRecentlyDeletedBookmark {
+  return self.bm.HasRecentlyDeletedBookmark();
 }
 
 - (void)setCategory:(MWMMarkGroupID)groupId authorType:(MWMBookmarkGroupAuthorType)author
@@ -714,6 +788,37 @@ static BookmarkManager::SortingType convertSortingTypeToCore(MWMBookmarksSorting
   }
 }
 
+// MARK: - RecentlyDeletedCategoriesManager
+- (uint64_t)recentlyDeletedCategoriesCount {
+  return self.bm.GetRecentlyDeletedCategoriesCount();
+}
+
+- (NSArray<RecentlyDeletedCategory *> *)getRecentlyDeletedCategories {
+  auto const categoriesCollection = self.bm.GetRecentlyDeletedCategories();
+  NSMutableArray<RecentlyDeletedCategory *> * recentlyDeletedCategories = [[NSMutableArray alloc] initWithCapacity:categoriesCollection->size()];
+
+  for (auto const & [filePath, categoryPtr] : * categoriesCollection) {
+    ASSERT(categoryPtr, ("Recently deleted category shouldn't be nil."));
+    RecentlyDeletedCategory * category = [[RecentlyDeletedCategory alloc] initWithCategoryData:categoryPtr->m_categoryData filePath:filePath];
+    [recentlyDeletedCategories addObject:category];
+  }
+  return recentlyDeletedCategories;
+}
+
+- (void)deleteRecentlyDeletedCategoryAtURLs:(NSArray<NSURL *> *)urls {
+  std::vector<std::string> filePaths;
+  for (NSURL * url in urls)
+    filePaths.push_back(url.filePathURL.path.UTF8String);
+  self.bm.DeleteRecentlyDeletedCategoriesAtPaths(filePaths);
+}
+
+- (void)recoverRecentlyDeletedCategoriesAtURLs:(NSArray<NSURL *> *)urls {
+  std::vector<std::string> filePaths;
+  for (NSURL * url in urls)
+    filePaths.push_back(url.filePathURL.path.UTF8String);
+  self.bm.RecoverRecentlyDeletedCategoriesAtPaths(filePaths);
+}
+
 #pragma mark - Helpers
 
 - (void)loopObservers:(void (^)(id<MWMBookmarksObserver> observer))block
@@ -725,8 +830,8 @@ static BookmarkManager::SortingType convertSortingTypeToCore(MWMBookmarksSorting
   }
 }
 
-- (void)setElevationActivePoint:(double)distance trackId:(uint64_t)trackId {
-  self.bm.SetElevationActivePoint(trackId, distance);
+- (void)setElevationActivePoint:(CLLocationCoordinate2D)point distance:(double)distance trackId:(uint64_t)trackId {
+  self.bm.SetElevationActivePoint(trackId, mercator::FromLatLon(point.latitude, point.longitude), distance);
 }
 
 - (void)setElevationActivePointChanged:(uint64_t)trackId callback:(ElevationPointChangedBlock)callback {
@@ -751,5 +856,23 @@ static BookmarkManager::SortingType convertSortingTypeToCore(MWMBookmarksSorting
   self.bm.SetElevationMyPositionChangedCallback(nullptr);
 }
 
++ (dp::Color)getColorFromUIColor:(UIColor *)color {
+  CGFloat fRed, fGreen, fBlue, fAlpha;
+  [color getRed:&fRed green:&fGreen blue:&fBlue alpha:&fAlpha];
+
+  const uint8_t red = [self convertColorComponentToHex:fRed];
+  const uint8_t green = [self convertColorComponentToHex:fGreen];
+  const uint8_t blue = [self convertColorComponentToHex:fBlue];
+  const uint8_t alpha = [self convertColorComponentToHex:fAlpha];
+
+  return dp::Color(red, green, blue, alpha);
+}
+
++ (uint8_t)convertColorComponentToHex:(CGFloat)color {
+  ASSERT_LESS_OR_EQUAL(color, 1.f, ("Extended sRGB color space is not supported"));
+  ASSERT_GREATER_OR_EQUAL(color, 0.f, ("Extended sRGB color space is not supported"));
+  static constexpr uint8_t kMaxChannelValue = 255;
+  return color * kMaxChannelValue;
+}
 
 @end

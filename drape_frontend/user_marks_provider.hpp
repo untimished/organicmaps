@@ -110,7 +110,9 @@ public:
   virtual dp::Color GetColor(size_t layerIndex) const = 0;
   virtual float GetWidth(size_t layerIndex) const = 0;
   virtual float GetDepth(size_t layerIndex) const = 0;
-  virtual std::vector<m2::PointD> GetPoints() const = 0;
+
+  using GeometryFnT = std::function<void (std::vector<m2::PointD> &&)>;
+  virtual void ForEachGeometry(GeometryFnT && fn) const = 0;
 
 private:
   kml::TrackId m_id;
@@ -133,6 +135,7 @@ public:
   virtual kml::MarkIdSet const & GetUpdatedMarkIds() const = 0;
   virtual kml::TrackIdSet const & GetCreatedLineIds() const = 0;
   virtual kml::TrackIdSet const & GetRemovedLineIds() const = 0;
+  virtual kml::TrackIdSet const & GetUpdatedLineIds() const = 0;
   /// Never store UserPointMark reference.
   virtual UserPointMark const * GetUserPointMark(kml::MarkId markId) const = 0;
   /// Never store UserLineMark reference.

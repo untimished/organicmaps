@@ -89,20 +89,17 @@ UNIT_CLASS_TEST(TestWithClassificator, Metadata_ValidateAndFormat_operator)
   TEST(md.Empty(), ());
 
   params.SetType(typeAtm);
-  p("operator", "Some");
-  TEST_EQUAL(md.Get(Metadata::FMD_OPERATOR), "Some", ());
-  md.Drop(Metadata::FMD_OPERATOR);
+  p("operator", "Some1");
+  TEST_EQUAL(md.Get(Metadata::FMD_OPERATOR), "Some1", ());
 
   params.SetType(typeFuel);
-  p("operator", "Some");
-  TEST_EQUAL(md.Get(Metadata::FMD_OPERATOR), "Some", ());
-  md.Drop(Metadata::FMD_OPERATOR);
+  p("operator", "Some2");
+  TEST_EQUAL(md.Get(Metadata::FMD_OPERATOR), "Some2", ());
 
   params.SetType(typeCarSharing);
   params.AddType(typeCarRental);
-  p("operator", "Some");
-  TEST_EQUAL(md.Get(Metadata::FMD_OPERATOR), "Some", ());
-  md.Drop(Metadata::FMD_OPERATOR);
+  p("operator", "Some3");
+  TEST_EQUAL(md.Get(Metadata::FMD_OPERATOR), "Some3", ());
 }
 
 UNIT_TEST(Metadata_ValidateAndFormat_height)
@@ -150,26 +147,27 @@ UNIT_TEST(Metadata_ValidateAndFormat_wikipedia)
   #define WIKIHOST "wikipedia.org"
 #endif
 
-  p(kWikiKey, "en:Bad %20Data");
-  TEST_EQUAL(md.Get(Metadata::FMD_WIKIPEDIA), "en:Bad %20Data", ());
-  TEST_EQUAL(md.GetWikiURL(), "https://en." WIKIHOST "/wiki/Bad_%2520Data", ());
-  md.Drop(Metadata::FMD_WIKIPEDIA);
+  struct Test
+  {
+    char const * source;
+    char const * validated;
+    char const * url;
+  };
+  constexpr Test tests[] = {
+    {"en:Bad %20Data", "en:Bad %20Data", "https://en." WIKIHOST "/wiki/Bad_%2520Data"},
+    {"ru:Это тест_со знаками %, ? (и скобками)", "ru:Это тест со знаками %, ? (и скобками)", "https://ru." WIKIHOST "/wiki/Это_тест_со_знаками_%25,_%3F_(и_скобками)"},
+    {"https://be-tarask.wikipedia.org/wiki/Вялікае_Княства_Літоўскае", "be-tarask:Вялікае Княства Літоўскае", "https://be-tarask." WIKIHOST "/wiki/Вялікае_Княства_Літоўскае"},
+    // Final link points to https and mobile version.
+    {"http://en.wikipedia.org/wiki/A#id", "en:A#id", "https://en." WIKIHOST "/wiki/A#id"},
+  };
 
-  p(kWikiKey, "ru:Тест_with % sign");
-  TEST_EQUAL(md.Get(Metadata::FMD_WIKIPEDIA), "ru:Тест with % sign", ());
-  TEST_EQUAL(md.GetWikiURL(), "https://ru." WIKIHOST "/wiki/Тест_with_%25_sign", ());
-  md.Drop(Metadata::FMD_WIKIPEDIA);
-
-  p(kWikiKey, "https://be-tarask.wikipedia.org/wiki/Вялікае_Княства_Літоўскае");
-  TEST_EQUAL(md.Get(Metadata::FMD_WIKIPEDIA), "be-tarask:Вялікае Княства Літоўскае", ());
-  TEST_EQUAL(md.GetWikiURL(), "https://be-tarask." WIKIHOST "/wiki/Вялікае_Княства_Літоўскае", ());
-  md.Drop(Metadata::FMD_WIKIPEDIA);
-
-  // Final link points to https and mobile version.
-  p(kWikiKey, "http://en.wikipedia.org/wiki/A");
-  TEST_EQUAL(md.Get(Metadata::FMD_WIKIPEDIA), "en:A", ());
-  TEST_EQUAL(md.GetWikiURL(), "https://en." WIKIHOST "/wiki/A", ());
-  md.Drop(Metadata::FMD_WIKIPEDIA);
+  for (auto [source, validated, url] : tests)
+  {
+    p(kWikiKey, source);
+    TEST_EQUAL(md.Get(Metadata::FMD_WIKIPEDIA), validated, (source));
+    TEST_EQUAL(md.GetWikiURL(), url, (source));
+    md.Drop(Metadata::FMD_WIKIPEDIA);
+  }
 
   p(kWikiKey, "invalid_input_without_language_and_colon");
   TEST(md.Empty(), (md.Get(Metadata::FMD_WIKIPEDIA)));
@@ -198,6 +196,25 @@ UNIT_TEST(Metadata_ValidateAndFormat_wikipedia)
   TEST(md.Empty(), ("Not a wikipedia site."));
 
 #undef WIKIHOST
+}
+
+UNIT_TEST(Metadata_ValidateAndFormat_wikimedia_commons)
+{
+  char const * kWikiKey = "wikimedia_commons";
+
+  FeatureBuilderParams params;
+  MetadataTagProcessor p(params);
+  Metadata & md = params.GetMetadata();
+
+  p(kWikiKey, "File:Boğaz (105822801).jpeg");
+  TEST_EQUAL(md.Get(Metadata::FMD_WIKIMEDIA_COMMONS), "File:Boğaz (105822801).jpeg", ());
+
+  p(kWikiKey, "Category:Bosphorus");
+  TEST_EQUAL(md.Get(Metadata::FMD_WIKIMEDIA_COMMONS), "Category:Bosphorus", ());
+
+  md.Drop(Metadata::FMD_WIKIMEDIA_COMMONS);
+  p(kWikiKey, "incorrect_wikimedia_content");
+  TEST(md.Get(Metadata::FMD_WIKIMEDIA_COMMONS).empty(), ());
 }
 
 // Look at: https://wiki.openstreetmap.org/wiki/Key:duration for details
@@ -583,4 +600,66 @@ UNIT_CLASS_TEST(TestWithClassificator, ValidateAndFormat_contactLine)
 
   p("contact:line", "https://line.com/ti/p/invalid-domain");
   TEST(md.Empty(), ());
+}
+
+UNIT_TEST(Metadata_ValidateAndFormat_ele)
+{
+  FeatureBuilderParams params;
+  MetadataTagProcessorImpl tagProc(params);
+  TEST_EQUAL(tagProc.ValidateAndFormat_ele(""), "", ());
+  TEST_EQUAL(tagProc.ValidateAndFormat_ele("not a number"), "", ());
+  TEST_EQUAL(tagProc.ValidateAndFormat_ele("0"), "0", ());
+  TEST_EQUAL(tagProc.ValidateAndFormat_ele("0.0"), "0", ());
+  TEST_EQUAL(tagProc.ValidateAndFormat_ele("0.0000000"), "0", ());
+  TEST_EQUAL(tagProc.ValidateAndFormat_ele("22.5"), "22.5", ());
+  TEST_EQUAL(tagProc.ValidateAndFormat_ele("-100.3"), "-100.3", ());
+  TEST_EQUAL(tagProc.ValidateAndFormat_ele("99.0000000"), "99", ());
+  TEST_EQUAL(tagProc.ValidateAndFormat_ele("8900.000023"), "8900", ());
+  TEST_EQUAL(tagProc.ValidateAndFormat_ele("-300.9999"), "-301", ());
+  TEST_EQUAL(tagProc.ValidateAndFormat_ele("-300.9"), "-300.9", ());
+  TEST_EQUAL(tagProc.ValidateAndFormat_ele("15 m"), "15", ());
+  TEST_EQUAL(tagProc.ValidateAndFormat_ele("15.9 m"), "15.9", ());
+  TEST_EQUAL(tagProc.ValidateAndFormat_ele("15.9m"), "15.9", ());
+  TEST_EQUAL(tagProc.ValidateAndFormat_ele("3000 ft"), "914.4", ());
+  TEST_EQUAL(tagProc.ValidateAndFormat_ele("3000ft"), "914.4", ());
+  TEST_EQUAL(tagProc.ValidateAndFormat_ele("100 feet"), "30.48", ());
+  TEST_EQUAL(tagProc.ValidateAndFormat_ele("100feet"), "30.48", ());
+  TEST_EQUAL(tagProc.ValidateAndFormat_ele("11'"), "3.35", ());
+  TEST_EQUAL(tagProc.ValidateAndFormat_ele("11'4\""), "3.45", ());
+}
+
+UNIT_TEST(Metadata_ValidateAndFormat_building_levels)
+{
+  FeatureBuilderParams params;
+  MetadataTagProcessorImpl tp(params);
+  TEST_EQUAL(tp.ValidateAndFormat_building_levels("４"), "4", ());
+  TEST_EQUAL(tp.ValidateAndFormat_building_levels("４floors"), "4", ());
+  TEST_EQUAL(tp.ValidateAndFormat_building_levels("between 1 and ４"), "", ());
+  TEST_EQUAL(tp.ValidateAndFormat_building_levels("0"), "0", ("OSM has many zero-level buildings."));
+  TEST_EQUAL(tp.ValidateAndFormat_building_levels("0.0"), "0", ());
+  TEST_EQUAL(tp.ValidateAndFormat_building_levels(""), "", ());
+  TEST_EQUAL(tp.ValidateAndFormat_building_levels("Level 1"), "", ());
+  TEST_EQUAL(tp.ValidateAndFormat_building_levels("2.51"), "2.5", ());
+  TEST_EQUAL(tp.ValidateAndFormat_building_levels("250"), "", ("Too many levels."));
+}
+
+UNIT_TEST(Metadata_ValidateAndFormat_url)
+{
+  std::array<std::pair<char const*, char const*>, 9> constexpr kTests =
+  {{
+    {"a.by", "a.by"},
+    {"http://test.com", "http://test.com"},
+    {"https://test.com", "https://test.com"},
+    {"test.com", "test.com"},
+    {"http://test.com/", "http://test.com"},
+    {"https://test.com/", "https://test.com"},
+    {"test.com/", "test.com"},
+    {"test.com/path", "test.com/path"},
+    {"test.com/path/", "test.com/path/"},
+  }};
+
+  FeatureBuilderParams params;
+  MetadataTagProcessorImpl tp(params);
+  for (auto const& [input, output] : kTests)
+    TEST_EQUAL(tp.ValidateAndFormat_url(input), output, ());
 }

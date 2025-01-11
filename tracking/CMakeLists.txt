@@ -19,9 +19,20 @@ set(
 )
 
 omim_add_library(${PROJECT_NAME} ${SRC})
+target_link_libraries(${PROJECT_NAME}
+  PUBLIC
+    routing
+    traffic
 
-omim_add_pybindings_subdirectory(pytracking)
+  PRIVATE
+    base
+    coding
+    geometry
+    platform
+)
+
 omim_add_test_subdirectory(tracking_tests)
+
 if (USE_LIBFUZZER)
   add_subdirectory(tracking_fuzz_tests)
 endif()

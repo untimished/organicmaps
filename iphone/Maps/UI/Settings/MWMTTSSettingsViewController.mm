@@ -1,6 +1,7 @@
 #import "MWMTTSSettingsViewController.h"
 #import <AVFoundation/AVFoundation.h>
 #import "MWMTextToSpeech+CPP.h"
+#import "TTSTester.h"
 #import "SwiftBridge.h"
 
 #include <CoreApi/Framework.h>
@@ -17,6 +18,7 @@ NSString * kSelectTTSLanguageSegueName = @"TTSLanguage";
 enum class Section
 {
   VoiceInstructions,
+  StreetNames,
   Language,
   SpeedCameras,
   Count
@@ -41,6 +43,9 @@ struct BaseCellStategy
   virtual ~BaseCellStategy() {}
 };
 
+UITableViewCell* voiceInstructionsCell;
+UITableViewCell* streetNamesCell;
+
 struct VoiceInstructionCellStrategy : BaseCellStategy
 {
   UITableViewCell * BuildCell(UITableView * tableView, NSIndexPath * indexPath,
@@ -52,22 +57,37 @@ struct VoiceInstructionCellStrategy : BaseCellStategy
     [cell configWithDelegate:static_cast<id<SettingsTableViewSwitchCellDelegate>>(controller)
                        title:L(@"pref_tts_enable_title")
                         isOn:[MWMTextToSpeech isTTSEnabled]];
+    voiceInstructionsCell = cell;
     return cell;
   }
 };
 
 struct LanguageCellStrategy : BaseCellStategy
 {
+  TTSTester * ttsTester = [[TTSTester alloc] init];
+  
   UITableViewCell * BuildCell(UITableView * tableView, NSIndexPath * indexPath,
                               MWMTTSSettingsViewController * controller) override
   {
     NSInteger const row = indexPath.row;
+    // "Other" cell
     if (row == controller.languages.size())
     {
       Class cls = [SettingsTableViewLinkCell class];
       auto cell = static_cast<SettingsTableViewLinkCell *>(
           [tableView dequeueReusableCellWithCellClass:cls indexPath:indexPath]);
       [cell configWithTitle:L(@"pref_tts_other_section_title") info:nil];
+      return cell;
+    }
+    
+    // "Test TTS" cell
+    if (row == controller.languages.size() + 1)
+    {
+      Class cls = [SettingsTableViewSelectableCell class];
+      auto cell = static_cast<SettingsTableViewSelectableCell *>(
+          [tableView dequeueReusableCellWithCellClass:cls indexPath:indexPath]);
+      [cell configWithTitle:L(@"pref_tts_test_voice_title")];
+      cell.accessoryType = UITableViewCellAccessoryNone;
       return cell;
     }
 
@@ -92,7 +112,7 @@ struct LanguageCellStrategy : BaseCellStategy
 
   size_t NumberOfRows(MWMTTSSettingsViewController * controller) const override
   {
-    return controller.languages.size() + 1;  // Number of languages + "Other" cell
+    return controller.languages.size() + 2;  // Number of languages + "Other" cell + "TTS Test" cell
   }
 
   NSString * TitleForHeader() const override { return L(@"pref_tts_language_title"); }
@@ -107,6 +127,12 @@ struct LanguageCellStrategy : BaseCellStategy
       return;
     }
 
+    if (row == controller.languages.size() + 1)
+    {
+      [ttsTester playRandomTestString];
+      return;
+    }
+    
     auto cell = [tableView cellForRowAtIndexPath:indexPath];
     if (m_selectedCell == cell)
       return;
@@ -132,9 +158,9 @@ struct CamerasCellStrategy : BaseCellStategy
     NSString * title = nil;
     switch (static_cast<SpeedCameraManagerMode>(indexPath.row))
     {
-    case SpeedCameraManagerMode::Auto: title = L(@"speedcam_option_auto"); break;
-    case SpeedCameraManagerMode::Always: title = L(@"speedcam_option_always"); break;
-    case SpeedCameraManagerMode::Never: title = L(@"speedcam_option_never"); break;
+    case SpeedCameraManagerMode::Auto: title = L(@"pref_tts_speedcams_auto"); break;
+    case SpeedCameraManagerMode::Always: title = L(@"pref_tts_speedcams_always"); break;
+    case SpeedCameraManagerMode::Never: title = L(@"pref_tts_speedcams_never"); break;
     case SpeedCameraManagerMode::MaxValue: CHECK(false, ()); return nil;
     }
 
@@ -161,7 +187,7 @@ struct CamerasCellStrategy : BaseCellStategy
 
   NSString * TitleForHeader() const override { return L(@"speedcams_alert_title"); }
 
-  NSString * TitleForFooter() const override { return L(@"speedcams_notice_message"); }
+  NSString * TitleForFooter() const override { return nil; }
 
   void SelectCell(UITableView * tableView, NSIndexPath * indexPath,
                   MWMTTSSettingsViewController * /* controller */) override
@@ -180,6 +206,24 @@ struct CamerasCellStrategy : BaseCellStategy
   }
 
   SettingsTableViewSelectableCell * m_selectedCell = nil;
+};
+
+struct StreetNamesCellStrategy : BaseCellStategy
+{
+  UITableViewCell * BuildCell(UITableView * tableView, NSIndexPath * indexPath,
+                              MWMTTSSettingsViewController * controller) override
+  {
+    Class cls = [SettingsTableViewSwitchCell class];
+    auto cell = static_cast<SettingsTableViewSwitchCell *>(
+        [tableView dequeueReusableCellWithCellClass:cls indexPath:indexPath]);
+    [cell configWithDelegate:static_cast<id<SettingsTableViewSwitchCellDelegate>>(controller)
+                       title:L(@"pref_tts_street_names_title")
+                        isOn:[MWMTextToSpeech isStreetNamesTTSEnabled]];
+    streetNamesCell = cell;
+    return cell;
+  }
+  
+  NSString * TitleForFooter() const override { return L(@"pref_tts_street_names_description"); }
 };
 }  // namespace
 
@@ -203,6 +247,7 @@ struct CamerasCellStrategy : BaseCellStategy
   {
     using base::Underlying;
     m_strategies.emplace(Underlying(Section::VoiceInstructions), make_unique<VoiceInstructionCellStrategy>());
+    m_strategies.emplace(Underlying(Section::StreetNames), make_unique<StreetNamesCellStrategy>());
     m_strategies.emplace(Underlying(Section::Language), make_unique<LanguageCellStrategy>());
     m_strategies.emplace(Underlying(Section::SpeedCameras), make_unique<CamerasCellStrategy>());
   }
@@ -217,21 +262,20 @@ struct CamerasCellStrategy : BaseCellStategy
   MWMTextToSpeech * tts = [MWMTextToSpeech tts];
 
   m_languages.reserve(3);
-  auto const & v = tts.availableLanguages;
-  NSAssert(!v.empty(), @"Vector can't be empty!");
-  pair<string, string> const standart = v.front();
-  m_languages.push_back(standart);
+  pair<string, string> const standard = tts.standardLanguage;
+  m_languages.push_back(standard);
 
   using namespace tts;
   NSString * currentBcp47 = [AVSpeechSynthesisVoice currentLanguageCode];
   string const currentBcp47Str = currentBcp47.UTF8String;
-  string const currentTwineStr = bcp47ToTwineLanguage(currentBcp47);
-  if (currentBcp47Str != standart.first && !currentBcp47Str.empty())
+  if (currentBcp47Str != standard.first && !currentBcp47Str.empty())
   {
-    string const translated = translatedTwine(currentTwineStr);
-    pair<string, string> const cur{currentBcp47Str, translated};
+    auto const & v = tts.availableLanguages;
+    NSAssert(!v.empty(), @"Vector can't be empty!");
+    std::string const translated = translateLocale(currentBcp47Str);
+    auto cur = std::make_pair(currentBcp47Str, translated);
     if (translated.empty() || find(v.begin(), v.end(), cur) != v.end())
-      m_languages.push_back(cur);
+      m_languages.push_back(std::move(cur));
     else
       self.isLocaleLanguageAbsent = YES;
   }
@@ -239,11 +283,10 @@ struct CamerasCellStrategy : BaseCellStategy
   NSString * nsSavedLanguage = [MWMTextToSpeech savedLanguage];
   if (nsSavedLanguage.length)
   {
-    string const savedLanguage = nsSavedLanguage.UTF8String;
-    if (savedLanguage != currentBcp47Str && savedLanguage != standart.first &&
+    std::string const savedLanguage = nsSavedLanguage.UTF8String;
+    if (savedLanguage != currentBcp47Str && savedLanguage != standard.first &&
         !savedLanguage.empty())
-      m_languages.emplace_back(
-          make_pair(savedLanguage, translatedTwine(bcp47ToTwineLanguage(nsSavedLanguage))));
+      m_languages.emplace_back(savedLanguage, translateLocale(savedLanguage));
   }
 }
 
@@ -329,14 +372,20 @@ struct CamerasCellStrategy : BaseCellStategy
 
 - (void)switchCell:(SettingsTableViewSwitchCell *)cell didChangeValue:(BOOL)value
 {
-  [MWMTextToSpeech setTTSEnabled:value];
-  auto indexSet = [NSIndexSet
-      indexSetWithIndexesInRange:{base::Underlying(Section::Language), base::Underlying(Section::Count) - 1}];
-  auto const animation = UITableViewRowAnimationFade;
-  if (value)
-    [self.tableView insertSections:indexSet withRowAnimation:animation];
-  else
-    [self.tableView deleteSections:indexSet withRowAnimation:animation];
+  if (cell == voiceInstructionsCell)
+  {
+    [MWMTextToSpeech setTTSEnabled:value];
+    auto indexSet = [NSIndexSet indexSetWithIndexesInRange:{base::Underlying(Section::StreetNames), base::Underlying(Section::Count) - 1}];
+    auto const animation = UITableViewRowAnimationFade;
+    if (value)
+      [self.tableView insertSections:indexSet withRowAnimation:animation];
+    else
+      [self.tableView deleteSections:indexSet withRowAnimation:animation];
+  }
+  else if (cell == streetNamesCell)
+  {
+    [MWMTextToSpeech setStreetNamesTTSEnabled:value];
+  }
 }
 
 @end

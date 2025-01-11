@@ -8,11 +8,9 @@
 #include "base/buffer_vector.hpp"
 #include "base/control_flow.hpp"
 
-#include <cstddef>
-#include <cstdint>
-#include <functional>
+#include <map>
 #include <string>
-#include <utility>
+#include <string_view>
 #include <vector>
 
 namespace utils
@@ -58,7 +56,7 @@ void ReadString(TSource & src, std::string & s)
 //   10xx xxxx. In the UTF-8 encoding that would be a continuation byte, so
 //   if you start reading the string and such a byte appears out of nowhere in
 //   a place where a continuation byte is not expected you may be sure
-//   that the string for the current language has ended and you've reached the
+//   that the string for the current language has ended, and you've reached the
 //   string for the next language. Note that this breaks the self-synchronization property.
 //
 // * The order of the stored strings is not specified. Any language may come first.
@@ -68,20 +66,12 @@ public:
   struct Lang
   {
     /// OSM language code (e.g. for name:en it's "en" part).
-    std::string m_code;
+    std::string_view m_code;
     /// Native language name.
-    std::string m_name;
+    std::string_view m_name;
     /// Transliterators to latin ids.
-    std::vector<std::string> m_transliteratorsIds;
+    std::vector<std::string_view> m_transliteratorsIds;
   };
-
-  struct Position
-  {
-    size_t m_begin = 0;
-    size_t m_length = 0;
-  };
-
-  using TranslationPositions = std::map<int8_t, Position>;
 
   static int8_t constexpr kUnsupportedLanguageCode = -1;
   static int8_t constexpr kDefaultCode = 0;
@@ -95,21 +85,29 @@ public:
   // 6 bits language code mask. The language code is encoded with 6 bits that are prepended with
   // "10".
   static int8_t constexpr kLangCodeMask = 0x3F;
-  static_assert(kMaxSupportedLanguages == kLangCodeMask + 1, "");
-  static char constexpr kReservedLang[] = "reserved";
+  static_assert(kMaxSupportedLanguages == kLangCodeMask + 1);
+  static std::string_view constexpr kReservedLang = "reserved";
 
   using Languages = buffer_vector<Lang, kMaxSupportedLanguages>;
 
-  static Languages const & GetSupportedLanguages();
+  static Languages const & GetSupportedLanguages(bool includeServiceLangs = true);
+
+  static bool IsServiceLang(std::string_view lang);
+
+  // These names require separate search/street processing.
+  static bool IsAltOrOldName(int8_t langCode)
+  {
+    return langCode == kAltNameCode || langCode == kOldNameCode;
+  }
 
   /// @returns kUnsupportedLanguageCode if language is not recognized.
-  static int8_t GetLangIndex(std::string const & lang);
+  static int8_t GetLangIndex(std::string_view lang);
   /// @returns empty string if langCode is invalid.
-  static char const * GetLangByCode(int8_t langCode);
+  static std::string_view GetLangByCode(int8_t langCode);
   /// @returns empty string if langCode is invalid.
-  static char const * GetLangNameByCode(int8_t langCode);
-  /// @returns empty vector if langCode is invalid.
-  static std::vector<std::string> const & GetTransliteratorsIdsByCode(int8_t langCode);
+  static std::string_view GetLangNameByCode(int8_t langCode);
+  /// @returns nullptr if langCode is invalid.
+  static std::vector<std::string_view> const * GetTransliteratorsIdsByCode(int8_t langCode);
 
   inline bool operator==(StringUtf8Multilang const & rhs) const { return m_s == rhs.m_s; }
   inline bool operator!=(StringUtf8Multilang const & rhs) const { return !(*this == rhs); }
@@ -119,8 +117,8 @@ public:
 
   // This method complexity is O(||utf8s||) when adding a new name and O(||m_s|| + ||utf8s||) when
   // replacing an existing name.
-  void AddString(int8_t lang, std::string const & utf8s);
-  void AddString(std::string const & lang, std::string const & utf8s)
+  void AddString(int8_t lang, std::string_view utf8s);
+  void AddString(std::string_view lang, std::string_view utf8s)
   {
     int8_t const l = GetLangIndex(lang);
     if (l != kUnsupportedLanguageCode)
@@ -129,7 +127,7 @@ public:
 
   // This method complexity is O(||m_s||).
   void RemoveString(int8_t lang);
-  void RemoveString(std::string const & lang)
+  void RemoveString(std::string_view lang)
   {
     int8_t const l = GetLangIndex(lang);
     if (l != kUnsupportedLanguageCode)
@@ -148,7 +146,7 @@ public:
       size_t const next = GetNextIndex(i);
       int8_t const code = m_s[i] & kLangCodeMask;
       if (GetLangByCode(code) != kReservedLang &&
-          wrapper(code, m_s.substr(i + 1, next - i - 1)) == base::ControlFlow::Break)
+          wrapper(code, std::string_view(m_s).substr(i + 1, next - i - 1)) == base::ControlFlow::Break)
       {
         break;
       }
@@ -156,6 +154,7 @@ public:
     }
   }
 
+  /*
   /// Used for ordered languages, if you want to do something with priority of that order.
   /// \param languages ordered languages names.
   /// \param fn function or functor, using base::ControlFlow as return value.
@@ -181,10 +180,11 @@ public:
       }
     }
     return false;
-  };
+  }
+  */
 
-  bool GetString(int8_t lang, std::string & utf8s) const;
-  bool GetString(std::string const & lang, std::string & utf8s) const
+  bool GetString(int8_t lang, std::string_view & utf8s) const;
+  bool GetString(std::string_view const lang, std::string_view & utf8s) const
   {
     int8_t const l = GetLangIndex(lang);
     if (l >= 0)
@@ -198,6 +198,8 @@ public:
   int8_t FindString(std::string const & utf8s) const;
   size_t CountLangs() const;
 
+  /// @name Used for serdes.
+  /// @{
   template <class TSink>
   void Write(TSink & sink) const
   {
@@ -210,10 +212,11 @@ public:
     utils::ReadString(src, m_s);
   }
 
-private:
-  TranslationPositions GenerateTranslationPositions() const;
-  std::string GetTranslation(Position const & position) const;
+  std::string const & GetBuffer() const { return m_s; }
+  static StringUtf8Multilang FromBuffer(std::string && s);
+  /// @}
 
+private:
   size_t GetNextIndex(size_t i) const;
 
   std::string m_s;

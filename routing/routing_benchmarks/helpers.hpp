@@ -1,12 +1,10 @@
 #pragma once
 
-#include "routing/index_router.hpp"
 #include "routing/road_graph.hpp"
 #include "routing/route.hpp"
 #include "routing/router.hpp"
 #include "routing/vehicle_mask.hpp"
 
-#include "routing_common/maxspeed_conversion.hpp"
 #include "routing_common/num_mwm_id.hpp"
 #include "routing_common/vehicle_model.hpp"
 
@@ -21,7 +19,6 @@
 #include <memory>
 #include <set>
 #include <string>
-#include <utility>
 #include <vector>
 
 class RoutingTest
@@ -36,8 +33,6 @@ public:
   void TestTwoPointsOnFeature(m2::PointD const & startPos, m2::PointD const & finalPos);
 
 protected:
-  virtual std::unique_ptr<routing::DirectionsEngine> CreateDirectionsEngine(
-      std::shared_ptr<routing::NumMwmIds> numMwmIds) = 0;
   virtual std::unique_ptr<routing::VehicleModelFactoryInterface> CreateModelFactory() = 0;
 
   std::unique_ptr<routing::IRouter> CreateRouter(std::string const & name);
@@ -72,10 +67,10 @@ public:
     // some speed depending of road type (0 <= speed <= maxSpeed).  For
     // tests purposes for all allowed features speed must be the same as
     // max speed.
-    routing::SpeedKMpH GetSpeed(FeatureType & f,
+    routing::SpeedKMpH GetSpeed(typename Model::FeatureTypes const & types,
                                 routing::SpeedParams const & speedParams) const override
     {
-      auto const speed = Model::GetSpeed(f, speedParams);
+      auto const speed = Model::GetSpeed(types, speedParams);
       if (speed.m_weight <= 0.0)
         return routing::SpeedKMpH();
 

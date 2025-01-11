@@ -31,4 +31,14 @@ NS_SWIFT_NAME(Settings)
 + (BOOL)isTrackWarningAlertShown;
 + (void)setTrackWarningAlertShown:(BOOL)shown;
 
++ (NSString *)donateUrl;
++ (BOOL)isNY;
+
++ (BOOL)iCLoudSynchronizationEnabled;
++ (void)setICLoudSynchronizationEnabled:(BOOL)iCLoudSyncEnabled;
+
++ (void)initializeLogging;
++ (BOOL)isFileLoggingEnabled;
++ (void)setFileLoggingEnabled:(BOOL)fileLoggingEnabled;
+
 @end

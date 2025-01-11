@@ -1,20 +1,26 @@
 #include "routing/turns_notification_manager.hpp"
 
-#include "platform/location.hpp"
-
 #include "base/assert.hpp"
 
 #include <algorithm>
 #include <vector>
 
-using namespace std;
+namespace routing
+{
+namespace turns
+{
+namespace sound
+{
 
 namespace
 {
-// If the distance between two sequential turns is less than kMaxTurnDistM
-// the information about the second turn will be shown or pronounced when the user is
-// approaching to the first one.
-double constexpr kMaxTurnDistM = 400.0;
+// If the distance between two sequential turns is less than kSecondTurnThresholdDistM
+// the information about the second turn will be shown or pronounced
+// when the user is approaching to the first one with "Then.".
+double constexpr kSecondTurnThresholdDistM = 400.0;
+// If the distance between two sequential turns is less than kDistanceNotifyThresholdM
+// the notification will *not* append second distance, (like "In 500 meters. Turn left. Then. Turn right.")
+double constexpr kDistanceNotifyThresholdM = 50.0;
 
 // Returns true if the closest turn is an entrance to a roundabout and the second is
 // an exit form a roundabout.
@@ -29,12 +35,6 @@ bool IsClassicEntranceToRoundabout(routing::turns::TurnItemDist const & firstTur
 }
 }  // namespace
 
-namespace routing
-{
-namespace turns
-{
-namespace sound
-{
 NotificationManager::NotificationManager()
   : m_enabled(false)
   , m_speedMetersPerSecond(0.0)
@@ -54,7 +54,7 @@ NotificationManager::NotificationManager()
 NotificationManager NotificationManager::CreateNotificationManagerForTesting(
     uint32_t startBeforeSeconds, uint32_t minStartBeforeMeters, uint32_t maxStartBeforeMeters,
     uint32_t minDistToSayNotificationMeters, measurement_utils::Units lengthUnits,
-    string const & engShortJson, uint32_t notificationTimeSecond, double speedMeterPerSecond)
+    std::string const & engShortJson, uint32_t notificationTimeSecond, double speedMeterPerSecond)
 {
   NotificationManager notificationManager;
   notificationManager.m_settings = Settings(startBeforeSeconds, minStartBeforeMeters,
@@ -71,29 +71,33 @@ NotificationManager NotificationManager::CreateNotificationManagerForTesting(
   return notificationManager;
 }
 
-string NotificationManager::GenerateTurnText(uint32_t distanceUnits, uint8_t exitNum,
-                                             bool useThenInsteadOfDistance, TurnItem const & turn,
-                                             measurement_utils::Units lengthUnits) const
+std::string NotificationManager::GenerateTurnText(uint32_t distanceUnits, uint8_t exitNum,
+                                                  bool useThenInsteadOfDistance, TurnItem const & turn,
+                                                  RouteSegment::RoadNameInfo const & nextStreetInfo) const
 {
-  if (turn.m_turn != CarDirection::None)
-  {
-    Notification const notification(distanceUnits, exitNum, useThenInsteadOfDistance, turn.m_turn,
-                                    lengthUnits);
-    return m_getTtsText.GetTurnNotification(notification);
-  }
+  auto const lengthUnits = m_settings.GetLengthUnits();
 
-  Notification const notification(distanceUnits, exitNum, useThenInsteadOfDistance,
-                                  turn.m_pedestrianTurn, lengthUnits);
-  return m_getTtsText.GetTurnNotification(notification);
+  if (turn.m_turn != CarDirection::None)
+    return m_getTtsText.GetTurnNotification(
+        {distanceUnits, exitNum, useThenInsteadOfDistance, turn.m_turn, lengthUnits, nextStreetInfo});
+
+  return m_getTtsText.GetTurnNotification({distanceUnits, exitNum, useThenInsteadOfDistance, turn.m_pedestrianTurn, lengthUnits, nextStreetInfo});
 }
 
-string NotificationManager::GenerateSpeedCameraText() const
+std::string NotificationManager::GenerateSpeedCameraText() const
 {
   return m_getTtsText.GetSpeedCameraNotification();
 }
 
-void NotificationManager::GenerateTurnNotifications(vector<TurnItemDist> const & turns,
-                                                    vector<string> & turnNotifications)
+void NotificationManager::GenerateTurnNotifications(std::vector<TurnItemDist> const & turns,
+                                                    std::vector<std::string> & turnNotifications)
+{
+  GenerateTurnNotifications(turns, turnNotifications, RouteSegment::RoadNameInfo{});
+}
+
+void NotificationManager::GenerateTurnNotifications(std::vector<TurnItemDist> const & turns,
+                                                    std::vector<std::string> & turnNotifications,
+                                                    RouteSegment::RoadNameInfo const & nextStreetInfo)
 {
   m_secondTurnNotification = GenerateSecondTurnNotification(turns);
 
@@ -102,37 +106,49 @@ void NotificationManager::GenerateTurnNotifications(vector<TurnItemDist> const &
     return;
 
   TurnItemDist const & firstTurn = turns.front();
-  string firstNotification = GenerateFirstTurnSound(firstTurn.m_turnItem, firstTurn.m_distMeters);
+
+  std::string firstNotification = GenerateFirstTurnSound(firstTurn.m_turnItem, firstTurn.m_distMeters, nextStreetInfo);
   if (m_nextTurnNotificationProgress == PronouncedNotification::Nothing)
     return;
   if (firstNotification.empty())
     return;
-  turnNotifications.emplace_back(move(firstNotification));
+  turnNotifications.emplace_back(std::move(firstNotification));
 
   // Generating notifications like "Then turn left" if necessary.
   if (turns.size() < 2)
     return;
   TurnItemDist const & secondTurn = turns[1];
   ASSERT_LESS_OR_EQUAL(firstTurn.m_distMeters, secondTurn.m_distMeters, ());
-  if (secondTurn.m_distMeters - firstTurn.m_distMeters > kMaxTurnDistM &&
+
+  double distBetweenTurnsMeters = secondTurn.m_distMeters - firstTurn.m_distMeters;
+  ASSERT_GREATER_OR_EQUAL(distBetweenTurnsMeters, 0, ());
+  if (distBetweenTurnsMeters > kSecondTurnThresholdDistM &&
       !IsClassicEntranceToRoundabout(firstTurn, secondTurn))
   {
     return;
   }
-  string secondNotification = GenerateTurnText(
-      0 /* distanceUnits is not used because of "Then" is used */, secondTurn.m_turnItem.m_exitNum,
-      true, secondTurn.m_turnItem, m_settings.GetLengthUnits());
+
+  if (distBetweenTurnsMeters < kDistanceNotifyThresholdM)
+  {
+    // distanceUnits is not used because of "Then" is used
+    distBetweenTurnsMeters = 0;
+  }
+
+  std::string secondNotification =
+      GenerateTurnText(m_settings.ConvertMetersToUnits(distBetweenTurnsMeters), secondTurn.m_turnItem.m_exitNum,
+                       true /* useThenInsteadOfDistance */, secondTurn.m_turnItem, RouteSegment::RoadNameInfo{});
   if (secondNotification.empty())
     return;
-  turnNotifications.emplace_back(move(secondNotification));
+  turnNotifications.emplace_back(std::move(secondNotification));
+
   // Turn notification with word "Then" (about the second turn) will be pronounced.
   // When this second turn become the first one the first notification about the turn
   // shall be skipped.
   m_turnNotificationWithThen = true;
 }
 
-string NotificationManager::GenerateFirstTurnSound(TurnItem const & turn,
-                                                   double distanceToTurnMeters)
+std::string NotificationManager::GenerateFirstTurnSound(TurnItem const & turn, double distanceToTurnMeters,
+                                                        RouteSegment::RoadNameInfo const & nextStreetInfo)
 {
   if (m_nextTurnIndex != turn.m_index)
   {
@@ -164,8 +180,7 @@ string NotificationManager::GenerateFirstTurnSound(TurnItem const & turn,
           if (distToPronounceMeters < 0)
           {
             FastForwardFirstTurnNotification();
-            return string();  // The current position is too close to the turn for the first
-                              // notification.
+            return {};  // The current position is too close to the turn for the first notification.
           }
 
           // Pronouncing first turn sound notification.
@@ -174,9 +189,10 @@ string NotificationManager::GenerateFirstTurnSound(TurnItem const & turn,
           uint32_t const roundedDistToPronounceUnits =
               m_settings.RoundByPresetSoundedDistancesUnits(distToPronounceUnits);
           m_nextTurnNotificationProgress = PronouncedNotification::First;
-          return GenerateTurnText(roundedDistToPronounceUnits, turn.m_exitNum,
-                                  false /* useThenInsteadOfDistance */, turn,
-                                  m_settings.GetLengthUnits());
+
+          LOG(LINFO, ("TTS meters to pronounce", distanceToPronounceNotificationM, "meters to turn", distanceToTurnMeters, "meters to start pronounce", startPronounceDistMeters, "speed m/s", m_speedMetersPerSecond));
+          return GenerateTurnText(roundedDistToPronounceUnits, turn.m_exitNum, false /* useThenInsteadOfDistance */,
+                                  turn, nextStreetInfo);
         }
       }
     }
@@ -187,7 +203,7 @@ string NotificationManager::GenerateFirstTurnSound(TurnItem const & turn,
       m_nextTurnNotificationProgress = PronouncedNotification::First;
       FastForwardFirstTurnNotification();
     }
-    return string();
+    return {};
   }
 
   if (m_nextTurnNotificationProgress == PronouncedNotification::First &&
@@ -195,11 +211,12 @@ string NotificationManager::GenerateFirstTurnSound(TurnItem const & turn,
   {
     m_nextTurnNotificationProgress = PronouncedNotification::Second;
     FastForwardFirstTurnNotification();
-    return GenerateTurnText(0 /* distanceUnits */, turn.m_exitNum,
-                            false /* useThenInsteadOfDistance */, turn,
-                            m_settings.GetLengthUnits());
+
+    LOG(LINFO,("TTS meters to pronounce", distanceToPronounceNotificationM, "meters to turn", distanceToTurnMeters, "speed m/s", m_speedMetersPerSecond));
+    return GenerateTurnText(0 /* distMeters */, turn.m_exitNum, false /* useThenInsteadOfDistance */, turn,
+                            nextStreetInfo);
   }
-  return string();
+  return {};
 }
 
 void NotificationManager::Enable(bool enable)
@@ -234,7 +251,7 @@ void NotificationManager::SetSpeedMetersPerSecond(double speed)
   // When the quality of GPS data is bad the current speed may be less then zero.
   // It's easy to reproduce at an office with Nexus 5.
   // In that case zero meters per second is used.
-  m_speedMetersPerSecond = max(0., speed);
+  m_speedMetersPerSecond = std::max(0., speed);
 }
 
 void NotificationManager::Reset()
@@ -253,7 +270,7 @@ void NotificationManager::FastForwardFirstTurnNotification()
     m_nextTurnNotificationProgress = PronouncedNotification::First;
 }
 
-CarDirection NotificationManager::GenerateSecondTurnNotification(vector<TurnItemDist> const & turns)
+CarDirection NotificationManager::GenerateSecondTurnNotification(std::vector<TurnItemDist> const & turns)
 {
   if (turns.size() < 2)
   {
@@ -272,7 +289,7 @@ CarDirection NotificationManager::GenerateSecondTurnNotification(vector<TurnItem
   double const distBetweenTurnsMeters = secondTurn.m_distMeters - firstTurn.m_distMeters;
   ASSERT_LESS_OR_EQUAL(0., distBetweenTurnsMeters, ());
 
-  if (distBetweenTurnsMeters > kMaxTurnDistM)
+  if (distBetweenTurnsMeters > kSecondTurnThresholdDistM)
     return CarDirection::None;
 
   uint32_t const startPronounceDistMeters =
@@ -288,12 +305,12 @@ CarDirection NotificationManager::GenerateSecondTurnNotification(vector<TurnItem
   return CarDirection::None;
 }
 
-void NotificationManager::SetLocaleWithJsonForTesting(string const & json, string const & locale)
+void NotificationManager::SetLocaleWithJsonForTesting(std::string const & json, std::string const & locale)
 {
   m_getTtsText.ForTestingSetLocaleWithJson(json, locale);
 }
 
-string DebugPrint(PronouncedNotification notificationProgress)
+std::string DebugPrint(PronouncedNotification notificationProgress)
 {
   switch (notificationProgress)
   {

@@ -18,7 +18,7 @@ std::string GetLocalizedTypeName(std::string const & type)
 std::string GetLocalizedBrandName(std::string const & brand)
 {
   auto const key = "brand." + brand;
-  return [NSLocalizedString(@(key.c_str()), @"") UTF8String];
+  return [NSLocalizedStringWithDefaultValue(@(key.c_str()), nil, NSBundle.mainBundle, @(brand.c_str()), @"") UTF8String];
 }
 
 std::string GetLocalizedString(std::string const & key)
@@ -35,5 +35,13 @@ std::string GetCurrencySymbol(std::string const & currencyCode)
     return currencyCode;
 
   return [symbol UTF8String];
+}
+
+std::string GetLocalizedMyPositionBookmarkName()
+{
+  NSDate * now = [NSDate date];
+  return [NSDateFormatter localizedStringFromDate:now
+                                        dateStyle:NSDateFormatterLongStyle
+                                        timeStyle:NSDateFormatterShortStyle].UTF8String;
 }
 }  // namespace platform

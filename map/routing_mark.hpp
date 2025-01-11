@@ -22,6 +22,7 @@ struct RouteMarkData
   bool m_isVisible = true;
   bool m_isMyPosition = false;
   bool m_isPassed = false;
+  bool m_replaceWithMyPositionAfterRestart = false;
   m2::PointD m_position;
 };
 
@@ -169,7 +170,9 @@ class SpeedCameraMark : public UserMark
 {
 public:
   explicit SpeedCameraMark(m2::PointD const & ptOrg);
+
   void SetTitle(std::string const & title);
+  std::string const & GetTitle() const;
 
   void SetIndex(uint32_t index);
   uint32_t GetIndex() const override { return m_index; }
@@ -192,7 +195,6 @@ private:
   uint32_t m_index = 0;
   SymbolNameZoomInfo m_symbolNames;
   ColoredSymbolZoomInfo m_textBg;
-  std::string m_title;
   dp::TitleDecl m_titleDecl;
 };
 

@@ -2,8 +2,6 @@
 
 #include "indexer/classificator.hpp"
 #include "indexer/feature.hpp"
-#include "indexer/feature_impl.hpp"
-#include "indexer/feature_visibility.hpp"
 #include "indexer/ftypes_matcher.hpp"
 
 #include "base/assert.hpp"
@@ -12,13 +10,10 @@
 #include "base/string_utils.hpp"
 
 #include <algorithm>
-#include <functional>
 #include <sstream>
 #include <vector>
 
 using namespace feature;
-using namespace std;
-using namespace std::placeholders;
 
 ////////////////////////////////////////////////////////////////////////////////////
 // TypesHolder implementation
@@ -26,7 +21,9 @@ using namespace std::placeholders;
 
 namespace feature
 {
-string DebugPrint(TypesHolder const & holder)
+using namespace std;
+
+template <class ContT> string TypesToString(ContT const & holder)
 {
   Classificator const & c = classif();
   string s;
@@ -37,6 +34,11 @@ string DebugPrint(TypesHolder const & holder)
   return s;
 }
 
+std::string DebugPrint(TypesHolder const & holder)
+{
+  return TypesToString(holder);
+}
+
 TypesHolder::TypesHolder(FeatureType & f) : m_size(0), m_geomType(f.GetGeomType())
 {
   f.ForEachType([this](uint32_t type)
@@ -45,16 +47,16 @@ TypesHolder::TypesHolder(FeatureType & f) : m_size(0), m_geomType(f.GetGeomType(
   });
 }
 
-// static
-TypesHolder TypesHolder::FromTypesIndexes(std::vector<uint32_t> const & indexes)
+bool TypesHolder::HasWithSubclass(uint32_t type) const
 {
-  TypesHolder result;
-  for (auto index : indexes)
+  uint8_t const level = ftype::GetLevel(type);
+  for (uint32_t t : *this)
   {
-    result.Add(classif().GetTypeForIndex(index));
+    ftype::TruncValue(t, level);
+    if (t == type)
+      return true;
   }
-
-  return result;
+  return false;
 }
 
 void TypesHolder::Remove(uint32_t type)
@@ -67,15 +69,17 @@ bool TypesHolder::Equals(TypesHolder const & other) const
   if (m_size != other.m_size)
     return false;
 
-  vector<uint32_t> my(this->begin(), this->end());
-  vector<uint32_t> his(other.begin(), other.end());
+  // Dynamic vector + sort for kMaxTypesCount array is a huge overhead.
 
-  sort(::begin(my), ::end(my));
-  sort(::begin(his), ::end(his));
-
-  return my == his;
+  auto const b = begin();
+  auto const e = end();
+  for (auto t : other)
+  {
+    if (std::find(b, e, t) == e)
+      return false;
+  }
+  return true;
 }
-}  // namespace feature
 
 namespace
 {
@@ -91,15 +95,16 @@ public:
   /// @return Type score, less is better.
   uint8_t Score(uint32_t t) const
   {
-    // 2-arity is better than 1-arity
-
     ftype::TruncValue(t, 2);
-    if (IsIn2(t))
-      return 1;
+    if (IsIn(2, t))
+      return 3;
 
     ftype::TruncValue(t, 1);
-    if (IsIn1(t))
+    if (IsIn(1, t))
       return 2;
+
+    if (IsIn(0, t))
+      return 1;
 
     return 0;
   }
@@ -118,66 +123,56 @@ private:
   {
     // Fill types that will be taken into account last,
     // when we have many types for POI.
-    vector<vector<string>> const types = {
+    base::StringIL const types1[] = {
         // 1-arity
-        {"building"},
         {"building:part"},
         {"hwtag"},
         {"psurface"},
         {"internet_access"},
+        {"organic"},
         {"wheelchair"},
-        {"sponsored"},
-        {"entrance"},
         {"cuisine"},
         {"recycling"},
         {"area:highway"},
-        {"earthquake:damage"},
-        // 2-arity
-        {"amenity", "atm"},
-        {"amenity", "bench"},
-        {"amenity", "shelter"},
-        {"amenity", "toilets"},
-        {"amenity", "drinking_water"},
-        {"building", "address"},
-        {"building", "has_parts"},
+        {"fee"},
     };
 
     Classificator const & c = classif();
-    for (auto const & type : types)
-    {
-      if (type.size() == 1)
-        m_types1.push_back(c.GetTypeByPath(type));
-      else if (type.size() == 2)
-        m_types2.push_back(c.GetTypeByPath(type));
-      else
-        ASSERT(false, (type));
-    }
 
-    std::sort(m_types1.begin(), m_types1.end());
-    std::sort(m_types2.begin(), m_types2.end());
+    m_types[0].push_back(c.GetTypeByPath({"building"}));
+
+    m_types[1].reserve(std::size(types1));
+    for (auto const & type : types1)
+      m_types[1].push_back(c.GetTypeByPath(type));
+
+    // Put _most_ useless types here, that are not fit in the arity logic above.
+    // This change is for generator, to eliminate "lit" type first when max types count exceeded.
+    m_types[2].push_back(c.GetTypeByPath({"hwtag", "lit"}));
+
+    for (auto & v : m_types)
+      std::sort(v.begin(), v.end());
   }
 
-  bool IsIn1(uint32_t t) const { return std::binary_search(m_types1.begin(), m_types1.end(), t); }
-  bool IsIn2(uint32_t t) const { return std::binary_search(m_types2.begin(), m_types2.end(), t); }
+  bool IsIn(uint8_t idx, uint32_t t) const
+  {
+    return std::binary_search(m_types[idx].begin(), m_types[idx].end(), t);
+  }
 
-  vector<uint32_t> m_types1;
-  vector<uint32_t> m_types2;
+  vector<uint32_t> m_types[3];
 };
+} // namespace
 
-}  // namespace
-
-namespace feature
-{
 uint8_t CalculateHeader(size_t const typesCount, HeaderGeomType const headerGeomType,
                         FeatureParamsBase const & params)
 {
   ASSERT(typesCount != 0, ("Feature should have at least one type."));
+  ASSERT_LESS_OR_EQUAL(typesCount, kMaxTypesCount, ());
   uint8_t header = static_cast<uint8_t>(typesCount - 1);
 
   if (!params.name.IsEmpty())
     header |= HEADER_MASK_HAS_NAME;
 
-  if (params.layer != 0)
+  if (params.layer != LAYER_EMPTY)
     header |= HEADER_MASK_HAS_LAYER;
 
   header |= static_cast<uint8_t>(headerGeomType);
@@ -203,16 +198,39 @@ uint8_t CalculateHeader(size_t const typesCount, HeaderGeomType const headerGeom
   return header;
 }
 
-void TypesHolder::SortBySpec()
+void TypesHolder::SortByUseless()
 {
   UselessTypesChecker::Instance().SortUselessToEnd(*this);
 }
 
+void TypesHolder::SortBySpec()
+{
+  auto const & cl = classif();
+  auto const getPriority = [&cl](uint32_t type)
+  {
+    return cl.GetObject(type)->GetMaxOverlaysPriority();
+  };
+
+  auto const & checker = UselessTypesChecker::Instance();
+
+  std::stable_sort(begin(), end(), [&checker, &getPriority](uint32_t t1, uint32_t t2)
+  {
+    int const p1 = getPriority(t1);
+    int const p2 = getPriority(t2);
+    if (p1 != p2)
+      return p1 > p2;
+
+    // Score - less is better.
+    return checker.Score(t1) < checker.Score(t2);
+  });
+}
+
 vector<string> TypesHolder::ToObjectNames() const
 {
+  Classificator const & c = classif();
   vector<string> result;
-  for (auto const type : *this)
-    result.push_back(classif().GetReadableObjectName(type));
+  for (uint32_t const type : *this)
+    result.push_back(c.GetReadableObjectName(type));
   return result;
 }
 }  // namespace feature
@@ -230,6 +248,16 @@ void FeatureParamsBase::MakeZero()
   name.Clear();
 }
 
+bool FeatureParamsBase::SetDefaultNameIfEmpty(std::string const & s)
+{
+  std::string_view existing;
+  if (name.GetString(StringUtf8Multilang::kDefaultCode, existing))
+    return existing == s;
+
+  name.AddString(StringUtf8Multilang::kDefaultCode, s);
+  return true;
+}
+
 bool FeatureParamsBase::operator == (FeatureParamsBase const & rhs) const
 {
   return (name == rhs.name && house == rhs.house && ref == rhs.ref &&
@@ -238,14 +266,15 @@ bool FeatureParamsBase::operator == (FeatureParamsBase const & rhs) const
 
 bool FeatureParamsBase::IsValid() const
 {
-  return layer > LAYER_LOW && layer < LAYER_HIGH;
+  return layer >= LAYER_LOW && layer <= LAYER_HIGH;
 }
 
 string FeatureParamsBase::DebugString() const
 {
   string const utf8name = DebugPrint(name);
   return ((!utf8name.empty() ? "Name:" + utf8name : "") +
-          (rank != 0 ? " Rank:" + DebugPrint(rank) : "") +
+          (layer != LAYER_EMPTY ? " Layer:" + DebugPrint((int)layer) : "") +
+          (rank != 0 ? " Rank:" + DebugPrint((int)rank) : "") +
           (!house.IsEmpty() ? " House:" + house.Get() : "") +
           (!ref.empty() ? " Ref:" + ref : ""));
 }
@@ -258,7 +287,7 @@ bool FeatureParamsBase::IsEmptyNames() const
 namespace
 {
 
-bool IsDummyName(string const & s)
+bool IsDummyName(string_view s)
 {
   return s.empty();
 }
@@ -274,76 +303,73 @@ void FeatureParams::ClearName()
   name.Clear();
 }
 
-bool FeatureParams::AddName(string const & lang, string const & s)
+bool FeatureParams::AddName(string_view lang, string_view s)
 {
   if (IsDummyName(s))
     return false;
 
-  // The "default" new name will replace the old one if any (e.g. from AddHouseName call).
+  // The "default" new name will replace the old one if any (e.g. from SetHouseNumberAndHouseName call).
   name.AddString(lang, s);
   return true;
 }
 
-bool FeatureParams::AddHouseName(string const & s)
+bool FeatureParams::LooksLikeHouseNumber(std::string const & hn)
 {
-  if (IsDummyName(s) || name.FindString(s) != StringUtf8Multilang::kUnsupportedLanguageCode)
-    return false;
+  // Very naive implementation to _lightly_ promote hn -> name (for search index) if suitable.
+  /// @todo Conform with search::LooksLikeHouseNumber.
 
-  // Most names are house numbers by statistics.
-  if (house.IsEmpty() && AddHouseNumber(s))
-    return true;
+  ASSERT(!hn.empty(), ());
+  size_t const sz = hn.size();
+  return strings::IsASCIIDigit(hn[0]) ||
+         (sz == 1 && strings::IsASCIILatin(hn[0])) ||
+         std::count_if(hn.begin(), hn.end(), &strings::IsASCIIDigit) > 0.2 * sz;
+}
 
-  // If we got a clear number, replace the house number with it.
-  // Example: housename=16th Street, housenumber=34
-  if (strings::is_number(s))
+char const * FeatureParams::kHNLogTag = "HNLog";
+
+void FeatureParams::SetHouseNumberAndHouseName(std::string houseNumber, std::string houseName)
+{
+  if (IsDummyName(houseName) || name.FindString(houseName) != StringUtf8Multilang::kUnsupportedLanguageCode)
+    houseName.clear();
+
+  if (houseName.empty() && houseNumber.empty())
+    return;
+
+  if (houseName.empty())
+    AddHouseNumber(houseNumber);
+  else if (houseNumber.empty())
+    AddHouseNumber(houseName);
+  else
   {
-    string housename(house.Get());
-    if (AddHouseNumber(s))
+    if (!LooksLikeHouseNumber(houseNumber) && LooksLikeHouseNumber(houseName))
     {
-      // Duplicating code to avoid changing the method header.
-      string dummy;
-      if (!name.GetString(StringUtf8Multilang::kDefaultCode, dummy))
-        name.AddString(StringUtf8Multilang::kDefaultCode, housename);
-      return true;
+      LOG(LWARNING, (kHNLogTag, "Fancy house name:", houseName, "and number:", houseNumber));
+      houseNumber.swap(houseName);
     }
-  }
 
-  // Add as a default name if we don't have it yet.
-  string dummy;
-  if (!name.GetString(StringUtf8Multilang::kDefaultCode, dummy))
-  {
-    name.AddString(StringUtf8Multilang::kDefaultCode, s);
-    return true;
+    AddHouseNumber(std::move(houseNumber));
+    SetDefaultNameIfEmpty(houseName);
   }
-
-  return false;
 }
 
 bool FeatureParams::AddHouseNumber(string houseNumber)
 {
-  ASSERT(!houseNumber.empty(), ("This check should be done by the caller."));
-  ASSERT_NOT_EQUAL(houseNumber.front(), ' ', ("Trim should be done by the caller."));
+  ASSERT(!houseNumber.empty(), ());
 
   // Negative house numbers are not supported.
-  if (houseNumber.front() == '-' || houseNumber.find(u8"－") == 0)
+  if (houseNumber.front() == '-' || houseNumber.find("－") == 0)
+  {
+    LOG(LWARNING, (kHNLogTag, "Negative house number:", houseNumber));
     return false;
+  }
 
   // Replace full-width digits, mostly in Japan, by ascii-ones.
   strings::NormalizeDigits(houseNumber);
 
-  // Remove leading zeroes from house numbers.
-  // It's important for debug checks of serialized-deserialized feature.
-  size_t i = 0;
-  while (i + 1 < houseNumber.size() && houseNumber[i] == '0')
-    ++i;
-  houseNumber.erase(0, i);
-
-  if (any_of(houseNumber.cbegin(), houseNumber.cend(), IsDigit))
-  {
-    house.Set(houseNumber);
-    return true;
-  }
-  return false;
+  // Assign house number as-is to create building-address if needed.
+  // Final checks are made in FeatureBuilder::PreSerialize().
+  house.Set(houseNumber);
+  return true;
 }
 
 void FeatureParams::SetGeomType(feature::GeomType t)
@@ -359,8 +385,7 @@ void FeatureParams::SetGeomType(feature::GeomType t)
 
 void FeatureParams::SetGeomTypePointEx()
 {
-  ASSERT(m_geomType == HeaderGeomType::Point ||
-         m_geomType == HeaderGeomType::PointEx, ());
+  ASSERT(m_geomType == HeaderGeomType::Point || m_geomType == HeaderGeomType::PointEx, ());
   ASSERT(!house.IsEmpty(), ());
 
   m_geomType = HeaderGeomType::PointEx;
@@ -402,27 +427,11 @@ void FeatureParams::SetRwSubwayType(char const * cityName)
   }
 }
 
-void FeatureParams::AddTypes(FeatureParams const & rhs, uint32_t skipType2)
-{
-  if (skipType2 == 0)
-  {
-    m_types.insert(m_types.end(), rhs.m_types.begin(), rhs.m_types.end());
-  }
-  else
-  {
-    for (size_t i = 0; i < rhs.m_types.size(); ++i)
-    {
-      uint32_t t = rhs.m_types[i];
-      ftype::TruncValue(t, 2);
-      if (t != skipType2)
-        m_types.push_back(rhs.m_types[i]);
-    }
-  }
-}
-
-bool FeatureParams::FinishAddingTypes()
+FeatureParams::TypesResult FeatureParams::FinishAddingTypesEx()
 {
   base::SortUnique(m_types);
+
+  TypesResult res = TYPES_GOOD;
 
   if (m_types.size() > kMaxTypesCount)
   {
@@ -430,16 +439,23 @@ bool FeatureParams::FinishAddingTypes()
 
     m_types.resize(kMaxTypesCount);
     sort(m_types.begin(), m_types.end());
+
+    res = TYPES_EXCEED_MAX;
   }
 
   // Patch fix that removes house number from localities.
+  /// @todo move this fix elsewhere (osm2type.cpp?)
   if (!house.IsEmpty() && ftypes::IsLocalityChecker::Instance()(m_types))
-  {
-    LOG(LINFO, ("Locality with house number", *this));
     house.Clear();
-  }
 
-  return !m_types.empty();
+  return (m_types.empty() ? TYPES_EMPTY : res);
+}
+
+std::string FeatureParams::PrintTypes()
+{
+  base::SortUnique(m_types);
+  UselessTypesChecker::Instance().SortUselessToEnd(m_types);
+  return TypesToString(m_types);
 }
 
 void FeatureParams::SetType(uint32_t t)
@@ -464,7 +480,7 @@ bool FeatureParams::PopExactType(uint32_t t)
 
 bool FeatureParams::IsTypeExist(uint32_t t) const
 {
-  return (find(m_types.begin(), m_types.end(), t) != m_types.end());
+  return base::IsExist(m_types, t);
 }
 
 bool FeatureParams::IsTypeExist(uint32_t comp, uint8_t level) const
@@ -507,27 +523,97 @@ uint32_t FeatureParams::GetTypeForIndex(uint32_t i)
   return classif().GetTypeForIndex(i);
 }
 
-void FeatureBuilderParams::AddStreet(string s)
+void FeatureBuilderParams::SetStreet(string s)
 {
-  // Replace \n with spaces because we write addresses to txt file.
-  replace(s.begin(), s.end(), '\n', ' ');
-
-  m_addrTags.Add(AddressData::Type::Street, s);
+  m_addrTags.Set(AddressData::Type::Street, std::move(s));
 }
 
-void FeatureBuilderParams::AddPostcode(string const & s)
+std::string_view FeatureBuilderParams::GetStreet() const
 {
-  m_addrTags.Add(AddressData::Type::Postcode, s);
+  return m_addrTags.Get(AddressData::Type::Street);
+}
+
+void FeatureBuilderParams::SetPostcode(string s)
+{
+  if (!s.empty())
+    m_metadata.Set(Metadata::FMD_POSTCODE, std::move(s));
+}
+
+std::string_view FeatureBuilderParams::GetPostcode() const
+{
+  return m_metadata.Get(Metadata::FMD_POSTCODE);
+}
+
+namespace
+{
+
+// Define types that can't live together in a feature.
+class YesNoTypes
+{
+  std::vector<std::pair<uint32_t, uint32_t>> m_types;
+
+public:
+  YesNoTypes()
+  {
+    // Remain first type and erase second in case of conflict.
+    base::StringIL arr[][2] = {
+      {{"hwtag", "yescar"}, {"hwtag", "nocar"}},
+      {{"hwtag", "yesfoot"}, {"hwtag", "nofoot"}},
+      {{"hwtag", "yesbicycle"}, {"hwtag", "nobicycle"}},
+      {{"hwtag", "nobicycle"}, {"hwtag", "bidir_bicycle"}},
+      {{"hwtag", "nobicycle"}, {"hwtag", "onedir_bicycle"}},
+      {{"hwtag", "bidir_bicycle"}, {"hwtag", "onedir_bicycle"}},
+      {{"wheelchair", "yes"}, {"wheelchair", "no"}},
+    };
+
+    auto const & cl = classif();
+    for (auto const & p : arr)
+      m_types.emplace_back(cl.GetTypeByPath(p[0]), cl.GetTypeByPath(p[1]));
+  }
+
+  bool RemoveInconsistent(std::vector<uint32_t> & types) const
+  {
+    size_t const szBefore = types.size();
+    for (auto const & p : m_types)
+    {
+      uint32_t skip;
+      bool found1 = false, found2 = false;
+      for (uint32_t t : types)
+      {
+        if (t == p.first)
+          found1 = true;
+        if (t == p.second)
+        {
+          found2 = true;
+          skip = t;
+        }
+      }
+
+      if (found1 && found2)
+        base::EraseIf(types, [skip](uint32_t t) { return skip == t; });
+    }
+
+    return szBefore != types.size();
+  }
+};
+
+} // namespace
+
+bool FeatureBuilderParams::RemoveInconsistentTypes()
+{
+  static YesNoTypes ynTypes;
+  return ynTypes.RemoveInconsistent(m_types);
+}
+
+void FeatureBuilderParams::ClearPOIAttribs()
+{
+  ClearName();
+  m_metadata.ClearPOIAttribs();
 }
 
 string DebugPrint(FeatureParams const & p)
 {
-  Classificator const & c = classif();
-
-  string res = "Types: ";
-  for (size_t i = 0; i < p.m_types.size(); ++i)
-    res = res + c.GetReadableObjectName(p.m_types[i]) + "; ";
-
+  string res = "Types: " + TypesToString(p.m_types) + "; ";
   return (res + p.DebugString());
 }
 
@@ -535,8 +621,8 @@ string DebugPrint(FeatureBuilderParams const & p)
 {
   ostringstream oss;
   oss << "ReversedGeometry: " << (p.GetReversedGeometry() ? "true" : "false") << "; ";
-  oss << DebugPrint(p.GetMetadata()) << "; ";
-  oss << DebugPrint(p.GetAddressData()) << "; ";
-  oss << DebugPrint(FeatureParams(p));
+  oss << DebugPrint(p.m_metadata) << "; ";
+  oss << DebugPrint(p.m_addrTags) << "; ";
+  oss << DebugPrint(static_cast<FeatureParams const &>(p));
   return oss.str();
 }

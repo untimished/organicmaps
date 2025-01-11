@@ -171,7 +171,7 @@ double getExactDPI(double contentScaleFactor)
   p.m_surfaceHeight = height;
   p.m_visualScale = dp::VisualScale(getExactDPI(self.contentScaleFactor));
   p.m_hints.m_isFirstLaunch = [FirstSession isFirstSession];
-  p.m_hints.m_isLaunchByDeepLink = self.isLaunchByDeepLink;
+  p.m_hints.m_isLaunchByDeepLink = DeepLinkHandler.shared.isLaunchedByDeeplink;
 
   [self.widgetsManager setupWidgets:p];
   GetFramework().CreateDrapeEngine(make_ref(m_factory), std::move(p));
@@ -195,8 +195,7 @@ double getExactDPI(double contentScaleFactor)
   {
     m_lastViewSize = self.frame;
     CGSize const objcSize = [self pixelSize];
-    m2::PointU const s = m2::PointU(static_cast<uint32_t>(objcSize.width), static_cast<uint32_t>(objcSize.height));
-    GetFramework().OnSize(s.x, s.y);
+    GetFramework().OnSize(static_cast<int>(objcSize.width), static_cast<int>(objcSize.height));
     [self.widgetsManager resize:objcSize];
   }
   [super layoutSubviews];

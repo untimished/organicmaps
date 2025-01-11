@@ -1,7 +1,13 @@
 #import "MWMCarPlaySearchResultObject.h"
 #import "MWMSearch.h"
-#include "platform/localization.hpp"
+
 #include "search/result.hpp"
+
+#include "indexer/classificator.hpp"
+
+#include "geometry/mercator.hpp"
+
+#include "platform/localization.hpp"
 
 @interface MWMCarPlaySearchResultObject()
 @property(assign, nonatomic, readwrite) NSInteger originalRow;
@@ -21,11 +27,7 @@
     MWMSearchItemType type = [MWMSearch resultTypeWithRow:row];
     if (type == MWMSearchItemTypeRegular) {
       auto const & result = [MWMSearch resultWithContainerIndex:containerIndex];
-      NSString *localizedTypeName = @"";
-      if (result.GetResultType() == search::Result::Type::Feature) {
-        auto const readableType = classif().GetReadableObjectName(result.GetFeatureType());
-        localizedTypeName = @(platform::GetLocalizedTypeName(readableType).c_str());
-      }
+      NSString *localizedTypeName = @(result.GetLocalizedFeatureType().c_str());
       self.title = result.GetString().empty() ? localizedTypeName : @(result.GetString().c_str());
       self.address = @(result.GetAddress().c_str());
       auto const pivot = result.GetFeatureCenter();

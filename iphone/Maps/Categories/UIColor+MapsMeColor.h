@@ -24,18 +24,17 @@ NS_ASSUME_NONNULL_BEGIN
 + (UIColor *)opentableBackground;
 + (UIColor *)transparentGreen;
 + (UIColor *)speedLimitRed;
-+ (UIColor *)speedLimitGeen;
++ (UIColor *)speedLimitGreen;
 + (UIColor *)speedLimitWhite;
 + (UIColor *)speedLimitLightGray;
 + (UIColor *)speedLimitDarkGray;
++ (UIColor *)carplayPlaceholderBackground;
 
 + (UIColor *)colorWithName:(NSString *)colorName;
 + (UIColor *)colorFromHexString:(NSString *)hexString;
 
 + (void)setNightMode:(BOOL)mode;
 + (BOOL)isNightMode;
-
-- (UIColor *)opposite;
 
 @end
 

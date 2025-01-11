@@ -80,7 +80,7 @@ void RenderGroup::Render(ref_ptr<dp::GraphicsContext> context, ref_ptr<gpu::Prog
   programPtr->Bind();
   dp::ApplyState(context, programPtr, m_state);
 
-  for(auto & renderBucket : m_renderBuckets)
+  for (auto & renderBucket : m_renderBuckets)
     renderBucket->GetBuffer()->Build(context, programPtr);
 
   auto const program = m_state.GetProgram<gpu::Program>();
@@ -102,45 +102,28 @@ void RenderGroup::Render(ref_ptr<dp::GraphicsContext> context, ref_ptr<gpu::Prog
     m_params.m_isOutlinePass = 1.0f;
 
     mng->GetParamsSetter()->Apply(context, programPtr, m_params);
-    for(auto & renderBucket : m_renderBuckets)
+    for (auto & renderBucket : m_renderBuckets)
       renderBucket->Render(context, m_state.GetDrawAsLine());
 
     m_params.m_contrastGamma = glsl::vec2(glyphParams.m_contrast, glyphParams.m_gamma);
     m_params.m_isOutlinePass = 0.0f;
-
-    mng->GetParamsSetter()->Apply(context, programPtr, m_params);
-    for(auto & renderBucket : m_renderBuckets)
-      renderBucket->Render(context, m_state.GetDrawAsLine());
   }
   else if (program == gpu::Program::Text || program3d == gpu::Program::TextBillboard)
   {
     m_params.m_contrastGamma = glsl::vec2(glyphParams.m_contrast, glyphParams.m_gamma);
-
-    mng->GetParamsSetter()->Apply(context, programPtr, m_params);
-    for(auto & renderBucket : m_renderBuckets)
-      renderBucket->Render(context, m_state.GetDrawAsLine());
-  }
-  else
-  {
-    mng->GetParamsSetter()->Apply(context, programPtr, m_params);
-    for(drape_ptr<dp::RenderBucket> & renderBucket : m_renderBuckets)
-      renderBucket->Render(context, m_state.GetDrawAsLine());
   }
 
-  for(auto const & renderBucket : m_renderBuckets)
+  mng->GetParamsSetter()->Apply(context, programPtr, m_params);
+  for (auto & renderBucket : m_renderBuckets)
+    renderBucket->Render(context, m_state.GetDrawAsLine());
+
+  for (auto const & renderBucket : m_renderBuckets)
     renderBucket->RenderDebug(context, screen, debugRectRenderer);
 }
 
 void RenderGroup::AddBucket(drape_ptr<dp::RenderBucket> && bucket)
 {
   m_renderBuckets.push_back(std::move(bucket));
-}
-
-bool RenderGroup::IsOverlay() const
-{
-  auto const depthLayer = GetDepthLayer(m_state);
-  return (depthLayer == DepthLayer::OverlayLayer) ||
-         (depthLayer == DepthLayer::NavigationLayer && HasOverlayHandles());
 }
 
 bool RenderGroup::IsUserMark() const
@@ -160,7 +143,7 @@ bool RenderGroup::UpdateCanBeDeletedStatus(bool canBeDeleted, int currentZoom, r
 
   for (size_t i = 0; i < m_renderBuckets.size(); )
   {
-    bool visibleBucket = !canBeDeleted && (m_renderBuckets[i]->GetMinZoom() <= currentZoom);
+    bool const visibleBucket = !canBeDeleted && (m_renderBuckets[i]->GetMinZoom() <= currentZoom);
     if (!visibleBucket)
     {
       m_renderBuckets[i]->RemoveOverlayHandles(tree);

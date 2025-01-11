@@ -15,7 +15,6 @@ final class SettingsTemplateBuilder {
     return [createUnpavedButton(options: options),
             createTollButton(options: options),
             createFerryButton(options: options),
-            createTrafficButton(),
             createSpeedcamButton()]
   }
   
@@ -23,8 +22,7 @@ final class SettingsTemplateBuilder {
   private class func createTollButton(options: RoutingOptions) -> CPGridButton {
     var tollIconName = "ic_carplay_toll"
     if options.avoidToll { tollIconName += "_active" }
-    let tollButton = CPGridButton(titleVariants: [L("avoid_tolls_carplay_1"),
-                                                  L("avoid_tolls_carplay_2")],
+    let tollButton = CPGridButton(titleVariants: [L("avoid_tolls")],
                                   image: UIImage(named: tollIconName)!) { _ in
                                     options.avoidToll = !options.avoidToll
                                     options.save()
@@ -37,8 +35,7 @@ final class SettingsTemplateBuilder {
   private class func createUnpavedButton(options: RoutingOptions) -> CPGridButton {
     var unpavedIconName = "ic_carplay_unpaved"
     if options.avoidDirty { unpavedIconName += "_active" }
-    let unpavedButton = CPGridButton(titleVariants: [L("avoid_unpaved_carplay_1"),
-                                                     L("avoid_unpaved_carplay_2")],
+    let unpavedButton = CPGridButton(titleVariants: [L("avoid_unpaved")],
                                      image: UIImage(named: unpavedIconName)!) { _ in
                                       options.avoidDirty = !options.avoidDirty
                                       options.save()
@@ -51,8 +48,7 @@ final class SettingsTemplateBuilder {
   private class func createFerryButton(options: RoutingOptions) -> CPGridButton {
     var ferryIconName = "ic_carplay_ferry"
     if options.avoidFerry { ferryIconName += "_active" }
-    let ferryButton = CPGridButton(titleVariants: [L("avoid_ferry_carplay_1"),
-                                                   L("avoid_ferry_carplay_2")],
+    let ferryButton = CPGridButton(titleVariants: [L("avoid_ferry")],
                                    image: UIImage(named: ferryIconName)!) { _ in
                                     options.avoidFerry = !options.avoidFerry
                                     options.save()
@@ -60,18 +56,6 @@ final class SettingsTemplateBuilder {
                                     CarPlayService.shared.popTemplate(animated: true)
     }
     return ferryButton
-  }
-  
-  private class func createTrafficButton() -> CPGridButton {
-    var trafficIconName = "ic_carplay_trafficlight"
-    let isTrafficEnabled = MapOverlayManager.trafficEnabled()
-    if isTrafficEnabled { trafficIconName += "_active" }
-    let trafficButton = CPGridButton(titleVariants: [L("button_layer_traffic")],
-                                     image: UIImage(named: trafficIconName)!) { _ in
-                                      MapOverlayManager.setTrafficEnabled(!isTrafficEnabled)
-                                      CarPlayService.shared.popTemplate(animated: true)
-    }
-    return trafficButton
   }
   
   private class func createSpeedcamButton() -> CPGridButton {

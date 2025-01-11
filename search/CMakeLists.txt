@@ -1,7 +1,6 @@
 project(search)
 
-set(
-  SRC
+set(SRC
   algos.hpp
   approximate_string_match.cpp
   approximate_string_match.hpp
@@ -13,7 +12,7 @@ set(
   base/text_index/mem.cpp
   base/text_index/mem.hpp
   base/text_index/merger.cpp
-  base/text_index/merger.hpp  
+  base/text_index/merger.hpp
   base/text_index/postings.hpp
   base/text_index/reader.hpp
   base/text_index/text_index.cpp
@@ -61,8 +60,10 @@ set(
   features_layer.hpp
   features_layer_matcher.cpp
   features_layer_matcher.hpp
-  features_layer_path_finder.cpp
+  # Template functions implementation. Should be included when using.
+  # features_layer_path_finder.cpp
   features_layer_path_finder.hpp
+  filtering_params.hpp
   geocoder.cpp
   geocoder.hpp
   geocoder_context.cpp
@@ -152,6 +153,8 @@ set(
   street_vicinity_loader.hpp
   streets_matcher.cpp
   streets_matcher.hpp
+  string_utils.cpp
+  string_utils.hpp
   suggest.cpp
   suggest.hpp
   token_range.hpp
@@ -163,19 +166,23 @@ set(
   types_skipper.hpp
   utils.cpp
   utils.hpp
+  utm_mgrs_coords_match.cpp
+  utm_mgrs_coords_match.hpp
 )
 
 omim_add_library(${PROJECT_NAME} ${SRC})
 
-if (PLATFORM_DESKTOP)
-  add_subdirectory(search_quality)
-  add_subdirectory(search_tests_support)
-endif()
-omim_add_pybindings_subdirectory(pysearch)
-omim_add_test_subdirectory(search_tests)
-omim_add_test_subdirectory(search_integration_tests)
-
-target_link_libraries(
-  ${PROJECT_NAME}
+target_link_libraries(${PROJECT_NAME}
+  editor
+  storage
+  ge0
   openlocationcode
 )
+
+if(PLATFORM_DESKTOP)
+  add_subdirectory(search_tests_support)
+  add_subdirectory(search_quality)
+endif()
+
+omim_add_test_subdirectory(search_tests)
+omim_add_test_subdirectory(search_integration_tests)

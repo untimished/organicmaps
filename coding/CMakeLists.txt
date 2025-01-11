@@ -1,12 +1,6 @@
 project(coding)
 
-include_directories(
-  ${OMIM_ROOT}/coding
-  ${OMIM_ROOT}/3party/expat/expat
-)
-
-set(
-  SRC
+set(SRC
   base64.cpp
   base64.hpp
   bit_streams.hpp
@@ -68,6 +62,7 @@ set(
   sha1.hpp
   simple_dense_coding.cpp
   simple_dense_coding.hpp
+  sparse_vector.hpp
   streams.hpp
   streams_common.hpp
   streams_sink.hpp
@@ -98,7 +93,15 @@ set(
 
 omim_add_library(${PROJECT_NAME} ${SRC})
 
-omim_add_test_subdirectory(coding_tests)
+target_link_libraries(${PROJECT_NAME}
+  base
+  expat::expat
+  cppjansson
+  succinct
+  ICU::uc
+  ICU::i18n # For transliteration.
+  minizip
+  ZLIB::ZLIB
+)
 
-# For transliteration.
-target_link_libraries(${PROJECT_NAME} icu)
+omim_add_test_subdirectory(coding_tests)

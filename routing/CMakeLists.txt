@@ -1,12 +1,6 @@
 project(routing)
 
-include_directories(
-  .
-  ${OMIM_ROOT}/3party/jansson/src
-)
-
-set(
-  SRC
+set(SRC
   absent_regions_finder.cpp
   absent_regions_finder.hpp
   async_router.cpp
@@ -36,12 +30,12 @@ set(
   cross_border_graph.hpp
   cross_mwm_connector.cpp
   cross_mwm_connector.hpp
-  cross_mwm_connector_serialization.cpp
   cross_mwm_connector_serialization.hpp
   cross_mwm_graph.cpp
   cross_mwm_graph.hpp
   cross_mwm_ids.hpp
   cross_mwm_index_graph.hpp
+  data_source.hpp
   directions_engine.cpp
   directions_engine.hpp
   directions_engine_helpers.cpp
@@ -52,7 +46,6 @@ set(
   fake_edges_container.hpp
   fake_ending.cpp
   fake_ending.hpp
-  fake_feature_ids.cpp
   fake_feature_ids.hpp
   fake_graph.cpp
   fake_graph.hpp
@@ -145,6 +138,8 @@ set(
   routing_session.hpp
   routing_settings.cpp
   routing_settings.hpp
+  ruler_router.cpp
+  ruler_router.hpp
   segment.cpp
   segment.hpp
   segmented_route.cpp
@@ -171,6 +166,8 @@ set(
   turn_candidate.hpp
   turns.cpp
   turns.hpp
+  turns_generator_utils.cpp
+  turns_generator_utils.hpp
   turns_generator.cpp
   turns_generator.hpp
   turns_notification_manager.cpp
@@ -179,6 +176,8 @@ set(
   turns_sound_settings.hpp
   turns_tts_text.cpp
   turns_tts_text.hpp
+  turns_tts_text_i18n.cpp
+  turns_tts_text_i18n.hpp
   vehicle_mask.cpp
   vehicle_mask.hpp
   world_graph.cpp
@@ -186,6 +185,15 @@ set(
 )
 
 omim_add_library(${PROJECT_NAME} ${SRC})
+
+target_link_libraries(${PROJECT_NAME}
+  base
+  routing_common
+  platform
+  traffic
+  transit
+  opening_hours
+)
 
 if (PLATFORM_DESKTOP)
   add_subdirectory(routing_quality)

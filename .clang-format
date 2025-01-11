@@ -4,7 +4,7 @@
 BasedOnStyle: Google
 IndentWidth: 2
 BreakBeforeBraces: Allman
-ColumnLimit: 100
+ColumnLimit: 120
 
 ---
 Language: Cpp
@@ -21,7 +21,7 @@ IndentCaseLabels: false
 NamespaceIndentation: None
 PointerAlignment: Middle
 SortIncludes: true
-Standard: Cpp11
+Standard: c++20
 IncludeBlocks: Regroup
 IncludeCategories:
 # Tests --------------------------------------------------------------------------------------------
@@ -163,8 +163,6 @@ IncludeCategories:
   - Regex:           '^"openlr/openlr_stat/'
     Priority:        19400
 
-  - Regex:           '^"mapshot/'
-    Priority:        19500
 
   - Regex:           '^"search/search_quality/booking_dataset_generator/'
     Priority:        19707
@@ -260,9 +258,6 @@ IncludeCategories:
   - Regex:           '^"editor/'
     Priority:        48310
 
-  - Regex:           '^"software_renderer/'
-    Priority:        48400
-
   - Regex:           '^"drape_frontend/'
     Priority:        48500
 
@@ -306,22 +301,22 @@ IncludeCategories:
   - Regex:           '^"pyhelpers/'
     Priority:        49800
 
-  - Regex:           '^"com/mapswithme/util/'
+  - Regex:           '^"app/organicmaps/util/'
     Priority:        49840
 
-  - Regex:           '^"com/mapswithme/maps/'
+  - Regex:           '^"app/organicmaps/maps/'
     Priority:        49850
 
-  - Regex:           '^"com/mapswithme/platform/'
+  - Regex:           '^"app/organicmaps/platform/'
     Priority:        49860
 
-  - Regex:           '^"com/mapswithme/opengl/'
+  - Regex:           '^"app/organicmaps/opengl/'
     Priority:        49870
 
-  - Regex:           '^"com/mapswithme/vulkan/'
+  - Regex:           '^"app/organicmaps/vulkan/'
     Priority:        49880
 
-  - Regex:           '^"com/mapswithme/core/'
+  - Regex:           '^"app/organicmaps/core/'
     Priority:        49890
 
   - Regex:           '^"private\.h"$'

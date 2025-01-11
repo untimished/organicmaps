@@ -1,6 +1,5 @@
 #pragma once
 
-#include "search/common.hpp"
 #include "search/query_params.hpp"
 #include "search/search_index_values.hpp"
 #include "search/search_trie.hpp"
@@ -10,25 +9,19 @@
 
 #include "base/assert.hpp"
 #include "base/dfa_helpers.hpp"
-#include "base/levenshtein_dfa.hpp"
 #include "base/stl_helpers.hpp"
 #include "base/string_utils.hpp"
 #include "base/uni_string_dfa.hpp"
 
-#include <cstddef>
-#include <cstdint>
 #include <limits>
 #include <memory>
 #include <queue>
 #include <unordered_set>
-#include <utility>
 #include <vector>
 
 namespace search
 {
 namespace impl
-{
-namespace
 {
 template <typename ValueList>
 bool FindLangIndex(trie::Iterator<ValueList> const & trieRoot, uint8_t lang, uint32_t & langIx)
@@ -48,7 +41,6 @@ bool FindLangIndex(trie::Iterator<ValueList> const & trieRoot, uint8_t lang, uin
   }
   return false;
 }
-}  // namespace
 
 template <typename ValueList, typename DFA, typename ToDo>
 bool MatchInTrie(trie::Iterator<ValueList> const & trieRoot, strings::UniChar const * rootPrefix,
@@ -201,6 +193,11 @@ private:
 template <typename DFA>
 struct SearchTrieRequest
 {
+  SearchTrieRequest() = default;
+
+  SearchTrieRequest(SearchTrieRequest &&) = default;
+  SearchTrieRequest & operator=(SearchTrieRequest &&) = default;
+
   template <typename Langs>
   void SetLangs(Langs const & langs)
   {
@@ -295,21 +292,27 @@ void MatchFeaturesInTrie(SearchTrieRequest<DFA> const & request,
   using Value = typename ValueList::Value;
 
   TrieValuesHolder<Filter, Value> categoriesHolder(filter);
-  bool const categoriesMatched = MatchCategoriesInTrie(request, trieRoot, categoriesHolder);
+  bool const categoriesExist = MatchCategoriesInTrie(request, trieRoot, categoriesHolder);
 
+  /// @todo Not sure why do we have OffsetIntersector here? We are doing aggregation only.
   impl::OffsetIntersector<Filter, Value> intersector(filter);
 
   ForEachLangPrefix(
       request, trieRoot,
-      [&request, &intersector](TrieRootPrefix<ValueList> & langRoot, int8_t /* lang */) {
+      [&request, &intersector](TrieRootPrefix<ValueList> & langRoot, int8_t /* lang */)
+      {
+        // Aggregate for all languages.
         MatchInTrie(request.m_names, langRoot, intersector);
       });
 
-  if (categoriesMatched)
+  if (categoriesExist)
+  {
+    // Aggregate categories.
     categoriesHolder.ForEachValue(intersector);
+  }
 
   intersector.NextStep();
-  intersector.ForEachResult(std::forward<ToDo>(toDo));
+  intersector.ForEachResult(toDo);
 }
 
 template <typename ValueList, typename Filter, typename ToDo>
@@ -340,6 +343,6 @@ void MatchPostcodesInTrie(TokenSlice const & slice, trie::Iterator<ValueList> co
     intersector.NextStep();
   }
 
-  intersector.ForEachResult(std::forward<ToDo>(toDo));
+  intersector.ForEachResult(toDo);
 }
 }  // namespace search

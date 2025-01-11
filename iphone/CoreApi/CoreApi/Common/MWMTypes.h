@@ -20,6 +20,12 @@ typedef NS_ENUM(NSUInteger, MWMTheme) {
   MWMThemeAuto
 };
 
+typedef NS_ENUM(NSUInteger, MWMKmlFileType) {
+  MWMKmlFileTypeText,
+  MWMKmlFileTypeBinary,
+  MWMKmlFileTypeGpx
+} NS_SWIFT_NAME(KmlFileType);
+
 typedef uint64_t MWMMarkID;
 typedef uint64_t MWMTrackID;
 typedef uint64_t MWMMarkGroupID;
@@ -27,7 +33,7 @@ typedef NSArray<NSNumber *> *MWMMarkIDCollection;
 typedef NSArray<NSNumber *> *MWMTrackIDCollection;
 typedef NSArray<NSNumber *> *MWMGroupIDCollection;
 
-typedef NS_ENUM(NSUInteger, MWMBookmarksShareStatus) {
+typedef NS_CLOSED_ENUM(NSUInteger, MWMBookmarksShareStatus) {
   MWMBookmarksShareStatusSuccess,
   MWMBookmarksShareStatusEmptyCategory,
   MWMBookmarksShareStatusArchiveError,

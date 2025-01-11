@@ -13,7 +13,6 @@
 
 #include "coding/bit_streams.hpp"
 #include "coding/reader.hpp"
-#include "coding/sha1.hpp"
 #include "coding/varint.hpp"
 #include "coding/write_to_sink.hpp"
 
@@ -22,13 +21,8 @@
 
 #include <algorithm>
 #include <array>
-#include <cstdint>
 #include <string>
-#include <unordered_map>
-#include <utility>
 #include <vector>
-
-#include "3party/skarupke/flat_hash_map.hpp"
 
 namespace routing
 {
@@ -41,7 +35,7 @@ public:
   using PointToAccessConditional = RoadAccess::PointToAccessConditional;
   using RoadAccessByVehicleType = std::array<RoadAccess, static_cast<size_t>(VehicleType::Count)>;
 
-  enum class Header
+  enum class Header : uint32_t
   {
     TheFirstVersionRoadAccess = 0, // Version of section roadaccess in 2017.
     WithoutAccessConditional = 1,  // Section roadaccess before conditional was implemented.
@@ -53,31 +47,28 @@ public:
   template <class Sink>
   static void Serialize(Sink & sink, RoadAccessByVehicleType const & roadAccessByType)
   {
-    Header const header = kLatestVersion;
-    WriteToSink(sink, header);
+    WriteToSink(sink, static_cast<uint32_t>(kLatestVersion));
     SerializeAccess(sink, roadAccessByType);
     SerializeAccessConditional(sink, roadAccessByType);
   }
 
   template <class Source>
-  static void Deserialize(Source & src, VehicleType vehicleType, RoadAccess & roadAccess,
-                          std::string const & mwmPath)
+  static void Deserialize(Source & src, VehicleType vehicleType, RoadAccess & roadAccess)
   {
-    auto const readHeader = ReadPrimitiveFromSource<uint32_t>(src);
-    auto const header = static_cast<Header>(readHeader);
+    auto const header = static_cast<Header>(ReadPrimitiveFromSource<uint32_t>(src));
     CHECK_LESS_OR_EQUAL(header, kLatestVersion, ());
+
     switch (header)
     {
     case Header::TheFirstVersionRoadAccess:
       break; // Version of 2017. Unsupported.
     case Header::WithoutAccessConditional:
-    {
       DeserializeAccess(src, vehicleType, roadAccess);
       break;
-    }
     case Header::WithAccessConditional:
-    {
       DeserializeAccess(src, vehicleType, roadAccess);
+
+      /// @todo By VNG: WTF?
       // access:conditional should be switch off for release 10.0 and probably for the next one.
       // It means that they should be switch off for cross_mwm section generation and for runtime.
       // To switch on access:conditional the line below should be uncommented.
@@ -85,21 +76,11 @@ public:
       // DeserializeAccessConditional(src, vehicleType, roadAccess);
       break;
     }
-    default:
-    {
-      LOG(LWARNING, ("Wrong roadaccess section header version:", static_cast<int>(readHeader),
-                  ". Mwm name:", mwmPath));
-      if (Platform::IsFileExistsByFullPath(mwmPath))
-        LOG(LWARNING, ("SHA1 is:", coding::SHA1::CalculateBase64(mwmPath)));
-
-      UNREACHABLE();
-    }
-    }
   }
 
 private:
   inline static Header const kLatestVersion = Header::WithAccessConditional;
-  
+
   class AccessPosition
   {
   public:
@@ -107,7 +88,7 @@ private:
     {
       return {featureId, 0 /* wildcard pointId for way access */};
     }
-    
+
     static AccessPosition MakePointAccess(uint32_t featureId, uint32_t pointId)
     {
       return {featureId, pointId + 1};
@@ -123,7 +104,7 @@ private:
     {
       return std::tie(m_featureId, m_pointId) < std::tie(rhs.m_featureId, rhs.m_pointId);
     }
-    
+
     uint32_t GetFeatureId() const { return m_featureId; }
     uint32_t GetPointId() const
     {
@@ -272,6 +253,8 @@ private:
           Segment(kFakeNumMwmId, kv.first.GetFeatureId(), kv.first.GetPointId() + 1, true));
     }
 
+    /// @todo SerializeSegments makes WriteGamma inside which is good, but we can try Elias-Fano for features
+    ///  and SimpleDenseCoding like for speeds here (like in maxspeeds_serialization).
     for (auto & segs : segmentsByRoadAccessType)
     {
       std::sort(segs.begin(), segs.end());

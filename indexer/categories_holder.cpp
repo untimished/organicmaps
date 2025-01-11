@@ -1,6 +1,5 @@
 #include "indexer/categories_holder.hpp"
 #include "indexer/classificator.hpp"
-#include "indexer/search_delimiters.hpp"
 #include "indexer/search_string_utils.hpp"
 
 #include "coding/reader.hpp"
@@ -9,21 +8,19 @@
 #include "base/logging.hpp"
 #include "base/stl_helpers.hpp"
 
-using namespace std;
-
 namespace
 {
-enum State
+enum ParseState
 {
   EParseTypes,
   EParseLanguages
 };
 
-void AddGroupTranslationsToSynonyms(vector<string> const & groups,
+void AddGroupTranslationsToSynonyms(std::vector<std::string> const & groups,
                                     CategoriesHolder::GroupTranslations const & translations,
-                                    vector<CategoriesHolder::Category::Name> & synonyms)
+                                    std::vector<CategoriesHolder::Category::Name> & synonyms)
 {
-  for (string const & group : groups)
+  for (std::string const & group : groups)
   {
     auto it = translations.find(group);
     if (it == translations.end())
@@ -58,7 +55,7 @@ bool ParseEmoji(CategoriesHolder::Category::Name & name)
 
 void FillPrefixLengthToSuggest(CategoriesHolder::Category::Name & name)
 {
-  if (isdigit(name.m_name.front()) && name.m_name.front() != '0')
+  if (std::isdigit(name.m_name.front()) && name.m_name.front() != '0')
   {
     name.m_prefixLengthToSuggest = name.m_name[0] - '0';
     name.m_name = name.m_name.substr(1);
@@ -69,9 +66,9 @@ void FillPrefixLengthToSuggest(CategoriesHolder::Category::Name & name)
   }
 }
 
-void ProcessName(CategoriesHolder::Category::Name name, vector<string> const & groups,
-                 vector<uint32_t> const & types, CategoriesHolder::GroupTranslations & translations,
-                 vector<CategoriesHolder::Category::Name> & synonyms)
+void ProcessName(CategoriesHolder::Category::Name name, std::vector<std::string> const & groups,
+                 std::vector<uint32_t> const & types, CategoriesHolder::GroupTranslations & translations,
+                 std::vector<CategoriesHolder::Category::Name> & synonyms)
 {
   if (name.m_name.empty())
   {
@@ -81,7 +78,7 @@ void ProcessName(CategoriesHolder::Category::Name name, vector<string> const & g
 
   FillPrefixLengthToSuggest(name);
 
-  if (strings::StartsWith(name.m_name, "U+") && !ParseEmoji(name))
+  if (name.m_name.starts_with("U+") && !ParseEmoji(name))
     return;
 
   if (groups.size() == 1 && types.empty())
@@ -95,25 +92,21 @@ void ProcessName(CategoriesHolder::Category::Name name, vector<string> const & g
   }
 }
 
-void ProcessCategory(string const & line, vector<string> & groups, vector<uint32_t> & types)
+void ProcessCategory(std::string_view line, std::vector<std::string> & groups, std::vector<uint32_t> & types)
 {
   // Check if category is a group reference.
   if (line[0] == '@')
   {
     CHECK((groups.empty() || !types.empty()), ("Two groups in a group definition, line:", line));
-    groups.push_back(line);
+    groups.push_back(std::string(line));
     return;
   }
 
-  // Split category to subcategories for classificator.
-  vector<string> v;
-  strings::Tokenize(line, "-", base::MakeBackInsertFunctor(v));
-
   // Get classificator type.
-  uint32_t const type = classif().GetTypeByPathSafe(v);
-  if (type == 0)
+  uint32_t const type = classif().GetTypeByPathSafe(strings::Tokenize(line, "-"));
+  if (type == Classificator::INVALID_TYPE)
   {
-    LOG(LWARNING, ("Invalid type:", v, "; during parsing the line:", line));
+    LOG(LWARNING, ("Invalid type when parsing the line:", line));
     return;
   }
 
@@ -125,27 +118,27 @@ void ProcessCategory(string const & line, vector<string> & groups, vector<uint32
 int8_t constexpr CategoriesHolder::kEnglishCode;
 int8_t constexpr CategoriesHolder::kUnsupportedLocaleCode;
 
-CategoriesHolder::CategoriesHolder(unique_ptr<Reader> && reader)
+CategoriesHolder::CategoriesHolder(std::unique_ptr<Reader> && reader)
 {
-  ReaderStreamBuf buffer(move(reader));
-  istream s(&buffer);
+  ReaderStreamBuf buffer(std::move(reader));
+  std::istream s(&buffer);
   LoadFromStream(s);
 
 #if defined(DEBUG)
   for (auto const & entry : kLocaleMapping)
-    ASSERT_LESS_OR_EQUAL(entry.m_code, kLocaleMapping.size(), ());
+    ASSERT_LESS_OR_EQUAL(uint8_t(entry.m_code), kLocaleMapping.size(), ());
 #endif
 }
 
-void CategoriesHolder::AddCategory(Category & cat, vector<uint32_t> & types)
+void CategoriesHolder::AddCategory(Category & cat, std::vector<uint32_t> & types)
 {
   if (!cat.m_synonyms.empty() && !types.empty())
   {
-    shared_ptr<Category> p(new Category());
+    std::shared_ptr<Category> p(new Category());
     p->Swap(cat);
 
     for (uint32_t const t : types)
-      m_type2cat.insert(make_pair(t, p));
+      m_type2cat.insert(std::make_pair(t, p));
 
     for (auto const & synonym : p->m_synonyms)
     {
@@ -154,18 +147,14 @@ void CategoriesHolder::AddCategory(Category & cat, vector<uint32_t> & types)
 
       auto const localePrefix = strings::UniString(1, static_cast<strings::UniChar>(locale));
 
-      auto const uniName = search::NormalizeAndSimplifyString(synonym.m_name);
-
-      vector<strings::UniString> tokens;
-      SplitUniString(uniName, base::MakeBackInsertFunctor(tokens), search::Delimiters());
-
-      for (auto const & token : tokens)
+      search::ForEachNormalizedToken(synonym.m_name, [&](strings::UniString const & token)
       {
-        if (!ValidKeyToken(token))
-          continue;
-        for (uint32_t const t : types)
-          m_name2type.Add(localePrefix + token, t);
-      }
+        if (ValidKeyToken(token))
+        {
+          for (uint32_t const t : types)
+            m_name2type.Add(localePrefix + token, t);
+        }
+      });
     }
   }
 
@@ -188,17 +177,17 @@ bool CategoriesHolder::ValidKeyToken(strings::UniString const & s)
   return true;
 }
 
-void CategoriesHolder::LoadFromStream(istream & s)
+void CategoriesHolder::LoadFromStream(std::istream & s)
 {
   m_type2cat.clear();
   m_name2type.Clear();
   m_groupTranslations.clear();
 
-  State state = EParseTypes;
-  string line;
+  ParseState state = EParseTypes;
+  std::string line;
   Category cat;
-  vector<uint32_t> types;
-  vector<string> currentGroups;
+  std::vector<uint32_t> types;
+  std::vector<std::string> currentGroups;
 
   int lineNumber = 0;
   while (s.good())
@@ -255,11 +244,11 @@ void CategoriesHolder::LoadFromStream(istream & s)
   AddCategory(cat, types);
 }
 
-bool CategoriesHolder::GetNameByType(uint32_t type, int8_t locale, string & name) const
+bool CategoriesHolder::GetNameByType(uint32_t type, int8_t locale, std::string & name) const
 {
   auto const range = m_type2cat.equal_range(type);
 
-  string enName;
+  std::string enName;
   for (auto it = range.first; it != range.second; ++it)
   {
     Category const & cat = *it->second;
@@ -286,14 +275,14 @@ bool CategoriesHolder::GetNameByType(uint32_t type, int8_t locale, string & name
   return false;
 }
 
-string CategoriesHolder::GetReadableFeatureType(uint32_t type, int8_t locale) const
+std::string CategoriesHolder::GetReadableFeatureType(uint32_t type, int8_t locale) const
 {
   ASSERT_NOT_EQUAL(type, 0, ());
   uint8_t level = ftype::GetLevel(type);
   ASSERT_GREATER(level, 0, ());
 
   uint32_t originalType = type;
-  string name;
+  std::string name;
   while (true)
   {
     if (GetNameByType(type, locale, name))
@@ -315,14 +304,12 @@ bool CategoriesHolder::IsTypeExist(uint32_t type) const
 }
 
 // static
-int8_t CategoriesHolder::MapLocaleToInteger(string const & locale)
+int8_t CategoriesHolder::MapLocaleToInteger(std::string_view const locale)
 {
   ASSERT(!kLocaleMapping.empty(), ());
-  ASSERT_EQUAL(string(kLocaleMapping[0].m_name), "en", ());
+  ASSERT_EQUAL(kLocaleMapping[0].m_name, std::string_view("en"), ());
   ASSERT_EQUAL(kLocaleMapping[0].m_code, kEnglishCode, ());
-  ASSERT(
-      find(kDisabledLanguages.begin(), kDisabledLanguages.end(), "en") == kDisabledLanguages.end(),
-      ());
+  ASSERT(!base::IsExist(kDisabledLanguages, std::string_view("en")), ());
 
   for (auto it = kLocaleMapping.crbegin(); it != kLocaleMapping.crend(); ++it)
   {
@@ -333,12 +320,12 @@ int8_t CategoriesHolder::MapLocaleToInteger(string const & locale)
   // Special cases for different Chinese variations
   if (locale.find("zh") == 0)
   {
-    string lower = locale;
+    std::string lower(locale);
     strings::AsciiToLower(lower);
 
     for (char const * s : {"hant", "tw", "hk", "mo"})
     {
-      if (lower.find(s) != string::npos)
+      if (lower.find(s) != std::string::npos)
         return kTraditionalChineseCode;
     }
     // Simplified Chinese by default for all other cases.
@@ -349,9 +336,9 @@ int8_t CategoriesHolder::MapLocaleToInteger(string const & locale)
 }
 
 // static
-string CategoriesHolder::MapIntegerToLocale(int8_t code)
+std::string CategoriesHolder::MapIntegerToLocale(int8_t code)
 {
   if (code <= 0 || static_cast<size_t>(code) > kLocaleMapping.size())
-    return string();
+    return {};
   return kLocaleMapping[code - 1].m_name;
 }

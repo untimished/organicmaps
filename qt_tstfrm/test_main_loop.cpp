@@ -17,7 +17,7 @@ namespace
 class MyWidget : public QWidget
 {
 public:
-  explicit MyWidget(RenderFunction && fn)
+  explicit MyWidget(testing::RenderFunction && fn)
     : m_fn(std::move(fn))
   {}
 
@@ -28,11 +28,11 @@ protected:
   }
 
 private:
-  RenderFunction m_fn;
+  testing::RenderFunction m_fn;
 };
 }  // namespace
 
-void RunTestLoop(char const * testName, RenderFunction && fn, bool autoExit)
+void RunTestLoop(char const * testName, testing::RenderFunction && fn, bool autoExit)
 {
   std::vector<char> buf(strlen(testName) + 1);
   strcpy(buf.data(), testName);
@@ -40,6 +40,7 @@ void RunTestLoop(char const * testName, RenderFunction && fn, bool autoExit)
 
   int argc = 1;
   QApplication app(argc, &raw);
+
   if (autoExit)
     QTimer::singleShot(3000, &app, SLOT(quit()));
 
@@ -51,7 +52,7 @@ void RunTestLoop(char const * testName, RenderFunction && fn, bool autoExit)
 }
 
 void RunTestInOpenGLOffscreenEnvironment(char const * testName, bool apiOpenGLES3,
-                                         TestFunction const & fn)
+                                         testing::TestFunction const & fn)
 {
   std::vector<char> buf(strlen(testName) + 1);
   strcpy(buf.data(), testName);

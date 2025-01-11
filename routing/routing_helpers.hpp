@@ -1,17 +1,14 @@
 #pragma once
 
-#include "routing/directions_engine.hpp"
-#include "routing/index_road_graph.hpp"
 #include "routing/road_graph.hpp"
 #include "routing/route.hpp"
 #include "routing/route_weight.hpp"
-#include "routing/traffic_stash.hpp"
-
-#include "traffic/traffic_info.hpp"
 
 #include "routing_common/bicycle_model.hpp"
 #include "routing_common/car_model.hpp"
 #include "routing_common/pedestrian_model.hpp"
+
+#include "indexer/classificator.hpp"
 
 #include "geometry/point_with_altitude.hpp"
 #include "geometry/rect2d.hpp"
@@ -26,10 +23,11 @@
 
 namespace routing
 {
+class DirectionsEngine;
 class IndexGraphStarter;
+class IndexRoadGraph;
+class TrafficStash;
 class WorldGraph;
-
-inline double KMPH2MPS(double kmph) { return kmph * 1000.0 / (60 * 60); }
 
 template <typename Types>
 bool IsCarRoad(Types const & types)
@@ -47,21 +45,25 @@ bool IsBicycleRoad(Types const & types)
 template <typename Types>
 bool IsRoad(Types const & types)
 {
-  return IsCarRoad(types) || PedestrianModel::AllLimitsInstance().HasRoadType(types) ||
-         IsBicycleRoad(types);
+  if (IsCarRoad(types))
+    return true;
+
+  if (PedestrianModel::AllLimitsInstance().HasRoadType(types) || IsBicycleRoad(types))
+  {
+    // https://github.com/organicmaps/organicmaps/issues/3929
+    // In case when road has pedestrian/bicycle=designated + highway=construction types.
+    static uint32_t const constructionType = classif().GetTypeByPath({"highway", "construction"});
+    return !base::IsExist(types, constructionType);
+  }
+
+  return false;
 }
 
-void FillSegmentInfo(std::vector<Segment> const & segments,
-                     std::vector<geometry::PointWithAltitude> const & junctions,
-                     Route::TTurns const & turns, Route::TStreets const & streets,
-                     Route::TTimes const & times,
-                     std::shared_ptr<TrafficStash> const & trafficStash,
-                     std::vector<RouteSegment> & routeSegment);
+void FillSegmentInfo(std::vector<double> const & times, std::vector<RouteSegment> & routeSegments);
 
 void ReconstructRoute(DirectionsEngine & engine, IndexRoadGraph const & graph,
-                      std::shared_ptr<TrafficStash> const & trafficStash,
                       base::Cancellable const & cancellable,
-                      std::vector<geometry::PointWithAltitude> const & path, Route::TTimes && times,
+                      std::vector<geometry::PointWithAltitude> const & path, std::vector<double> const & times,
                       Route & route);
 
 /// \brief Converts |edge| to |segment|.

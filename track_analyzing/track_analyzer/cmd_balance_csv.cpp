@@ -203,9 +203,9 @@ void FilterTable(MwmToDataPoints const & balancedDataPointNumbers, vector<TableR
   for (auto const & kv : tableIdx)
   {
     for (auto const idx : kv.second)
-      balancedTable.emplace_back(move(table[idx]));
+      balancedTable.emplace_back(std::move(table[idx]));
   }
-  table = move(balancedTable);
+  table = std::move(balancedTable);
 }
 
 void BalanceDataPoints(basic_istream<char> & tableCsvStream,
@@ -244,7 +244,7 @@ void BalanceDataPoints(basic_istream<char> & tableCsvStream,
 
   // Calculating how many points should have every mwm to keep the |distribution|.
   MwmToDataPoints const balancedDataPointNumber =
-      BalancedDataPointNumber(move(matchedDataPoints), move(distribution), ignoreDataPointsNumber);
+      BalancedDataPointNumber(std::move(matchedDataPoints), std::move(distribution), ignoreDataPointsNumber);
   uint64_t const totalBalancedDataPointsNumber = ValueSum(balancedDataPointNumber);
   LOG(LINFO, ("Total balanced data points number:", totalBalancedDataPointsNumber));
 
@@ -274,7 +274,7 @@ void CmdBalanceCsv(string const & csvPath, string const & distributionPath,
 
   // Calculating statistics.
   storage::Storage storage;
-  storage.RegisterAllLocalMaps(false /* enableDiffs */);
+  storage.RegisterAllLocalMaps();
   Stats stats;
   for (auto const & record : balancedTable)
   {

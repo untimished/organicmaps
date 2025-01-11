@@ -2,7 +2,6 @@
 
 #include "search/bookmarks/results.hpp"
 #include "search/ranking_info.hpp"
-#include "search/tracer.hpp"
 
 #include "indexer/feature_decl.hpp"
 
@@ -11,16 +10,18 @@
 #include "geometry/point2d.hpp"
 
 #include "base/assert.hpp"
+#include "base/checked_cast.hpp"
 #include "base/buffer_vector.hpp"
 
-#include "defines.hpp"
-
 #include <algorithm>
-#include <cstddef>
-#include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
+
+// Define this option to DebugPrint provenance.
+#ifdef DEBUG
+//#define SEARCH_USE_PROVENANCE
+#endif
 
 namespace search
 {
@@ -43,24 +44,13 @@ public:
   // Search results details. Considered valid if GetResultType() == Type::Feature.
   struct Details
   {
-    // Valid only if not empty, used for restaurants.
-    std::string m_cuisine;
-
-    // Valid only if not empty, used for airport iata codes.
-    std::string m_airportIata;
-
-    // Valid only if not empty, used for brand name.
-    std::string m_brand;
-
-    // Valid only if not empty, used for roads.
-    std::string m_roadShields;
-
-    // Following fields are used for hotels only.
-    int m_stars = 0;
-    bool m_isHotel = false;
-
-    // Valid for any result.
     osm::YesNoUnknown m_isOpenNow = osm::Unknown;
+
+    uint16_t m_minutesUntilOpen = 0;
+
+    uint16_t m_minutesUntilClosed = 0;
+
+    std::string m_description;
 
     bool m_isInitialized = false;
   };
@@ -68,34 +58,27 @@ public:
   // Min distance to search result when popularity label has a higher priority (in meters).
   static auto constexpr kPopularityHighPriorityMinDistance = 50000.0;
 
-  // For Type::Feature.
-  Result(FeatureID const & id, m2::PointD const & pt, std::string const & str,
-         std::string const & address, uint32_t featureType, Details const & meta);
+  Result(m2::PointD const & pt, std::string const & name) : m_center(pt), m_str(name) {}
+  void FromFeature(FeatureID const & id, uint32_t mainType, uint32_t matchedType, Details const & details);
 
-  // For Type::LatLon.
-  Result(m2::PointD const & pt, std::string const & latlon, std::string const & address);
-
-  // For Type::Postcode.
-  Result(m2::PointD const & pt, std::string const & postcode);
+  void SetAddress(std::string && address) { m_address = std::move(address); }
+  void SetType(Result::Type type) { m_resultType = type; }
 
   // For Type::PureSuggest.
-  Result(std::string const & str, std::string const & suggest);
+  Result(std::string str, std::string && suggest);
 
   // For Type::SuggestFromFeature.
-  Result(Result const & res, std::string const & suggest);
+  Result(Result && res, std::string && suggest);
 
   Type GetResultType() const { return m_resultType; }
 
   std::string const & GetString() const { return m_str; }
   std::string const & GetAddress() const { return m_address; }
-  std::string const & GetCuisine() const { return m_details.m_cuisine; }
-  std::string const & GetAirportIata() const { return m_details.m_airportIata; }
-  std::string const & GetBrand() const { return m_details.m_brand; }
-  std::string const & GetRoadShields() const { return m_details.m_roadShields; }
-  bool IsHotel() const { return m_details.m_isHotel; }
+  std::string const & GetDescription() const { return m_details.m_description; }
 
   osm::YesNoUnknown IsOpenNow() const { return m_details.m_isOpenNow; }
-  int GetStarsCount() const { return m_details.m_stars; }
+  uint16_t GetMinutesUntilOpen() const { return m_details.m_minutesUntilOpen; }
+  uint16_t GetMinutesUntilClosed() const { return m_details.m_minutesUntilClosed; }
 
   bool IsSuggest() const;
   bool HasPoint() const;
@@ -106,6 +89,11 @@ public:
 
   // Precondition: GetResultType() == Type::Feature.
   uint32_t GetFeatureType() const;
+  bool IsSameType(uint32_t type) const;
+
+  std::string GetLocalizedFeatureType() const;
+  // Secondary title for the result.
+  std::string GetFeatureDescription() const;
 
   // Center point of a feature.
   // Precondition: HasPoint() == true.
@@ -119,34 +107,43 @@ public:
   bool IsEqualFeature(Result const & r) const;
 
   void AddHighlightRange(std::pair<uint16_t, uint16_t> const & range);
+  void AddDescHighlightRange(const std::pair<uint16_t, uint16_t> & range);
   std::pair<uint16_t, uint16_t> const & GetHighlightRange(size_t idx) const;
   size_t GetHighlightRangesCount() const { return m_hightlightRanges.size(); }
+  
+  //returns ranges to hightlight in address
+  std::pair<uint16_t, uint16_t> const & GetDescHighlightRange(size_t idx) const;
+  size_t GetDescHighlightRangesCount() const { return m_descHightlightRanges.size(); }
 
-  void PrependCity(std::string const & name);
+  void PrependCity(std::string_view name);
 
   int32_t GetPositionInResults() const { return m_positionInResults; }
   void SetPositionInResults(int32_t pos) { m_positionInResults = pos; }
 
-  RankingInfo const & GetRankingInfo() const { return m_info; }
-
-  std::vector<ResultTracer::Branch> const & GetProvenance() const { return m_provenance; }
-
-  template <typename Info>
-  void SetRankingInfo(Info && info)
+  /// @name Used for debug logs and tests only.
+  /// @{
+  RankingInfo const & GetRankingInfo() const
   {
-    m_info = std::forward<Info>(info);
+    CHECK(m_dbgInfo, ());
+    return *m_dbgInfo;
   }
+  void SetRankingInfo(std::shared_ptr<RankingInfo> info) { m_dbgInfo = std::move(info); }
+  /// @}
 
+#ifdef SEARCH_USE_PROVENANCE
   template <typename Prov>
   void SetProvenance(Prov && prov)
   {
     m_provenance = std::forward<Prov>(prov);
   }
+#endif
 
   // Returns a representation of this result that is sent to the
   // statistics servers and later used to measure the quality of our
   // search engine.
   std::string ToStringForStats() const;
+
+  friend std::string DebugPrint(search::Result const & result);
 
 private:
   Type m_resultType;
@@ -155,17 +152,21 @@ private:
   m2::PointD m_center;
   std::string m_str;
   std::string m_address;
-  uint32_t m_featureType = 0;
+  uint32_t m_mainType = 0;
+  uint32_t m_matchedType = 0;
   std::string m_suggestionStr;
   buffer_vector<std::pair<uint16_t, uint16_t>, 4> m_hightlightRanges;
+  buffer_vector<std::pair<uint16_t, uint16_t>, 4> m_descHightlightRanges;
 
-  RankingInfo m_info = {};
+  std::shared_ptr<RankingInfo> m_dbgInfo;   // used in debug logs and tests, nullptr in production
 
   // The position that this result occupied in the vector returned by
   // a search query. -1 if undefined.
   int32_t m_positionInResults = -1;
 
+#ifdef SEARCH_USE_PROVENANCE
   std::vector<ResultTracer::Branch> m_provenance;
+#endif
 
 public:
   // Careful when moving: the order of destructors is important.
@@ -173,12 +174,10 @@ public:
 };
 
 std::string DebugPrint(search::Result::Type type);
-std::string DebugPrint(search::Result const & result);
 
 class Results
 {
 public:
-  using Iter = std::vector<Result>::iterator;
   using ConstIter = std::vector<Result>::const_iterator;
 
   enum class Type
@@ -198,30 +197,22 @@ public:
     m_status = cancelled ? Status::EndedCancelled : Status::EndedNormal;
   }
 
+  // Used for results in the list.
   bool AddResult(Result && result);
 
-  // Fast version of AddResult() that doesn't do any checks for
-  // duplicates.
+  // Fast version of AddResult() that doesn't do any checks for duplicates.
+  // Used for results in the viewport.
   void AddResultNoChecks(Result && result);
-  void AddResultsNoChecks(ConstIter first, ConstIter last);
 
   void AddBookmarkResult(bookmarks::Result const & result);
 
   void Clear();
 
-  Iter begin() { return m_results.begin(); }
-  Iter end() { return m_results.end(); }
   ConstIter begin() const { return m_results.cbegin(); }
   ConstIter end() const { return m_results.cend(); }
 
   size_t GetCount() const { return m_results.size(); }
   size_t GetSuggestsCount() const;
-
-  Result & operator[](size_t i)
-  {
-    ASSERT_LESS(i, m_results.size(), ());
-    return m_results[i];
-  }
 
   Result const & operator[](size_t i) const
   {
@@ -231,12 +222,13 @@ public:
 
   bookmarks::Results const & GetBookmarksResults() const;
 
+  /// @deprecated Fucntion is obsolete (used in tests) and doesn't take into account bookmarks.
   template <typename Fn>
   void SortBy(Fn && comparator)
   {
-    std::sort(begin(), end(), std::forward<Fn>(comparator));
-    for (int32_t i = 0; i < static_cast<int32_t>(GetCount()); ++i)
-      operator[](i).SetPositionInResults(i);
+    std::sort(m_results.begin(), m_results.end(), comparator);
+    for (size_t i = 0; i < m_results.size(); ++i)
+      m_results[i].SetPositionInResults(base::asserted_cast<uint32_t>(i));
   }
 
 private:

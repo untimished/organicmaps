@@ -1,16 +1,11 @@
 #pragma once
 
-#include "base/thread.hpp"
-
-#include "drape_frontend/gui/layer_render.hpp"
-
-#include "drape_frontend/backend_renderer.hpp"
 #include "drape_frontend/base_renderer.hpp"
 #include "drape_frontend/drape_api_renderer.hpp"
 #include "drape_frontend/frame_values.hpp"
 #include "drape_frontend/gps_track_renderer.hpp"
+#include "drape_frontend/gui/layer_render.hpp"
 #include "drape_frontend/my_position_controller.hpp"
-#include "drape_frontend/navigator.hpp"
 #include "drape_frontend/overlays_tracker.hpp"
 #include "drape_frontend/render_group.hpp"
 #include "drape_frontend/render_state_extension.hpp"
@@ -18,7 +13,6 @@
 #include "drape_frontend/route_renderer.hpp"
 #include "drape_frontend/postprocess_renderer.hpp"
 #include "drape_frontend/threads_commutator.hpp"
-#include "drape_frontend/tile_info.hpp"
 #include "drape_frontend/traffic_renderer.hpp"
 #include "drape_frontend/transit_scheme_renderer.hpp"
 #include "drape_frontend/user_event_stream.hpp"
@@ -29,18 +23,18 @@
 
 #include "drape/overlay_tree.hpp"
 #include "drape/pointers.hpp"
-#include "drape/vertex_array_buffer.hpp"
 
 #include "platform/location.hpp"
 
 #include "geometry/screenbase.hpp"
 #include "geometry/triangle2d.hpp"
 
+#include "base/thread.hpp"
+
 #include <array>
 #include <functional>
 #include <memory>
 #include <optional>
-#include <unordered_set>
 #include <vector>
 
 namespace dp
@@ -71,9 +65,15 @@ struct TapInfo
   static m2::AnyRectD GetBookmarkTapRect(m2::PointD const & mercator, ScreenBase const & screen);
   static m2::AnyRectD GetRoutingPointTapRect(m2::PointD const & mercator, ScreenBase const & screen);
   static m2::AnyRectD GetGuideTapRect(m2::PointD const & mercator, ScreenBase const & screen);
-  static m2::AnyRectD GetPreciseTapRect(m2::PointD const & mercator, double const eps);
+  static m2::AnyRectD GetPreciseTapRect(m2::PointD const & mercator, double eps);
 };
 
+/*
+ * A FrontendRenderer holds several RenderLayers, one per each df::DepthLayer,
+ * a rendering order of the layers is set in RenderScene().
+ * Each RenderLayer contains several RenderGroups, one per each tile and RenderState.
+ * Each RenderGroup contains several RenderBuckets holding VertexArrayBuffers and optional OverlayHandles.
+ */
 class FrontendRenderer : public BaseRenderer,
                          public MyPositionController::Listener,
                          public UserEventStream::Listener
@@ -83,7 +83,6 @@ public:
   using GraphicsReadyHandler = std::function<void()>;
   using TapEventInfoHandler = std::function<void(TapInfo const &)>;
   using UserPositionChangedHandler = std::function<void(m2::PointD const & pt, bool hasPosition)>;
-  using UserPositionPendingTimeoutHandler = std::function<void()>;
 
   struct Params : BaseRenderer::Params
   {
@@ -92,7 +91,6 @@ public:
            MyPositionController::Params && myPositionParams, dp::Viewport viewport,
            ModelViewChangedHandler && modelViewChangedHandler, TapEventInfoHandler && tapEventHandler,
            UserPositionChangedHandler && positionChangedHandler,
-           UserPositionPendingTimeoutHandler && userPositionPendingTimeoutHandler,
            ref_ptr<RequestedTiles> requestedTiles,
            OverlaysShowStatsCallback && overlaysShowStatsCallback,
            bool allow3dBuildings, bool trafficEnabled, bool blockTapEvents,
@@ -104,7 +102,6 @@ public:
       , m_modelViewChangedHandler(std::move(modelViewChangedHandler))
       , m_tapEventHandler(std::move(tapEventHandler))
       , m_positionChangedHandler(std::move(positionChangedHandler))
-      , m_userPositionPendingTimeoutHandler(std::move(userPositionPendingTimeoutHandler))
       , m_requestedTiles(requestedTiles)
       , m_overlaysShowStatsCallback(std::move(overlaysShowStatsCallback))
       , m_allow3dBuildings(allow3dBuildings)
@@ -118,7 +115,6 @@ public:
     ModelViewChangedHandler m_modelViewChangedHandler;
     TapEventInfoHandler m_tapEventHandler;
     UserPositionChangedHandler m_positionChangedHandler;
-    UserPositionPendingTimeoutHandler m_userPositionPendingTimeoutHandler;
     ref_ptr<RequestedTiles> m_requestedTiles;
     OverlaysShowStatsCallback m_overlaysShowStatsCallback;
     bool m_allow3dBuildings;
@@ -136,7 +132,6 @@ public:
 
   // MyPositionController::Listener
   void PositionChanged(m2::PointD const & position, bool hasPosition) override;
-  void PositionPendingTimeout() override;
   void ChangeModelView(m2::PointD const & center, int zoomLevel,
                        TAnimationCreator const & parallelAnimCreator) override;
   void ChangeModelView(double azimuth, TAnimationCreator const & parallelAnimCreator) override;
@@ -148,14 +143,17 @@ public:
   void ChangeModelView(double autoScale, m2::PointD const & userPos, double azimuth,
                        m2::PointD const & pxZero, TAnimationCreator const & parallelAnimCreator) override;
 
-  drape_ptr<ScenarioManager> const & GetScenarioManager() const;
+  drape_ptr<ScenarioManager> const & GetScenarioManager() const { return m_scenarioManager; }
+  location::EMyPositionMode GetMyPositionMode() const { return m_myPositionController->GetCurrentMode(); }
+
+  void OnEnterBackground();
 
 protected:
   void AcceptMessage(ref_ptr<Message> message) override;
   std::unique_ptr<threads::IRoutine> CreateRoutine() override;
-  
+
   void RenderFrame() override;
-  
+
   void OnContextCreate() override;
   void OnContextDestroy() override;
 
@@ -185,7 +183,6 @@ private:
   void PreRender3dLayer(ScreenBase const & modelView);
   void Render3dLayer(ScreenBase const & modelView);
   void RenderOverlayLayer(ScreenBase const & modelView);
-  void RenderNavigationOverlayLayer(ScreenBase const & modelView);
   void RenderUserMarksLayer(ScreenBase const & modelView, DepthLayer layerId);
   void RenderNonDisplaceableUserMarksLayer(ScreenBase const & modelView, DepthLayer layerId);
   void RenderTransitSchemeLayer(ScreenBase const & modelView);
@@ -204,7 +201,7 @@ private:
 
   void EmitModelViewChanged(ScreenBase const & modelView) const;
 
-#if defined(OMIM_OS_MAC) || defined(OMIM_OS_LINUX)
+#if defined(OMIM_OS_DESKTOP)
   void EmitGraphicsReady();
 #endif
 
@@ -225,6 +222,7 @@ private:
 
   void OnScaleStarted() override;
   void OnRotated() override;
+  void OnScrolled(m2::PointD const & distance) override;
   void CorrectScalePoint(m2::PointD & pt) const override;
   void CorrectScalePoint(m2::PointD & pt1, m2::PointD & pt2) const override;
   void CorrectGlobalScalePoint(m2::PointD & pt) const override;
@@ -334,15 +332,32 @@ private:
   bool m_choosePositionMode;
   bool m_screenshotMode;
 
+  int8_t m_mapLangIndex;
+
   dp::Viewport m_viewport;
   UserEventStream m_userEventStream;
   ModelViewChangedHandler m_modelViewChangedHandler;
   TapEventInfoHandler m_tapEventInfoHandler;
   UserPositionChangedHandler m_userPositionChangedHandler;
-  UserPositionPendingTimeoutHandler m_userPositionPendingTimeoutHandler;
 
   ScreenBase m_lastReadedModelView;
   TTilesCollection m_notFinishedTiles;
+
+  bool IsValidCurrentZoom() const
+  {
+    /// @todo Well, this function was introduced to ASSERT m_currentZoomLevel != -1.
+    /// Can't say for sure is it right or wrong, but also can't garantee with post-messages order.
+
+    // In some cases RenderScene, UpdateContextDependentResources can be called before the rendering of
+    // the first frame. m_currentZoomLevel will be equal to -1, before ResolveZoomLevel call.
+    return m_currentZoomLevel >= 0;
+  }
+
+  int GetCurrentZoom() const
+  {
+    ASSERT(IsValidCurrentZoom(), ());
+    return m_currentZoomLevel;
+  }
 
   int m_currentZoomLevel = -1;
 
@@ -385,7 +400,6 @@ private:
   bool m_forceUpdateScene;
   bool m_forceUpdateUserMarks;
 
-  bool m_isAntialiasingEnabled = false;
   drape_ptr<PostprocessRenderer> m_postprocessRenderer;
   std::vector<PostprocessRenderer::Effect> m_enabledOnStartEffects;
 
@@ -398,7 +412,7 @@ private:
   bool m_firstLaunchAnimationTriggered = false;
   bool m_firstLaunchAnimationInterrupted = false;
 
-#if defined(OMIM_OS_MAC) || defined(OMIM_OS_LINUX)
+#if defined(OMIM_OS_DESKTOP)
   GraphicsReadyHandler m_graphicsReadyFn;
 
   enum class GraphicsStage
@@ -420,8 +434,6 @@ private:
   {
     base::Timer m_timer;
     double m_frameTime = 0.0;
-    bool m_modelViewChanged = true;
-    bool m_viewportChanged = true;
     uint32_t m_inactiveFramesCounter = 0;
     bool m_forceFullRedrawNextFrame = false;
 #ifdef SHOW_FRAMES_STATS

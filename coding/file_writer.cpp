@@ -3,14 +3,12 @@
 
 #include <vector>
 
-using namespace std;
-
-FileWriter::FileWriter(string const & fileName, FileWriter::Op op)
-  : m_pFileData(make_unique<base::FileData>(fileName, static_cast<base::FileData::Op>(op)))
+FileWriter::FileWriter(std::string const & fileName, FileWriter::Op op)
+  : m_pFileData(std::make_unique<base::FileData>(fileName, static_cast<base::FileData::Op>(op)))
 {
 }
 
-FileWriter::~FileWriter()
+FileWriter::~FileWriter() noexcept(false)
 {
   // Note: FileWriter::Flush will be called (like non virtual method).
   Flush();
@@ -31,7 +29,7 @@ void FileWriter::Write(void const * p, size_t size)
   m_pFileData->Write(p, size);
 }
 
-string const & FileWriter::GetName() const
+std::string const & FileWriter::GetName() const
 {
   return m_pFileData->GetName();
 }
@@ -41,22 +39,12 @@ uint64_t FileWriter::Size() const
   return m_pFileData->Size();
 }
 
-void FileWriter::Flush()
+void FileWriter::Flush() noexcept(false)
 {
   m_pFileData->Flush();
 }
 
-base::FileData & FileWriter::GetFileData()
-{
-  return *m_pFileData;
-}
-
-base::FileData const & FileWriter::GetFileData() const
-{
-  return *m_pFileData;
-}
-
-void FileWriter::DeleteFileX(string const & fName)
+void FileWriter::DeleteFileX(std::string const & fName)
 {
   UNUSED_VALUE(base::DeleteFileX(fName));
 }

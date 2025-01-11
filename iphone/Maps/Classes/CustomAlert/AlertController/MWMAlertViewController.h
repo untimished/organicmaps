@@ -9,35 +9,30 @@
 @property(weak, nonatomic, readonly) UIViewController *_Null_unspecified ownerViewController;
 
 - (nonnull instancetype)initWithViewController:(nonnull UIViewController *)viewController;
-- (void)presentRateAlert;
-- (void)presentAuthErrorAlertWithRetryBlock:(nonnull MWMVoidBlock)retryBlock;
 - (void)presentPoint2PointAlertWithOkBlock:(nonnull MWMVoidBlock)okBlock needToRebuild:(BOOL)needToRebuild;
 - (void)presentRoutingDisclaimerAlertWithOkBlock:(nonnull nonnull MWMVoidBlock)block;
 - (void)presentDisabledLocationAlert;
 - (void)presentLocationAlertWithCancelBlock:(MWMVoidBlock _Nonnull )cancelBlock;
+- (void)presentLocationServicesDisabledAlert;
 - (void)presentLocationServiceNotSupportedAlert;
-- (void)presentLocationNotFoundAlertWithOkBlock:(nonnull MWMVoidBlock)okBlock;
 - (void)presentNoConnectionAlert;
-- (void)presentSearchQuickFilterNoConnectionAlert;
 - (void)presentDeleteMapProhibitedAlert;
 - (void)presentUnsavedEditsAlertWithOkBlock:(nonnull MWMVoidBlock)okBlock;
 - (void)presentNoWiFiAlertWithOkBlock:(nullable MWMVoidBlock)okBlock andCancelBlock:(nullable MWMVoidBlock)cancelBlock;
 - (void)presentIncorrectFeauturePositionAlert;
-- (void)presentInternalErrorAlert;
 - (void)presentNotEnoughSpaceAlert;
 - (void)presentInvalidUserNameOrPasswordAlert;
-- (void)presentDisableAutoDownloadAlertWithOkBlock:(nonnull MWMVoidBlock)okBlock;
 - (void)presentDownloaderNoConnectionAlertWithOkBlock:(nonnull MWMVoidBlock)okBlock
                                           cancelBlock:(nonnull MWMVoidBlock)cancelBlock;
 - (void)presentDownloaderNotEnoughSpaceAlert;
 - (void)presentDownloaderInternalErrorAlertWithOkBlock:(nonnull MWMVoidBlock)okBlock
                                            cancelBlock:(nonnull MWMVoidBlock)cancelBlock;
-- (void)presentDownloaderNeedUpdateAlertWithOkBlock:(nonnull MWMVoidBlock)okBlock;
 - (void)presentPlaceDoesntExistAlertWithBlock:(nonnull MWMStringBlock)block;
 - (void)presentResetChangesAlertWithBlock:(nonnull MWMVoidBlock)block;
 - (void)presentDeleteFeatureAlertWithBlock:(nonnull MWMVoidBlock)block;
 - (void)presentEditorViralAlert;
 - (void)presentOsmAuthAlert;
+- (void)presentOsmReauthAlert;
 - (void)presentPersonalInfoWarningAlertWithBlock:(nonnull MWMVoidBlock)block;
 - (void)presentTrackWarningAlertWithCancelBlock:(nonnull MWMVoidBlock)block;
 - (void)presentMobileInternetAlertWithBlock:(nonnull MWMMobileInternetAlertCompletionBlock)block;
@@ -47,17 +42,8 @@
                                               minCharacterNum:(NSUInteger)min
                                                      callback:(nonnull MWMCheckStringBlock)callback;
 
-- (void)presentConvertBookmarksAlertWithCount:(NSUInteger)count block:(nonnull MWMVoidBlock)block;
-
-- (void)presentSpinnerAlertWithTitle:(nonnull NSString *)title cancel:(nullable MWMVoidBlock)cancel;
 - (void)presentBookmarkConversionErrorAlert;
-
-- (void)presentRestoreBookmarkAlertWithMessage:(nonnull NSString *)message
-                             rightButtonAction:(nonnull MWMVoidBlock)rightButton
-                              leftButtonAction:(nonnull MWMVoidBlock)leftButton;
-
-- (void)presentTagsLoadingErrorAlertWithOkBlock:(nonnull MWMVoidBlock)okBlock
-                                    cancelBlock:(nonnull MWMVoidBlock)cancelBlock;
+- (void)presentBugReportAlertWithTitle:(nonnull NSString *)title;
 
 - (void)presentDefaultAlertWithTitle:(nonnull NSString *)title
                              message:(nullable NSString *)message

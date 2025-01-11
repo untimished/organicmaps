@@ -26,7 +26,7 @@
 // 1. its id equals 1435
 // 2. its id equals  436
 // 3. if it contains {place:city} in tags
-// 4. if it contains {place:city} and {capital:*} in tags.
+// 4. if it contains {place:town} and {capital:*} in tags.
 // '*' - means any value.
 // Record format for way and relation is the same as for node.
 // This implementation does not support processing of multiple values
@@ -43,7 +43,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "3party/jansson/myjansson.hpp"
+#include "cppjansson/cppjansson.hpp"
 
 namespace generator
 {

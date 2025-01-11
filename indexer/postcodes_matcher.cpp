@@ -3,7 +3,6 @@
 #include "indexer/search_string_utils.hpp"
 #include "indexer/string_set.hpp"
 
-#include "base/logging.hpp"
 #include "base/macros.hpp"
 #include "base/stl_helpers.hpp"
 #include "base/string_utils.hpp"
@@ -15,12 +14,12 @@
 
 #include <boost/iterator/transform_iterator.hpp>
 
+namespace search
+{
 using boost::make_transform_iterator;
 using namespace std;
 using namespace strings;
 
-namespace search
-{
 namespace
 {
 // Top patterns for postcodes. See
@@ -31,7 +30,8 @@ char const * const g_patterns[] = {
     "aann naa",  "aannaa",     "aannnaa",     "aannnn",   "an naa",   "ana naa",  "ana nan",
     "ananan",    "ann aann",   "ann naa",     "annnnaaa", "nn nnn",   "nnn",      "nnn nn",
     "nnn nnn",   "nnn nnnn",   "nnnn",        "nnnn aa",  "nnnn nnn", "nnnnaa",   "nnnnn",
-    "nnnnn nnn", "nnnnn nnnn", "nnnnn nnnnn", "nnnnnn",   "nnnnnnn",  "nnnnnnnn", "〒nnn nnnn"};
+    "nnnnn nnn", "nnnnn nnnn", "nnnnn nnnnn", "nnnnnn",   "nnnnnnn",  "nnnnnnnn", "〒nnn nnnn",
+    "annnn"};
 
 UniChar SimplifyChar(UniChar const & c)
 {
@@ -101,14 +101,13 @@ bool LooksLikePostcode(StringSliceBase const & slice, bool isPrefix)
   return GetPostcodesMatcher().HasString(slice, isPrefix);
 }
 
-bool LooksLikePostcode(string const & s, bool isPrefix)
+bool LooksLikePostcode(string_view sv, bool isPrefix)
 {
   vector<UniString> tokens;
-  bool const lastTokenIsPrefix =
-      TokenizeStringAndCheckIfLastTokenIsPrefix(s, tokens, search::Delimiters());
+  bool const lastTokenIsPrefix = TokenizeStringAndCheckIfLastTokenIsPrefix(sv, tokens);
 
   return LooksLikePostcode(StringSlice(tokens), isPrefix && lastTokenIsPrefix);
 }
 
 size_t GetMaxNumTokensInPostcode() { return GetPostcodesMatcher().GetMaxNumTokensInPostcode(); }
-}  // namespace search
+} // namespace search

@@ -2,35 +2,34 @@
 #include "qt/mainwindow.hpp"
 #include "qt/screenshoter.hpp"
 
+#include "qt/qt_common/helpers.hpp"
+
 #include "map/framework.hpp"
 
 #include "platform/platform.hpp"
 #include "platform/settings.hpp"
 
-#include "coding/file_reader.hpp"
+#include "coding/reader.hpp"
 
 #include "base/logging.hpp"
 #include "base/macros.hpp"
 
 #include "build_style/build_style.h"
 
-#include <cstdio>
-#include <cstdlib>
-#include <sstream>
-
-#include "gflags/gflags.h"
-
-#include <QtCore/QDir>
+#include <QtGlobal>
 #include <QtWidgets/QMessageBox>
 #include <QtWidgets/QApplication>
 #include <QtWidgets/QFileDialog>
 
+#include <sstream>
+
+#include <gflags/gflags.h>
+
+
 DEFINE_string(data_path, "", "Path to data directory.");
-DEFINE_string(log_abort_level, base::ToString(base::GetDefaultLogAbortLevel()),
-              "Log messages severity that causes termination.");
+DEFINE_string(log_abort_level, base::ToString(base::GetDefaultLogAbortLevel()), "Log messages severity that causes termination.");
 DEFINE_string(resources_path, "", "Path to resources directory.");
-DEFINE_string(kml_path, "", "Activates screenshot mode. Path to a kml file or a directory "
-              "with kml files to take screenshots.");
+DEFINE_string(kml_path, "", "Activates screenshot mode. Path to a kml file or a directory with kml files to take screenshots.");
 DEFINE_string(points, "", "Activates screenshot mode. Points on the map and zoom level "
               "[1..18] in format \"lat,lon,zoom[;lat,lon,zoom]\" or path to a file with points in "
               "the same format. Each point and zoom define a place on the map to take screenshot.");
@@ -42,36 +41,29 @@ DEFINE_string(dst_path, "", "Path to a directory to save screenshots.");
 DEFINE_string(lang, "", "Device language.");
 DEFINE_int32(width, 0, "Screenshot width.");
 DEFINE_int32(height, 0, "Screenshot height.");
-DEFINE_double(dpi_scale, 0.0, "Screenshot dpi scale (mdpi = 1.0, hdpi = 1.5, "
-              "xhdpiScale = 2.0, 6plus = 2.4, xxhdpi = 3.0, xxxhdpi = 3.5).");
-
-using namespace std;
+DEFINE_double(dpi_scale, 0.0, "Screenshot dpi scale (mdpi = 1.0, hdpi = 1.5, xhdpiScale = 2.0, 6plus = 2.4, xxhdpi = 3.0, xxxhdpi = 3.5).");
 
 namespace
 {
-bool ValidateLogAbortLevel(char const * flagname, string const & value)
+bool ValidateLogAbortLevel(char const * flagname, std::string const & value)
 {
-  base::LogLevel level;
-  if (!base::FromString(value, level))
+  if (auto level = base::FromString(value); !level)
   {
-    ostringstream os;
+    std::cerr << "Invalid value for --" << flagname << ": "<< value << ", must be one of: ";
     auto const & names = base::GetLogLevelNames();
     for (size_t i = 0; i < names.size(); ++i)
     {
       if (i != 0)
-        os << ", ";
-      os << names[i];
+        std::cerr << ", ";
+      std::cerr << names[i];
     }
-
-    printf("Invalid value for --%s: %s, must be one of: %s\n", flagname, value.c_str(),
-           os.str().c_str());
+    std::cerr << '\n';
     return false;
   }
   return true;
 }
 
-bool const g_logAbortLevelDummy =
-    gflags::RegisterFlagValidator(&FLAGS_log_abort_level, &ValidateLogAbortLevel);
+bool const g_logAbortLevelDummy = gflags::RegisterFlagValidator(&FLAGS_log_abort_level, &ValidateLogAbortLevel);
 
 class FinalizeBase
 {
@@ -110,62 +102,76 @@ public:
 
 int main(int argc, char * argv[])
 {
-  gflags::SetUsageMessage("Desktop application.");
-  gflags::ParseCommandLineFlags(&argc, &argv, true);
-
-  Platform & platform = GetPlatform();
-  if (!FLAGS_resources_path.empty())
-    platform.SetResourceDir(FLAGS_resources_path);
-  if (!FLAGS_data_path.empty())
-    platform.SetWritableDirForTests(FLAGS_data_path);
-
-  base::LogLevel level;
-  CHECK(base::FromString(FLAGS_log_abort_level, level), ());
-  base::g_LogAbortLevel = level;
-
-  Q_INIT_RESOURCE(resources_common);
-
   // Our double parsing code (base/string_utils.hpp) needs dots as a floating point delimiters, not commas.
   // TODO: Refactor our doubles parsing code to use locale-independent delimiters.
   // For example, https://github.com/google/double-conversion can be used.
   // See http://dbaron.org/log/20121222-locale for more details.
   (void)::setenv("LC_NUMERIC", "C", 1);
 
+  Platform & platform = GetPlatform();
+
+  LOG(LINFO, ("Organic Maps", platform.Version(), "built with QT:", QT_VERSION_STR, "runtime QT:", qVersion(),
+    "detected CPU cores:", platform.CpuCores()));
+
+  gflags::SetUsageMessage("Desktop application.");
+  gflags::SetVersionString(platform.Version());
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
+
+  if (!FLAGS_resources_path.empty())
+    platform.SetResourceDir(FLAGS_resources_path);
+  if (!FLAGS_data_path.empty())
+    platform.SetWritableDirForTests(FLAGS_data_path);
+
+  if (auto const logLevel = base::FromString(FLAGS_log_abort_level); logLevel)
+    base::g_LogAbortLevel = *logLevel;
+  else
+    LOG(LCRITICAL, ("Invalid log level:", FLAGS_log_abort_level));
+
+  Q_INIT_RESOURCE(resources_common);
+
   InitializeFinalize mainGuard;
   UNUSED_VALUE(mainGuard);
 
-  QApplication a(argc, argv);
-
+  QApplication app(argc, argv);
+  app.setDesktopFileName("app.organicmaps.desktop");
   platform.SetupMeasurementSystem();
 
-  // display EULA if needed
+
+#ifdef BUILD_DESIGNER
+    QApplication::setApplicationName("Organic Maps Designer");
+#else
+    QApplication::setApplicationName("Organic Maps");
+#endif
+
+
+#ifdef DEBUG
+  static bool constexpr developerMode = true;
+#else
+  static bool constexpr developerMode = false;
+#endif
+  bool outvalue;
+  if (!settings::Get(settings::kDeveloperMode, outvalue))
+    settings::Set(settings::kDeveloperMode, developerMode);
+
+  // Display EULA if needed.
   char const * settingsEULA = "EulaAccepted";
   bool eulaAccepted = false;
   if (!settings::Get(settingsEULA, eulaAccepted) || !eulaAccepted)
   {
-    QStringList buttons;
-    buttons << "Accept" << "Decline";
-
-    string buffer;
+    std::string buffer;
     {
       ReaderPtr<Reader> reader = platform.GetReader("copyright.html");
       reader.ReadAsString(buffer);
     }
-    qt::InfoDialog eulaDialog(qAppName(), buffer.c_str(), nullptr, buttons);
+    qt::InfoDialog eulaDialog(QCoreApplication::applicationName(), buffer.c_str(), nullptr, {"Accept", "Decline"});
     eulaAccepted = (eulaDialog.exec() == 1);
     settings::Set(settingsEULA, eulaAccepted);
   }
 
   int returnCode = -1;
-  QString mapcssFilePath;
   if (eulaAccepted)   // User has accepted EULA
   {
-    bool apiOpenGLES3 = false;
     std::unique_ptr<qt::ScreenshotParams> screenshotParams;
-
-#if defined(OMIM_OS_MAC)
-    apiOpenGLES3 = a.arguments().contains("es3", Qt::CaseInsensitive);
-#endif
 
     if (!FLAGS_lang.empty())
       (void)::setenv("LANGUAGE", FLAGS_lang.c_str(), 1);
@@ -198,18 +204,16 @@ int main(int argc, char * argv[])
         screenshotParams->m_dpiScale = FLAGS_dpi_scale;
     }
 
-    qt::MainWindow::SetDefaultSurfaceFormat(apiOpenGLES3);
+    qt::common::SetDefaultSurfaceFormat(QApplication::platformName());
 
     FrameworkParams frameworkParams;
 
 #ifdef BUILD_DESIGNER
+    QString mapcssFilePath;
     if (argc >= 2 && platform.IsFileExistsByFullPath(argv[1]))
         mapcssFilePath = argv[1];
     if (0 == mapcssFilePath.length())
-    {
-      mapcssFilePath = QFileDialog::getOpenFileName(nullptr, "Open style.mapcss file", "~/",
-                                                    "MapCSS Files (*.mapcss)");
-    }
+      mapcssFilePath = QFileDialog::getOpenFileName(nullptr, "Open style.mapcss file", "~/", "MapCSS Files (*.mapcss)");
     if (mapcssFilePath.isEmpty())
       return returnCode;
 
@@ -231,9 +235,13 @@ int main(int argc, char * argv[])
 #endif // BUILD_DESIGNER
 
     Framework framework(frameworkParams);
-    qt::MainWindow w(framework, apiOpenGLES3, std::move(screenshotParams), mapcssFilePath);
+    qt::MainWindow w(framework, std::move(screenshotParams), QApplication::primaryScreen()->geometry()
+#ifdef BUILD_DESIGNER
+                     , mapcssFilePath
+#endif // BUILD_DESIGNER
+                     );
     w.show();
-    returnCode = a.exec();
+    returnCode = QApplication::exec();
   }
 
 #ifdef BUILD_DESIGNER
@@ -255,6 +263,6 @@ int main(int argc, char * argv[])
   }
 #endif // BUILD_DESIGNER
 
-  LOG_SHORT(LINFO, ("OMaps finished with code", returnCode));
+  LOG_SHORT(LINFO, ("Organic Maps finished with code", returnCode));
   return returnCode;
 }

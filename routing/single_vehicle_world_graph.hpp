@@ -7,18 +7,12 @@
 #include "routing/index_graph_loader.hpp"
 #include "routing/joint_segment.hpp"
 #include "routing/mwm_hierarchy_handler.hpp"
-#include "routing/road_graph.hpp"
 #include "routing/route.hpp"
 #include "routing/segment.hpp"
-#include "routing/transit_info.hpp"
 #include "routing/world_graph.hpp"
 
 #include "routing_common/num_mwm_id.hpp"
 
-#include "geometry/point2d.hpp"
-#include "geometry/point_with_altitude.hpp"
-
-#include <functional>
 #include <map>
 #include <memory>
 #include <vector>
@@ -69,15 +63,15 @@ public:
   double CalculateETA(Segment const & from, Segment const & to) override;
   double CalculateETAWithoutPenalty(Segment const & segment) override;
 
-  std::vector<Segment> const & GetTransitions(NumMwmId numMwmId, bool isEnter) override;
+  void ForEachTransition(NumMwmId numMwmId, bool isEnter, TransitionFnT const & fn) override;
 
   void SetRoutingOptions(RoutingOptions routingOptions) override { m_avoidRoutingOptions = routingOptions; }
   /// \returns true if feature, associated with segment satisfies users conditions.
   bool IsRoutingOptionsGood(Segment const & segment) override;
   RoutingOptions GetRoutingOptions(Segment const & segment) override;
 
-  std::unique_ptr<TransitInfo> GetTransitInfo(Segment const & segment) override;
   std::vector<RouteSegment::SpeedCamera> GetSpeedCamInfo(Segment const & segment) override;
+  SpeedInUnits GetSpeedLimit(Segment const & segment) override;
 
   IndexGraph & GetIndexGraph(NumMwmId numMwmId) override
   {
@@ -89,11 +83,10 @@ public:
   void DropAStarParents() override;
 
   bool AreWavesConnectible(Parents<Segment> & forwardParents, Segment const & commonVertex,
-                           Parents<Segment> & backwardParents,
-                           std::function<uint32_t(Segment const &)> && fakeFeatureConverter) override;
+                           Parents<Segment> & backwardParents) override;
   bool AreWavesConnectible(Parents<JointSegment> & forwardParents, JointSegment const & commonVertex,
                            Parents<JointSegment> & backwardParents,
-                           std::function<uint32_t(JointSegment const &)> && fakeFeatureConverter) override;
+                           FakeConverterT const & fakeFeatureConverter) override;
   // @}
 
   // This method should be used for tests only
@@ -109,11 +102,11 @@ private:
   ///        parents' featureIds from backward wave.
   /// \return The result chain of fetureIds are used to find restrictions on it and understand whether
   ///         waves are connectable or not.
-  template <typename VertexType>
+  template <typename VertexType, class ConverterT>
   bool AreWavesConnectibleImpl(Parents<VertexType> const & forwardParents,
                                VertexType const & commonVertex,
                                Parents<VertexType> const & backwardParents,
-                               std::function<uint32_t(VertexType const &)> && fakeFeatureConverter);
+                               ConverterT const & fakeConverter);
 
   // Retrieves the same |jointEdges|, but into others mwms.
   // If they are cross mwm edges, of course.
@@ -121,15 +114,18 @@ private:
                                       JointEdgeListT & jointEdges,
                                       WeightListT & parentWeights,
                                       bool isOutgoing);
-  // WorldGraph overrides:
+  /// @name WorldGraph overrides.
+  /// @{
   void GetTwinsInner(Segment const & s, bool isOutgoing, std::vector<Segment> & twins) override;
+  RouteWeight GetCrossBorderPenalty(NumMwmId mwmId1, NumMwmId mwmId2) override;
+  /// @}
 
   RoadGeometry const & GetRoadGeometry(NumMwmId mwmId, uint32_t featureId);
 
   std::unique_ptr<CrossMwmGraph> m_crossMwmGraph;
   std::unique_ptr<IndexGraphLoader> m_loader;
   std::shared_ptr<EdgeEstimator> m_estimator;
-  RoutingOptions m_avoidRoutingOptions = RoutingOptions();
+  RoutingOptions m_avoidRoutingOptions;
   WorldGraphMode m_mode = WorldGraphMode::NoLeaps;
 
   template <typename Vertex>

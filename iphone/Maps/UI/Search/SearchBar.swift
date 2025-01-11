@@ -21,6 +21,8 @@ final class SearchBar: SolidTouchView {
 
   override var tabBarAreaAffectDirections: MWMAvailableAreaAffectDirections { return alternative(iPhone: [], iPad: .left) }
 
+  override var trackRecordingButtonAreaAffectDirections: MWMAvailableAreaAffectDirections { return alternative(iPhone: .top, iPad: .left) }
+
   @objc var state: SearchBarState = .ready {
     didSet {
       if state != oldValue {
@@ -29,17 +31,12 @@ final class SearchBar: SolidTouchView {
     }
   }
 
-  private lazy var dateFormatter: DateFormatter = {
-    let formatter = DateFormatter()
-    formatter.setLocalizedDateFormatFromTemplate("EEE, MMMd")
-    return formatter
-  }()
-
   override func awakeFromNib() {
     super.awakeFromNib()
     updateLeftView()
     searchTextField.leftViewMode = UITextField.ViewMode.always
     searchTextField.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 32, height: 32))
+    searchTextField.applyTheme()
   }
 
   private func updateLeftView() {

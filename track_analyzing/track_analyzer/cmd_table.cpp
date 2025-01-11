@@ -6,8 +6,8 @@
 #include "track_analyzing/utils.hpp"
 
 #include "routing/city_roads.hpp"
+#include "routing/data_source.hpp"
 #include "routing/geometry.hpp"
-#include "routing/index_graph.hpp"
 #include "routing/index_graph_loader.hpp"
 #include "routing/maxspeeds.hpp"
 
@@ -18,8 +18,6 @@
 #include "traffic/speed_groups.hpp"
 
 #include "indexer/classificator.hpp"
-#include "indexer/data_source.hpp"
-#include "indexer/feature.hpp"
 #include "indexer/feature_data.hpp"
 #include "indexer/features_vector.hpp"
 
@@ -31,15 +29,11 @@
 #include "geometry/latlon.hpp"
 
 #include "base/assert.hpp"
-#include "base/file_name_utils.hpp"
 #include "base/logging.hpp"
 #include "base/stl_helpers.hpp"
 #include "base/sunrise_sunset.hpp"
-#include "base/timer.hpp"
 
 #include <algorithm>
-#include <array>
-#include <cstdint>
 #include <iostream>
 #include <iterator>
 #include <limits>
@@ -48,14 +42,14 @@
 #include <sstream>
 #include <string>
 #include <tuple>
-#include <utility>
 #include <vector>
 
 #include "defines.hpp"
 
+namespace track_analyzing
+{
 using namespace routing;
 using namespace std;
-using namespace track_analyzing;
 
 namespace
 {
@@ -90,14 +84,13 @@ class CarModelTypes final
 public:
   CarModelTypes()
   {
-    for (auto const & additionalTag : CarModel::GetAdditionalTags())
-      m_hwtags.push_back(classif().GetTypeByPath(additionalTag.m_hwtag));
+    auto const & cl = classif();
 
-    for (auto const & speedForType : CarModel::GetOptions())
-      m_hwtags.push_back(classif().GetTypeByPath(speedForType.m_types));
+    for (auto const & speed : CarModel::GetOptions())
+      m_hwtags.push_back(cl.GetTypeForIndex(static_cast<uint32_t>(speed.m_type)));
 
     for (auto const & surface : CarModel::GetSurfaces())
-      m_surfaceTags.push_back(classif().GetTypeByPath(surface.m_types));
+      m_surfaceTags.push_back(cl.GetTypeByPath(surface.m_type));
   }
 
   struct Type
@@ -128,13 +121,12 @@ public:
     uint32_t m_surfaceType = 0;
   };
 
-  Type GetType(FeatureType & feature) const
+  Type GetType(feature::TypesHolder const & types) const
   {
     Type ret;
-    feature::TypesHolder holder(feature);
     for (uint32_t type : m_hwtags)
     {
-      if (holder.Has(type))
+      if (types.Has(type))
       {
         ret.m_hwType = type;
         break;
@@ -143,7 +135,7 @@ public:
 
     for (uint32_t type : m_surfaceTags)
     {
-      if (holder.Has(type))
+      if (types.Has(type))
       {
         ret.m_surfaceType = type;
         break;
@@ -335,10 +327,10 @@ public:
     : m_featuresVector(container), m_vehicleModel(vehicleModel)
   {
     if (container.IsExist(CITY_ROADS_FILE_TAG))
-      LoadCityRoads(container.GetFileName(), container.GetReader(CITY_ROADS_FILE_TAG), m_cityRoads);
+      m_cityRoads.Load(container.GetReader(CITY_ROADS_FILE_TAG));
 
     if (container.IsExist(MAXSPEEDS_FILE_TAG))
-      LoadMaxspeeds(container.GetReader(MAXSPEEDS_FILE_TAG), m_maxspeeds);
+      m_maxspeeds.Load(container.GetReader(MAXSPEEDS_FILE_TAG));
   }
 
   MoveType GetMoveType(MatchedTrackPoint const & point)
@@ -365,9 +357,10 @@ private:
                                    kInvalidSpeed;
 
     m_prevFeatureId = featureId;
-    m_prevRoadInfo = {m_carModelTypes.GetType(*feature), maxspeedValueKMpH,
-                      m_cityRoads.IsCityRoad(featureId), m_vehicleModel.IsOneWay(*feature)};
 
+    feature::TypesHolder const types(*feature);
+    m_prevRoadInfo = {m_carModelTypes.GetType(types), maxspeedValueKMpH,
+                      m_cityRoads.IsCityRoad(featureId), m_vehicleModel.IsOneWay(types)};
     return m_prevRoadInfo;
   }
 
@@ -381,20 +374,20 @@ private:
 };
 }  // namespace
 
-namespace track_analyzing
-{
+
 void CmdTagsTable(string const & filepath, string const & trackExtension, StringFilter mwmFilter,
                   StringFilter userFilter)
 {
   WriteCsvTableHeader(cout);
 
   storage::Storage storage;
-  storage.RegisterAllLocalMaps(false /* enableDiffs */);
+  storage.RegisterAllLocalMaps();
   FrozenDataSource dataSource;
   auto numMwmIds = CreateNumMwmIds(storage);
 
   Stats stats;
-  auto processMwm = [&](string const & mwmName, UserToMatchedTracks const & userToMatchedTracks) {
+  auto processMwm = [&](string const & mwmName, UserToMatchedTracks const & userToMatchedTracks)
+  {
     if (mwmFilter(mwmName))
       return;
 
@@ -408,8 +401,10 @@ void CmdTagsTable(string const & filepath, string const & trackExtension, String
     auto const vehicleType = VehicleType::Car;
     auto const edgeEstimator = EdgeEstimator::Create(vehicleType, *vehicleModel,
       nullptr /* trafficStash */, &dataSource, numMwmIds);
-    auto indexGraphLoader = IndexGraphLoader::Create(vehicleType, false /* loadAltitudes */, numMwmIds,
-                                                     carModelFactory, edgeEstimator, dataSource);
+
+    MwmDataSource routingSource(dataSource, numMwmIds);
+    auto indexGraphLoader = IndexGraphLoader::Create(vehicleType, false /* loadAltitudes */,
+                                                     carModelFactory, edgeEstimator, routingSource);
 
     platform::CountryFile const countryFile(mwmName);
     auto localCountryFile = storage.GetLatestLocalFile(countryFile);
@@ -458,7 +453,7 @@ void CmdTagsTable(string const & filepath, string const & trackExtension, String
                                                 info);
           }
 
-          aggregator.Add(move(moveType), info, subtrackBegin, end, geometry);
+          aggregator.Add(std::move(moveType), info, subtrackBegin, end, geometry);
           subtrackBegin = end;
           info.fill(0);
         }
@@ -470,7 +465,8 @@ void CmdTagsTable(string const & filepath, string const & trackExtension, String
     }
   };
 
-  auto processTrack = [&](string const & filename, MwmToMatchedTracks const & mwmToMatchedTracks) {
+  auto processTrack = [&](string const & filename, MwmToMatchedTracks const & mwmToMatchedTracks)
+  {
     LOG(LINFO, ("Processing", filename));
     ForTracksSortedByMwmName(mwmToMatchedTracks, *numMwmIds, processMwm);
   };

@@ -2,7 +2,6 @@
 
 #include "base/assert.hpp"
 #include "base/bits.hpp"
-#include "base/macros.hpp"
 
 #include <cstdint>
 #include <iterator>
@@ -23,6 +22,7 @@ class SmallSet
 {
 public:
   static uint64_t constexpr kNumBlocks = (UpperBound + 63) / 64;
+  static_assert(kNumBlocks > 0);
 
   class Iterator
   {

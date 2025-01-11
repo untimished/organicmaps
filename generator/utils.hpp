@@ -46,6 +46,7 @@ public:
   DataSource & GetDataSource() { return m_dataSource; }
   platform::LocalCountryFile const & GetLocalCountryFile() const { return m_countryFile; }
   MwmSet::MwmId const & GetMwmId() const { return m_mwmId; }
+  MwmSet::MwmHandle GetHandle() { return GetDataSource().GetMwmHandleById(GetMwmId()); }
 
 private:
   FrozenDataSource m_dataSource;
@@ -53,12 +54,10 @@ private:
   MwmSet::MwmId m_mwmId;
 };
 
-void LoadDataSource(DataSource & dataSource);
-
 class FeatureGetter
 {
 public:
-  FeatureGetter(std::string const & countryFullPath);
+  explicit FeatureGetter(std::string const & countryFullPath);
 
   std::unique_ptr<FeatureType> GetFeatureByIndex(uint32_t index) const;
 

@@ -70,8 +70,7 @@ using namespace storage;
 {
   _updateSize = updateSize;
   self.primaryButton.localizedText =
-      [NSString stringWithCoreFormat:L(@"whats_new_auto_update_button_size")
-                           arguments:@[self.updateSize]];
+      [NSString stringWithFormat:L(@"whats_new_auto_update_button_size"), self.updateSize];
 }
 
 - (void)stateDownloading
@@ -125,8 +124,7 @@ using namespace storage;
     NSString * percent = [numberFormatter stringFromNumber:@(prog)];
     NSString * downloadedSize = formattedSize(progress.m_bytesDownloaded);
     NSString * totalSize = formattedSize(progress.m_bytesTotal);
-    self.progressLabel.text = [NSString stringWithCoreFormat:L(@"downloader_percent")
-                                                   arguments:@[percent, downloadedSize, totalSize]];
+    self.progressLabel.text = [NSString stringWithFormat:L(@"downloader_percent"), percent, downloadedSize, totalSize];
   }
   else
   {
@@ -135,7 +133,7 @@ using namespace storage;
 
   BOOL const isApplying = nodeAttrs.m_status == storage::NodeStatus::Applying;
   NSString * format = L(isApplying ? @"downloader_applying" : @"downloader_process");
-  self.legendLabel.text = [NSString stringWithCoreFormat:format arguments:@[nodeName]];
+  self.legendLabel.text = [NSString stringWithFormat:format, nodeName];
 }
 
 @end
@@ -196,11 +194,10 @@ using namespace storage;
 - (void)updateSize
 {
   auto containerView = static_cast<MWMAutoupdateView *>(self.view);
-  auto & f = GetFramework();
-  auto const & s = f.GetStorage();
+  auto const & s = GetFramework().GetStorage();
   storage::Storage::UpdateInfo updateInfo;
   s.GetUpdateInfo(s.GetRootId(), updateInfo);
-  MwmSize const updateSizeInBytes = updateInfo.m_totalUpdateSizeInBytes;
+  MwmSize const updateSizeInBytes = updateInfo.m_totalDownloadSizeInBytes;
   containerView.updateSize = formattedSize(updateSizeInBytes);
   _sizeInMB = updateSizeInBytes / MB;
 }
@@ -252,7 +249,7 @@ using namespace storage;
 {
   auto const & s = GetFramework().GetStorage();
   NodeAttrs nodeAttrs;
-  s.GetNodeAttrs(RootId().UTF8String, nodeAttrs);
+  s.GetNodeAttrs(s.GetRootId(), nodeAttrs);
   auto view = static_cast<MWMAutoupdateView *>(self.view);
   NSString * nodeName = @(s.GetNodeLocalName(countryId).c_str());
   [view setStatusForNodeName:nodeName rootAttributes:nodeAttrs];

@@ -158,8 +158,8 @@ class ScaleFpsLabelHandle : public MutableLabelHandle
 {
   using TBase = MutableLabelHandle;
 public:
-  ScaleFpsLabelHandle(uint32_t id, ref_ptr<dp::TextureManager> textures, std::string const & apiLabel)
-    : TBase(id, dp::LeftBottom, m2::PointF::Zero(), textures)
+  ScaleFpsLabelHandle(uint32_t id, ref_ptr<dp::TextureManager> textures, std::string const & apiLabel, Position const & position)
+    : TBase(id, position.m_anchor, position.m_pixelPivot, textures)
     , m_apiLabel(apiLabel)
   {
     SetIsVisible(true);
@@ -183,10 +183,6 @@ public:
       SetContent(ss.str());
     }
 
-    auto const vs = static_cast<float>(df::VisualParams::Instance().GetVisualScale());
-    m2::PointF offset(10.0f * vs, 30.0f * vs);
-
-    SetPivot(glsl::ToVec2(m2::PointF(screen.PixelRect().LeftBottom()) + offset));
     return TBase::Update(screen);
   }
 
@@ -202,14 +198,14 @@ drape_ptr<LayerRenderer> LayerCacher::RecacheWidgets(ref_ptr<dp::GraphicsContext
                                                      TWidgetsInitInfo const & initInfo,
                                                      ref_ptr<dp::TextureManager> textures)
 {
-  using TCacheShape = std::function<m2::PointF(ref_ptr<dp::GraphicsContext>, Position anchor,
+  using TCacheShape = std::function<void(ref_ptr<dp::GraphicsContext>, Position anchor,
                                                ref_ptr<LayerRenderer> renderer,
                                                ref_ptr<dp::TextureManager> textures)>;
   static std::map<EWidget, TCacheShape> cacheFunctions{
-      std::make_pair(WIDGET_COMPASS, std::bind(&LayerCacher::CacheCompass, this, _1, _2, _3, _4)),
-      std::make_pair(WIDGET_RULER, std::bind(&LayerCacher::CacheRuler, this, _1, _2, _3, _4)),
-      std::make_pair(WIDGET_COPYRIGHT, std::bind(&LayerCacher::CacheCopyright, this, _1, _2, _3, _4)),
-      std::make_pair(WIDGET_SCALE_FPS_LABEL, std::bind(&LayerCacher::CacheScaleFpsLabel, this, _1, _2, _3, _4)),
+      {WIDGET_COMPASS, std::bind(&LayerCacher::CacheCompass, this, _1, _2, _3, _4)},
+      {WIDGET_RULER, std::bind(&LayerCacher::CacheRuler, this, _1, _2, _3, _4)},
+      {WIDGET_COPYRIGHT, std::bind(&LayerCacher::CacheCopyright, this, _1, _2, _3, _4)},
+      {WIDGET_SCALE_FPS_LABEL, std::bind(&LayerCacher::CacheScaleFpsLabel, this, _1, _2, _3, _4)},
   };
 
   drape_ptr<LayerRenderer> renderer = make_unique_dp<LayerRenderer>();
@@ -336,42 +332,30 @@ drape_ptr<LayerRenderer> LayerCacher::RecacheDebugLabels(ref_ptr<dp::GraphicsCon
 }
 #endif
 
-m2::PointF LayerCacher::CacheCompass(ref_ptr<dp::GraphicsContext> context,
-                                     Position const & position, ref_ptr<LayerRenderer> renderer,
-                                     ref_ptr<dp::TextureManager> textures)
+void LayerCacher::CacheCompass(ref_ptr<dp::GraphicsContext> context, Position const & position,
+                               ref_ptr<LayerRenderer> renderer, ref_ptr<dp::TextureManager> textures)
 {
-  m2::PointF compassSize;
   Compass compass = Compass(position);
-  drape_ptr<ShapeRenderer> shape = compass.Draw(context, compassSize, textures,
-    std::bind(&DrapeGui::CallOnCompassTappedHandler, &DrapeGui::Instance()));
+  drape_ptr<ShapeRenderer> shape = compass.Draw(context, textures,
+      std::bind(&DrapeGui::CallOnCompassTappedHandler, &DrapeGui::Instance()));
 
   renderer->AddShapeRenderer(WIDGET_COMPASS, std::move(shape));
-
-  return compassSize;
 }
 
-m2::PointF LayerCacher::CacheRuler(ref_ptr<dp::GraphicsContext> context, Position const & position,
-                                   ref_ptr<LayerRenderer> renderer,
-                                   ref_ptr<dp::TextureManager> textures)
+void LayerCacher::CacheRuler(ref_ptr<dp::GraphicsContext> context, Position const & position,
+                             ref_ptr<LayerRenderer> renderer, ref_ptr<dp::TextureManager> textures)
 {
-  m2::PointF rulerSize;
-  renderer->AddShapeRenderer(WIDGET_RULER, Ruler(position).Draw(context, rulerSize, textures));
-  return rulerSize;
+  renderer->AddShapeRenderer(WIDGET_RULER, Ruler(position).Draw(context, textures));
 }
 
-m2::PointF LayerCacher::CacheCopyright(ref_ptr<dp::GraphicsContext> context,
-                                       Position const & position, ref_ptr<LayerRenderer> renderer,
-                                       ref_ptr<dp::TextureManager> textures)
+void LayerCacher::CacheCopyright(ref_ptr<dp::GraphicsContext> context, Position const & position,
+                                 ref_ptr<LayerRenderer> renderer, ref_ptr<dp::TextureManager> textures)
 {
-  m2::PointF size;
-  renderer->AddShapeRenderer(WIDGET_COPYRIGHT, CopyrightLabel(position).Draw(context, size, textures));
-  return size;
+  renderer->AddShapeRenderer(WIDGET_COPYRIGHT, CopyrightLabel(position).Draw(context, textures));
 }
 
-m2::PointF LayerCacher::CacheScaleFpsLabel(ref_ptr<dp::GraphicsContext> context,
-                                           Position const & position,
-                                           ref_ptr<LayerRenderer> renderer,
-                                           ref_ptr<dp::TextureManager> textures)
+void LayerCacher::CacheScaleFpsLabel(ref_ptr<dp::GraphicsContext> context, Position const & position,
+                                     ref_ptr<LayerRenderer> renderer, ref_ptr<dp::TextureManager> textures)
 {
   MutableLabelDrawer::Params params;
   params.m_alphabet = "MGLFPSAUEDVcale: 1234567890/()";
@@ -380,7 +364,7 @@ m2::PointF LayerCacher::CacheScaleFpsLabel(ref_ptr<dp::GraphicsContext> context,
   params.m_font = DrapeGui::GetGuiTextFont();
   params.m_pivot = position.m_pixelPivot;
   auto const apiVersion = context->GetApiVersion();
-  params.m_handleCreator = [textures, apiVersion](dp::Anchor, m2::PointF const &)
+  params.m_handleCreator = [textures, apiVersion, &position](dp::Anchor, m2::PointF const &)
   {
     std::string apiLabel;
     switch (apiVersion)
@@ -391,14 +375,12 @@ m2::PointF LayerCacher::CacheScaleFpsLabel(ref_ptr<dp::GraphicsContext> context,
     case dp::ApiVersion::Vulkan: apiLabel = "V"; break;
     case dp::ApiVersion::Invalid: CHECK(false, ("Invalid API version.")); break;
     }
-    return make_unique_dp<ScaleFpsLabelHandle>(EGuiHandle::GuiHandleScaleLabel, textures, apiLabel);
+    return make_unique_dp<ScaleFpsLabelHandle>(EGuiHandle::GuiHandleScaleLabel, textures, apiLabel, position);
   };
 
   drape_ptr<ShapeRenderer> scaleRenderer = make_unique_dp<ShapeRenderer>();
-  m2::PointF size = MutableLabelDrawer::Draw(context, params, textures,
-    std::bind(&ShapeRenderer::AddShape, scaleRenderer.get(), _1, _2));
+  MutableLabelDrawer::Draw(context, params, textures, std::bind(&ShapeRenderer::AddShape, scaleRenderer.get(), _1, _2));
 
   renderer->AddShapeRenderer(WIDGET_SCALE_FPS_LABEL, std::move(scaleRenderer));
-  return size;
 }
 }  // namespace gui

@@ -11,6 +11,8 @@
 #include "storage/country_info_getter.hpp"
 #include "storage/routing_helpers.hpp"
 
+#include "traffic/traffic_cache.hpp"
+
 #include "transit/transit_types.hpp"
 
 #include "indexer/mwm_set.hpp"
@@ -34,25 +36,22 @@
 
 #include "defines.hpp"
 
-#include "3party/jansson/src/jansson.h"
-
 using namespace generator;
 using namespace platform;
 using namespace routing;
 using namespace routing::transit;
-using namespace std;
 using namespace storage;
 
 namespace
 {
-void LoadBorders(string const & dir, CountryId const & countryId, vector<m2::RegionD> & borders)
+void LoadBorders(std::string const & dir, CountryId const & countryId, std::vector<m2::RegionD> & borders)
 {
-  string const polyFile = base::JoinPath(dir, BORDERS_DIR, countryId + BORDERS_EXTENSION);
+  std::string const polyFile = base::JoinPath(dir, BORDERS_DIR, countryId + BORDERS_EXTENSION);
   borders.clear();
   borders::LoadBorders(polyFile, borders);
 }
 
-void FillOsmIdToFeatureIdsMap(string const & osmIdToFeatureIdsPath, OsmIdToFeatureIdsMap & mapping)
+void FillOsmIdToFeatureIdsMap(std::string const & osmIdToFeatureIdsPath, OsmIdToFeatureIdsMap & mapping)
 {
   CHECK(ForEachOsmId2FeatureId(osmIdToFeatureIdsPath,
                                [&mapping](auto const & compositeId, auto featureId) {
@@ -61,7 +60,7 @@ void FillOsmIdToFeatureIdsMap(string const & osmIdToFeatureIdsPath, OsmIdToFeatu
         (osmIdToFeatureIdsPath));
 }
 
-string GetMwmPath(string const & mwmDir, CountryId const & countryId)
+std::string GetMwmPath(std::string const & mwmDir, CountryId const & countryId)
 {
   return base::JoinPath(mwmDir, countryId + DATA_FILE_EXTENSION);
 }
@@ -70,7 +69,7 @@ string GetMwmPath(string const & mwmDir, CountryId const & countryId)
 /// The result of the calculation is set to |Gate::m_bestPedestrianSegment| of every gate
 /// from |graphData.m_gates|.
 /// \note All gates in |graphData.m_gates| must have a valid |m_point| field before the call.
-void CalculateBestPedestrianSegments(string const & mwmPath, CountryId const & countryId,
+void CalculateBestPedestrianSegments(std::string const & mwmPath, CountryId const & countryId,
                                      GraphData & graphData)
 {
   // Creating IndexRouter.
@@ -83,13 +82,13 @@ void CalculateBestPedestrianSegments(string const & mwmPath, CountryId const & c
     return infoGetter->GetRegionCountryId(pt);
   };
 
-  auto const getMwmRectByName = [&](string const & c) -> m2::RectD {
+  auto const getMwmRectByName = [&](std::string const & c) -> m2::RectD {
     CHECK_EQUAL(countryId, c, ());
     return infoGetter->GetLimitRectForLeaf(c);
   };
 
   CHECK_EQUAL(dataSource.GetMwmId().GetInfo()->GetType(), MwmInfo::COUNTRY, ());
-  auto numMwmIds = make_shared<NumMwmIds>();
+  auto numMwmIds = std::make_shared<NumMwmIds>();
   numMwmIds->RegisterFile(CountryFile(countryId));
 
   // Note. |indexRouter| is valid while |dataSource| is valid.
@@ -110,17 +109,13 @@ void CalculateBestPedestrianSegments(string const & mwmPath, CountryId const & c
     // Note. For pedestrian routing all the segments are considered as two way segments so
     // IndexRouter::FindBestSegments() method finds the same segments for |isOutgoing| == true
     // and |isOutgoing| == false.
-    vector<routing::Edge> bestEdges;
+    std::vector<routing::Edge> bestEdges;
     try
     {
       if (countryFileGetter(gate.GetPoint()) != countryId)
         continue;
 
-      bool dummy = false;
-      if (indexRouter.FindBestEdges(gate.GetPoint(), platform::CountryFile(countryId),
-                                    m2::PointD::Zero() /* direction */, true /* isOutgoing */,
-                                    FeaturesRoadGraph::kClosestEdgesRadiusM,
-                                    *worldGraph, bestEdges, dummy))
+      if (indexRouter.GetBestOutgoingEdges(gate.GetPoint(), *worldGraph, bestEdges))
       {
         CHECK(!bestEdges.empty(), ());
         IndexRouter::BestEdgeComparator bestEdgeComparator(gate.GetPoint(),
@@ -154,20 +149,18 @@ void CalculateBestPedestrianSegments(string const & mwmPath, CountryId const & c
 }
 }  // namespace
 
-namespace routing
-{
-namespace transit
+namespace routing::transit
 {
 void DeserializeFromJson(OsmIdToFeatureIdsMap const & mapping,
-                         string const & transitJsonPath, GraphData & data)
+                         std::string const & transitJsonPath, GraphData & data)
 {
   Platform::EFileType fileType;
   Platform::EError const errCode = Platform::GetFileType(transitJsonPath, fileType);
   CHECK_EQUAL(errCode, Platform::EError::ERR_OK, ("Transit graph was not found:", transitJsonPath));
-  CHECK_EQUAL(fileType, Platform::EFileType::FILE_TYPE_REGULAR,
+  CHECK_EQUAL(fileType, Platform::EFileType::Regular,
               ("Transit graph was not found:", transitJsonPath));
 
-  string jsonBuffer;
+  std::string jsonBuffer;
   try
   {
     GetPlatform().GetReader(transitJsonPath)->ReadAsString(jsonBuffer);
@@ -191,7 +184,7 @@ void DeserializeFromJson(OsmIdToFeatureIdsMap const & mapping,
   }
 }
 
-void ProcessGraph(string const & mwmPath, CountryId const & countryId,
+void ProcessGraph(std::string const & mwmPath, CountryId const & countryId,
                   OsmIdToFeatureIdsMap const & osmIdToFeatureIdsMap, GraphData & data)
 {
   CalculateBestPedestrianSegments(mwmPath, countryId, data);
@@ -199,18 +192,19 @@ void ProcessGraph(string const & mwmPath, CountryId const & countryId,
   data.CheckValidSortedUnique();
 }
 
-void BuildTransit(string const & mwmDir, CountryId const & countryId,
-                  string const & osmIdToFeatureIdsPath, string const & transitDir)
+void BuildTransit(std::string const & mwmDir, CountryId const & countryId,
+                  std::string const & osmIdToFeatureIdsPath, std::string const & transitDir)
 {
-  LOG(LINFO, ("Building transit section for", countryId, "mwmDir:", mwmDir));
-  Platform::FilesList graphFiles;
-  Platform::GetFilesByExt(base::AddSlashIfNeeded(transitDir), TRANSIT_FILE_EXTENSION, graphFiles);
+  std::string const mwmPath = GetMwmPath(mwmDir, countryId);
+  LOG(LINFO, ("Building transit section for", mwmPath));
 
-  string const mwmPath = GetMwmPath(mwmDir, countryId);
   OsmIdToFeatureIdsMap mapping;
   FillOsmIdToFeatureIdsMap(osmIdToFeatureIdsPath, mapping);
-  vector<m2::RegionD> mwmBorders;
+  std::vector<m2::RegionD> mwmBorders;
   LoadBorders(mwmDir, countryId, mwmBorders);
+
+  Platform::FilesList graphFiles;
+  Platform::GetFilesByExt(base::AddSlashIfNeeded(transitDir), TRANSIT_FILE_EXTENSION, graphFiles);
 
   GraphData jointData;
   for (auto const & fileName : graphFiles)
@@ -233,5 +227,4 @@ void BuildTransit(string const & mwmDir, CountryId const & countryId,
   auto writer = cont.GetWriter(TRANSIT_FILE_TAG);
   jointData.Serialize(*writer);
 }
-}  // namespace transit
-}  // namespace routing
+}  // namespace routing::transit

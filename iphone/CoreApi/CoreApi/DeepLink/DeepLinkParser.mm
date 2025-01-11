@@ -1,30 +1,39 @@
 #import "DeepLinkParser.h"
 #include <CoreApi/Framework.h>
-#import "DeepLinkData.h"
 #import "DeepLinkSearchData.h"
-#import "DeeplinkUrlType.h"
 
-@implementation DeepLinkParser
+#import "map/mwm_url.hpp"
 
-+ (id<IDeepLinkData>)parseAndSetApiURL:(NSURL *)url {
-  Framework &f = GetFramework();
-  url_scheme::ParsedMapApi::ParsingResult internalResult = f.ParseAndSetApiURL(url.absoluteString.UTF8String);
-  DeeplinkUrlType result = deeplinkUrlType(internalResult.m_type);
-
-  switch (result) {
-    case DeeplinkUrlTypeSearch:
-      return [[DeepLinkSearchData alloc] init:result success:internalResult.m_isSuccess];
-    default:
-      return [[DeepLinkData alloc] init:result success:internalResult.m_isSuccess];
+static inline DeeplinkUrlType deeplinkUrlType(url_scheme::ParsedMapApi::UrlType type)
+{
+  using namespace url_scheme;
+  switch (type)
+  {
+    case ParsedMapApi::UrlType::Incorrect: return DeeplinkUrlTypeIncorrect;
+    case ParsedMapApi::UrlType::Map: return DeeplinkUrlTypeMap;
+    case ParsedMapApi::UrlType::Route: return DeeplinkUrlTypeRoute;
+    case ParsedMapApi::UrlType::Search: return DeeplinkUrlTypeSearch;
+    case ParsedMapApi::UrlType::Crosshair: return DeeplinkUrlTypeCrosshair;
+    case ParsedMapApi::UrlType::OAuth2: return DeeplinkUrlTypeOAuth2;
+    case ParsedMapApi::UrlType::Menu: return DeeplinkUrlTypeMenu;
+    case ParsedMapApi::UrlType::Settings: return DeeplinkUrlTypeSettings;
   }
 }
 
-+ (bool)showMapForUrl:(NSURL *)url {
-  return GetFramework().ShowMapForURL(url.absoluteString.UTF8String);
+@implementation DeepLinkParser
+
++ (DeeplinkUrlType)parseAndSetApiURL:(NSURL *)url {
+  Framework &f = GetFramework();
+  return deeplinkUrlType(f.ParseAndSetApiURL(url.absoluteString.UTF8String));
+}
+
++ (void)executeMapApiRequest {
+  GetFramework().ExecuteMapApiRequest();
 }
 
 + (void)addBookmarksFile:(NSURL *)url {
-  GetFramework().AddBookmarksFile(url.relativePath.UTF8String, false /* isTemporaryFile */);
+  // iOS doesn't create temporary files on import at least in Safari and Files.
+  GetFramework().AddBookmarksFile(url.path.UTF8String, false /* isTemporaryFile */);
 }
 
 @end

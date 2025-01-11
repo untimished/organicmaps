@@ -10,6 +10,18 @@
 	<array>
 		<dict>
 			<key>CFBundleTypeIconFiles</key>
+			<array/>
+			<key>CFBundleTypeName</key>
+			<string>GPS Exchange Format (GPX)</string>
+			<key>LSHandlerRank</key>
+			<string>Default</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.topografix.gpx</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeIconFiles</key>
 			<array>
 				<string>320-pro.png</string>
 				<string>64-pro.png</string>
@@ -77,6 +89,19 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>mailto</string>
+		<string>comgooglemaps</string>
+		<string>osmandmaps</string>
+		<string>yandexmaps</string>
+		<string>dgis</string>
+		<string>citymapper</string>
+		<string>moovit</string>
+		<string>uber</string>
+		<string>waze</string>
+		<string>gomaposm</string>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
@@ -107,10 +132,8 @@
 			</dict>
 		</dict>
 	</dict>
-	<key>NSCameraUsageDescription</key>
-	<string>Unused by an application</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Unused by an application</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Determining your location is necessary for navigation and for saving your recently travelled track.</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>FredokaOne-Regular.ttf</string>
@@ -123,15 +146,15 @@
 			<key>UIApplicationShortcutItemTitle</key>
 			<string>search</string>
 			<key>UIApplicationShortcutItemType</key>
-			<string>me.maps.3daction.search</string>
+			<string>app.organicmaps.3daction.search</string>
 		</dict>
 		<dict>
 			<key>UIApplicationShortcutItemIconFile</key>
 			<string>ic_3dtouch_bookmarks</string>
 			<key>UIApplicationShortcutItemTitle</key>
-			<string>bookmarks</string>
+			<string>bookmarks_and_tracks</string>
 			<key>UIApplicationShortcutItemType</key>
-			<string>me.maps.3daction.bookmarks</string>
+			<string>app.organicmaps.3daction.bookmarks</string>
 		</dict>
 		<dict>
 			<key>UIApplicationShortcutItemIconFile</key>
@@ -139,7 +162,7 @@
 			<key>UIApplicationShortcutItemTitle</key>
 			<string>route</string>
 			<key>UIApplicationShortcutItemType</key>
-			<string>me.maps.3daction.route</string>
+			<string>app.organicmaps.3daction.route</string>
 		</dict>
 	</array>
 	<key>UIBackgroundModes</key>
@@ -213,6 +236,53 @@
 				<string>application/vnd.google-earth.kmz+xml</string>
 			</dict>
 		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.xml</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>GPS Exchange Format (GPX)</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.topografix.gpx</string>
+			<key>UTTypeReferenceURL</key>
+			<string>http://www.topografix.com/GPX/1/</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>gpx</string>
+					<string>GPX</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>application/gpx+xml</string>
+				</array>
+			</dict>
+		</dict>
 	</array>
+	<key>NSUbiquitousContainers</key>
+	<dict>
+		<key>iCloud.app.organicmaps</key>
+		<dict>
+			<key>NSUbiquitousContainerIsDocumentScopePublic</key>
+			<true/>
+			<key>NSUbiquitousContainerSupportedFolderLevels</key>
+			<string>ANY</string>
+			<key>NSUbiquitousContainerName</key>
+			<string>OrganicMaps</string>
+		</dict>
+		<key>iCloud.app.organicmaps.debug</key>
+		<dict>
+			<key>NSUbiquitousContainerIsDocumentScopePublic</key>
+			<true/>
+			<key>NSUbiquitousContainerSupportedFolderLevels</key>
+			<string>ANY</string>
+			<key>NSUbiquitousContainerName</key>
+			<string>OrganicMapsDEBUG</string>
+		</dict>
+	</dict>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 </dict>
 </plist>

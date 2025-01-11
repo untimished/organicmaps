@@ -15,9 +15,6 @@
 #include "platform/local_country_file.hpp"
 #include "platform/platform.hpp"
 
-#include "coding/files_container.hpp"
-#include "coding/reader.hpp"
-
 #include "base/assert.hpp"
 #include "base/file_name_utils.hpp"
 #include "base/logging.hpp"
@@ -32,14 +29,14 @@
 
 #include "defines.hpp"
 
+namespace city_roads_tests
+{
 using namespace coding;
 using namespace platform::tests_support;
 using namespace platform;
 using namespace routing;
-using namespace std;
+using std::string, std::vector;
 
-namespace
-{
 // Directory name for creating test mwm and temporary files.
 string const kTestDir = "city_roads_generation_test";
 // Temporary mwm name for testing.
@@ -50,18 +47,15 @@ void BuildEmptyMwm(LocalCountryFile & country)
   generator::tests_support::TestMwmBuilder builder(country, feature::DataHeader::MapType::Country);
 }
 
-unique_ptr<CityRoads> LoadCityRoads(LocalCountryFile const & country)
+std::unique_ptr<CityRoads> LoadCityRoads(LocalCountryFile const & country)
 {
   FrozenDataSource dataSource;
   auto const regResult = dataSource.RegisterMap(country);
   TEST_EQUAL(regResult.second, MwmSet::RegResult::Success, ());
-  auto const & mwmId = regResult.first;
 
-  MwmSet::MwmHandle handle(dataSource.GetMwmHandleById(mwmId));
-  if (!handle.IsAlive())
-    return make_unique<CityRoads>();
-
-  return routing::LoadCityRoads(dataSource, handle);
+  MwmSet::MwmHandle handle(dataSource.GetMwmHandleById(regResult.first));
+  TEST(handle.IsAlive(), ());
+  return routing::LoadCityRoads(handle);
 }
 
 /// \brief Builds mwm with city_roads section, read the section and compare original feature ids
@@ -84,7 +78,7 @@ void TestCityRoadsBuilding(vector<uint32_t> && cityRoadFeatureIds)
   // Adding city_roads section to mwm.
   string const mwmFullPath = base::JoinPath(writableDir, mwmRelativePath);
   vector<uint32_t> originalCityRoadFeatureIds = cityRoadFeatureIds;
-  SerializeCityRoads(mwmFullPath, move(cityRoadFeatureIds));
+  routing_builder::SerializeCityRoads(mwmFullPath, std::move(cityRoadFeatureIds));
 
   auto const cityRoads = LoadCityRoads(country);
   TEST(cityRoads, ());
@@ -100,7 +94,7 @@ void TestCityRoadsBuilding(vector<uint32_t> && cityRoadFeatureIds)
 
   sort(originalCityRoadFeatureIds.begin(), originalCityRoadFeatureIds.end());
   size_t const kMaxRoadFeatureId = originalCityRoadFeatureIds.back();
-  CHECK_LESS(kMaxRoadFeatureId, numeric_limits<uint32_t>::max(), ());
+  CHECK_LESS(kMaxRoadFeatureId, std::numeric_limits<uint32_t>::max(), ());
   // Note. 2 is added below to test all the if-branches of CityRoads::IsCityRoad() method.
   for (uint32_t fid = 0; fid < kMaxRoadFeatureId + 2; ++fid)
   {
@@ -173,4 +167,4 @@ UNIT_TEST(CityRoadsGenerationTest_UnsortedIds3)
        182452, 303265, 73616, 262562, 62935, 294606, 466803, 215791, 468825, 76934, 18187,
        194429, 32913}));
 }
-}  // namespace
+}  // namespace city_roads_tests

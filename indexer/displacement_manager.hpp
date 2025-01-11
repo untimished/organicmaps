@@ -3,7 +3,7 @@
 #include "indexer/cell_id.hpp"
 #include "indexer/cell_value_pair.hpp"
 #include "indexer/classificator.hpp"
-#include "indexer/drawing_rules.hpp"
+#include "indexer/drawing_rule_def.hpp"
 #include "indexer/feature_data.hpp"
 #include "indexer/feature_visibility.hpp"
 #include "indexer/scales.hpp"
@@ -19,17 +19,14 @@
 #include <functional>
 #include <vector>
 
-namespace
+namespace covering
 {
 double constexpr kPOIDisplacementRadiusPixels = 80.;
 
 // Displacement radius in pixels * half of the world in degrees / meaned graphics tile size.
 // So average displacement radius will be: this / tiles in row count.
 double constexpr kPOIDisplacementRadiusMultiplier = kPOIDisplacementRadiusPixels * 180. / 512.;
-}  // namespace
 
-namespace covering
-{
 class CellFeatureBucketTuple
 {
 public:
@@ -54,10 +51,9 @@ private:
   CellFeaturePair m_pair;
   uint32_t m_bucket;
 };
-static_assert(sizeof(CellFeatureBucketTuple) == 16, "");
-#ifndef OMIM_OS_LINUX
-static_assert(std::is_trivially_copyable<CellFeatureBucketTuple>::value, "");
-#endif
+
+static_assert(sizeof(CellFeatureBucketTuple) == 16);
+static_assert(std::is_trivially_copyable<CellFeatureBucketTuple>::value);
 
 /// Displacement manager filters incoming single-point features to simplify runtime
 /// feature visibility displacement.
@@ -67,7 +63,7 @@ class DisplacementManager
 public:
   using CellFeaturePair = CellFeatureBucketTuple::CellFeaturePair;
 
-  DisplacementManager(Sorter & sorter) : m_sorter(sorter) {}
+  explicit DisplacementManager(Sorter & sorter) : m_sorter(sorter) {}
 
   /// Add feature at bucket (zoom) to displaceable queue if possible. Pass to bucket otherwise.
   template <typename Feature>
@@ -110,6 +106,7 @@ public:
         acceptedNodes.Add(node);
         continue;
       }
+
       for (; scale < scales::GetUpperScale(); ++scale)
       {
         float const delta = CalculateDeltaForZoom(scale);
@@ -117,11 +114,10 @@ public:
 
         m2::RectD const displacementRect(node.m_center, node.m_center);
         bool isDisplaced = false;
-        acceptedNodes.ForEachInRect(
-            m2::Inflate(displacementRect, {delta, delta}),
-            [&isDisplaced, &node, &squaredDelta, &scale](DisplaceableNode const & rhs) {
-              if (node.m_center.SquaredLength(rhs.m_center) < squaredDelta &&
-                  rhs.m_maxScale > scale)
+        acceptedNodes.ForEachInRect(m2::Inflate(displacementRect, {delta, delta}),
+            [&isDisplaced, &node, &squaredDelta, &scale](DisplaceableNode const & rhs)
+            {
+              if (node.m_center.SquaredLength(rhs.m_center) < squaredDelta && rhs.m_maxScale > scale)
                 isDisplaced = true;
             });
         if (isDisplaced)
@@ -132,6 +128,7 @@ public:
         acceptedNodes.Add(node);
         break;
       }
+
       if (scale == scales::GetUpperScale())
         AddNodeToSorter(node, scale);
     }
@@ -152,8 +149,7 @@ private:
     DisplaceableNode() : m_index(0), m_minScale(0), m_maxScale(0), m_priority(0) {}
 
     template <typename Feature>
-    DisplaceableNode(std::vector<int64_t> const & cells, Feature & ft, uint32_t index,
-                     int zoomLevel)
+    DisplaceableNode(std::vector<int64_t> const & cells, Feature & ft, uint32_t index, int zoomLevel)
       : m_index(index)
       , m_fID(ft.GetID())
       , m_center(ft.GetCenter())
@@ -161,27 +157,28 @@ private:
       , m_minScale(zoomLevel)
     {
       feature::TypesHolder const types(ft);
-      auto scaleRange = feature::GetDrawableScaleRange(types);
-      m_maxScale = scaleRange.second;
+      m_maxScale = feature::GetDrawableScaleRange(types).second;
 
       // Calculate depth field
       drule::KeysT keys;
-      feature::GetDrawRule(feature::TypesHolder(ft), zoomLevel, keys);
+      feature::GetDrawRule(types, zoomLevel, keys);
+
       // While the function has "runtime" in its name, it merely filters by metadata-based rules.
       feature::FilterRulesByRuntimeSelector(ft, zoomLevel, keys);
       drule::MakeUnique(keys);
+
       float depth = 0;
-      for (size_t i = 0, count = keys.size(); i < count; ++i)
+      for (auto const & k : keys)
       {
-        if (depth < keys[i].m_priority)
-          depth = keys[i].m_priority;
+        if (depth < k.m_priority)
+          depth = k.m_priority;
       }
 
-      float const kMinDepth = -100000.0f;
-      float const kMaxDepth = 100000.0f;
-      float const d = base::Clamp(depth, kMinDepth, kMaxDepth) - kMinDepth;
+      // @todo: make sure features are prioritised the same way as in the run-time displacer,
+      // see overlay_handle.cpp::CalculateOverlayPriority()
+      ASSERT(-drule::kOverlaysMaxPriority <= depth && depth < drule::kOverlaysMaxPriority, (depth));
       uint8_t rank = ft.GetRank();
-      m_priority = (static_cast<uint32_t>(d) << 8) | rank;
+      m_priority = (static_cast<uint32_t>(depth) << 8) | rank;
     }
 
     // Same to dynamic displacement behaviour.
@@ -217,4 +214,4 @@ private:
   Sorter & m_sorter;
   std::vector<DisplaceableNode> m_storage;
 };
-}  // namespace indexer
+} // namespace covering

@@ -1,3 +1,5 @@
+import UIKit
+
 @objc(MWMDownloadMapsViewController)
 class DownloadMapsViewController: MWMViewController {
   // MARK: - Types
@@ -20,14 +22,12 @@ class DownloadMapsViewController: MWMViewController {
   // MARK: - Outlets
 
   @IBOutlet var tableView: UITableView!
-  @IBOutlet var searchBar: UISearchBar!
-  @IBOutlet var statusBarBackground: UIView!
   @IBOutlet var noMapsContainer: UIView!
-  @IBOutlet var searchBarTopOffset: NSLayoutConstraint!
   @IBOutlet var downloadAllViewContainer: UIView!
 
   // MARK: - Properties
 
+  private var searchController = UISearchController(searchResultsController: nil)
   var dataSource: IDownloaderDataSource!
   @objc var mode: MWMMapDownloaderMode = .downloaded
   private var skipCountryEvent = false
@@ -36,7 +36,7 @@ class DownloadMapsViewController: MWMViewController {
 
   lazy var noSerchResultViewController: SearchNoResultsViewController = {
     let vc = storyboard!.instantiateViewController(ofType: SearchNoResultsViewController.self)
-    view.insertSubview(vc.view, belowSubview: statusBarBackground)
+    view.insertSubview(vc.view, aboveSubview: tableView)
     vc.view.alignToSuperview()
     vc.view.isHidden = true
     addChild(vc)
@@ -48,7 +48,14 @@ class DownloadMapsViewController: MWMViewController {
     let view = Bundle.main.load(viewClass: DownloadAllView.self)?.first as! DownloadAllView
     view.delegate = self
     downloadAllViewContainer.addSubview(view)
-    view.alignToSuperview()
+    downloadAllViewContainer.addSeparator()
+    view.translatesAutoresizingMaskIntoConstraints = false
+    NSLayoutConstraint.activate([
+      view.leadingAnchor.constraint(equalTo: self.view.safeAreaLayoutGuide.leadingAnchor),
+      view.trailingAnchor.constraint(equalTo: self.view.safeAreaLayoutGuide.trailingAnchor),
+      view.topAnchor.constraint(equalTo: downloadAllViewContainer.topAnchor),
+      view.bottomAnchor.constraint(equalTo: self.view.safeAreaLayoutGuide.bottomAnchor),
+    ])
     return view
   }()
 
@@ -77,11 +84,15 @@ class DownloadMapsViewController: MWMViewController {
       navigationItem.rightBarButtonItem = addMapsButton
     }
     noMapsContainer.isHidden = !dataSource.isEmpty || Storage.shared().downloadInProgress()
-    if !dataSource.isRoot {
-      searchBarTopOffset.constant = -searchBar.frame.height
-    } else {
-      searchBar.placeholder = L("downloader_search_field_hint")
-    }
+    extendedLayoutIncludesOpaqueBars = true
+    searchController.searchBar.placeholder = L("downloader_search_field_hint")
+    searchController.searchBar.delegate = self
+    searchController.obscuresBackgroundDuringPresentation = false
+    searchController.hidesNavigationBarDuringPresentation = alternativeSizeClass(iPhone: true, iPad: false)
+    searchController.searchBar.applyTheme()
+    navigationItem.searchController = searchController
+    navigationItem.hidesSearchBarWhenScrolling = false
+    
     configButtons()
   }
 
@@ -277,7 +288,7 @@ extension DownloadMapsViewController: UITableViewDataSource {
       cell = placeCell
     }
     cell.mode = dataSource.isSearching ? .available : mode
-    cell.config(nodeAttrs, searchQuery: searchBar.text)
+    cell.config(nodeAttrs, searchQuery: searchController.searchBar.text)
     cell.delegate = self
     return cell
   }
@@ -353,7 +364,7 @@ extension DownloadMapsViewController: UITableViewDelegate {
 
 extension DownloadMapsViewController: UIScrollViewDelegate {
   func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
-    searchBar.resignFirstResponder()
+    searchController.searchBar.resignFirstResponder()
   }
 }
 
@@ -410,7 +421,7 @@ extension DownloadMapsViewController: StorageObserver {
       guard let downloaderCell = cell as? MWMMapDownloaderTableViewCell else { continue }
       if downloaderCell.nodeAttrs.countryId != countryId { continue }
       guard let indexPath = tableView.indexPath(for: downloaderCell) else { return }
-      downloaderCell.config(dataSource.item(at: indexPath), searchQuery: searchBar.text)
+      downloaderCell.config(dataSource.item(at: indexPath), searchQuery: searchController.searchBar.text)
     }
   }
 
@@ -434,22 +445,6 @@ extension DownloadMapsViewController: StorageObserver {
 // MARK: - UISearchBarDelegate
 
 extension DownloadMapsViewController: UISearchBarDelegate {
-  func searchBarShouldBeginEditing(_ searchBar: UISearchBar) -> Bool {
-    searchBar.setShowsCancelButton(true, animated: true)
-    navigationController?.setNavigationBarHidden(true, animated: true)
-    tableView.contentInset = .zero
-    tableView.scrollIndicatorInsets = .zero
-    return true
-  }
-
-  func searchBarShouldEndEditing(_ searchBar: UISearchBar) -> Bool {
-    searchBar.setShowsCancelButton(false, animated: true)
-    navigationController?.setNavigationBarHidden(false, animated: true)
-    tableView.contentInset = .zero
-    tableView.scrollIndicatorInsets = .zero
-    return true
-  }
-
   func searchBarCancelButtonClicked(_ searchBar: UISearchBar) {
     searchBar.text = nil
     searchBar.resignFirstResponder()
@@ -465,14 +460,6 @@ extension DownloadMapsViewController: UISearchBarDelegate {
       self.reloadData()
       self.noSerchResultViewController.view.isHidden = !self.dataSource.isEmpty
     }
-  }
-}
-
-// MARK: - UIBarPositioningDelegate
-
-extension DownloadMapsViewController: UIBarPositioningDelegate {
-  func position(for bar: UIBarPositioning) -> UIBarPosition {
-    .topAttached
   }
 }
 

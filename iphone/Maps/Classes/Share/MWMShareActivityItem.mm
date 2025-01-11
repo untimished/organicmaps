@@ -1,10 +1,10 @@
 #import "MWMShareActivityItem.h"
 
-
 #include <CoreApi/Framework.h>
 #import <CoreApi/PlacePageData.h>
 #import <CoreApi/PlacePagePreviewData.h>
 #import <CoreApi/PlacePageInfoData.h>
+#import <LinkPresentation/LPLinkMetadata.h>
 
 NSString * httpGe0Url(NSString * shortUrl)
 {
@@ -63,8 +63,8 @@ NSString * httpGe0Url(NSString * shortUrl)
       return data.previewData.title;
     else if (data.previewData.subtitle.length)
       return data.previewData.subtitle;
-    else if (data.previewData.address.length)
-      return data.previewData.address;
+    else if (data.previewData.secondarySubtitle.length)
+      return data.previewData.secondarySubtitle;
     else
       return @"";
   };
@@ -103,6 +103,15 @@ NSString * httpGe0Url(NSString * shortUrl)
   return [self subjectDefault];
 }
 
+- (LPLinkMetadata *)activityViewControllerLinkMetadata:(UIActivityViewController *)activityViewController API_AVAILABLE(ios(13.0))
+{
+  LPLinkMetadata * metadata = [[LPLinkMetadata alloc] init];
+  metadata.originalURL = [NSURL URLWithString:[self url:NO]];
+  metadata.title = self.isMyPosition ? L(@"core_my_position") : self.data.previewData.title;
+  metadata.iconProvider = [[NSItemProvider alloc] initWithObject:[UIImage imageNamed:@"imgLogo"]];
+  return metadata;
+}
+
 #pragma mark - Message
 
 - (NSString *)itemForTwitter
@@ -129,7 +138,7 @@ NSString * httpGe0Url(NSString * shortUrl)
   NSMutableString * result = [L(@"sharing_call_action_look") mutableCopy];
   std::vector<NSString *> strings{self.data.previewData.title,
                                  self.data.previewData.subtitle,
-                                 self.data.previewData.address,
+                                 self.data.previewData.secondarySubtitle,
                                  self.data.infoData.phone,
                                  url,
                                  ge0Url};

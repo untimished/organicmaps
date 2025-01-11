@@ -8,7 +8,6 @@
 #include "coding/geometry_coding.hpp"
 #include "coding/read_write_utils.hpp"
 
-#include "geometry/latlon.hpp"
 #include "geometry/mercator.hpp"
 #include "geometry/region2d.hpp"
 
@@ -148,15 +147,24 @@ m2::RectD CountryInfoGetter::CalcLimitRect(std::string const & prefix) const
 m2::RectD CountryInfoGetter::GetLimitRectForLeaf(CountryId const & leafCountryId) const
 {
   auto const it = m_countryIndex.find(leafCountryId);
-  ASSERT(it != m_countryIndex.end(), ());
-  ASSERT_LESS(it->second, m_countries.size(), ());
-  return m_countries[it->second].m_rect;
+  if (it != m_countryIndex.end())
+  {
+    ASSERT_LESS(it->second, m_countries.size(), ());
+    return m_countries[it->second].m_rect;
+  }
+  else
+  {
+    // Full rect for World files.
+    return mercator::Bounds::FullRect();
+  }
 }
 
 void CountryInfoGetter::GetMatchedRegions(std::string const & affiliation,
                                           RegionIdVec & regions) const
 {
-  CHECK(m_affiliations, ());
+  // Once set, m_affiliations ptr is never changed (same as the content).
+  ASSERT(m_affiliations, ());
+
   auto it = m_affiliations->find(affiliation);
   if (it == m_affiliations->end())
     return;
@@ -178,7 +186,7 @@ void CountryInfoGetter::ForEachCountry(std::string const & prefix, ToDo && toDo)
 {
   for (auto const & country : m_countries)
   {
-    if (strings::StartsWith(country.m_countryId, prefix.c_str()))
+    if (country.m_countryId.starts_with(prefix))
       toDo(country);
   }
 }
@@ -245,8 +253,8 @@ void CountryInfoReader::ClearCachesImpl() const
 }
 
 template <typename Fn>
-std::result_of_t<Fn(std::vector<m2::RegionD>)> CountryInfoReader::WithRegion(size_t id,
-                                                                             Fn && fn) const
+std::invoke_result_t<Fn, std::vector<m2::RegionD>> CountryInfoReader::WithRegion(size_t id,
+                                                                                 Fn && fn) const
 {
   std::lock_guard<std::mutex> lock(m_cacheMutex);
 

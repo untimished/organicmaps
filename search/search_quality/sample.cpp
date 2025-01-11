@@ -14,6 +14,8 @@
 #include <memory>
 #include <sstream>
 
+namespace search
+{
 using namespace base;
 using namespace std;
 
@@ -49,18 +51,12 @@ bool Equal(vector<T> lhs, vector<T> rhs)
 }
 }  // namespace
 
-namespace search
-{
 // static
 Sample::Result Sample::Result::Build(FeatureType & ft, Relevance relevance)
 {
   Sample::Result r;
   r.m_pos = feature::GetCenter(ft);
-  {
-    string name;
-    ft.GetReadableName(name);
-    r.m_name = strings::MakeUniString(name);
-  }
+  r.m_name = strings::MakeUniString(ft.GetReadableName());
   r.m_houseNumber = ft.GetHouseNumber();
   r.m_types = feature::TypesHolder(ft).ToObjectNames();
   r.m_relevance = relevance;
@@ -141,7 +137,7 @@ bool Sample::DeserializeFromJSONLines(string const & lines, vector<Sample> & sam
     Sample sample;
     if (!sample.DeserializeFromJSON(line))
       return false;
-    result.emplace_back(move(sample));
+    result.emplace_back(std::move(sample));
   }
 
   samples.insert(samples.end(), result.begin(), result.end());
@@ -154,7 +150,7 @@ void Sample::SerializeToJSONLines(vector<Sample> const & samples, string & lines
   for (auto const & sample : samples)
   {
     unique_ptr<char, JSONFreeDeleter> buffer(
-        json_dumps(sample.SerializeToJSON().get(), JSON_COMPACT | JSON_ENSURE_ASCII));
+        json_dumps(sample.SerializeToJSON().get(), JSON_COMPACT));
     lines.append(buffer.get());
     lines.push_back('\n');
   }
@@ -193,6 +189,7 @@ void Sample::FillSearchParams(search::SearchParams & params) const
   params.m_needAddress = true;
   params.m_suggestsEnabled = false;
   params.m_needHighlighting = false;
+  params.m_useDebugInfo = true;     // for RankingInfo printing
 }
 
 void FromJSONObject(json_t * root, char const * field, Sample::Result::Relevance & relevance)

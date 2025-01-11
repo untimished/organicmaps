@@ -82,7 +82,7 @@ public:
   //info.m_verticalAccuracy = location.verticalAccuracy;
   //info.m_altitude = location.altitude;
   //info.m_course = location.course;
-  //info.m_speedMpS = location.speed;
+  //info.m_speed = location.speed;
 }
 
 - (void)locationManager:(CLLocationManager *)manager
@@ -106,7 +106,7 @@ public:
 
 @end
 
-extern "C" location::LocationService * CreateAppleLocationService(LocationObserver & observer)
+std::unique_ptr<location::LocationService> CreateAppleLocationService(LocationObserver & observer)
 {
-  return new AppleLocationService(observer);
+  return std::make_unique<AppleLocationService>(observer);
 }

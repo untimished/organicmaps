@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import inspect
 import linecache
@@ -378,10 +378,9 @@ class BuildOmimBindingCommand(build_ext, object):
             spawn(
                 [
                     cmake,
-                    '-DSKIP_DESKTOP=1',
+                    '-DSKIP_QT_GUI=1',
                     '-DPYBINDINGS=ON',
                     '-DPYBINDINGS_VERSION={}'.format(get_version()),
-                    '-DPYTHON_VERSION={}'.format(get_python_version()),
                     '-DPYTHON_EXECUTABLE={}'.format(sys.executable),
                     '-DPYTHON_INCLUDE_DIR={}'.format(get_python_inc()),
                     OMIM_ROOT,

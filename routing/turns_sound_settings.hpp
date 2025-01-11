@@ -1,5 +1,6 @@
 #pragma once
 
+#include "routing/route.hpp"
 #include "routing/turns.hpp"
 
 #include "platform/measurement_utils.hpp"
@@ -55,7 +56,9 @@ class Settings
   std::vector<uint32_t> m_soundedDistancesUnits;
   measurement_utils::Units m_lengthUnits;
 
+public:
   // This constructor is for testing only.
+  // TODO: Do not compile it for production. Either use a static method or derive it in tests.
   Settings(uint32_t notificationTimeSeconds, uint32_t minNotificationDistanceUnits,
            uint32_t maxNotificationDistanceUnits, uint32_t startBeforeSeconds,
            uint32_t minStartBeforeMeters, uint32_t maxStartBeforeMeters,
@@ -75,7 +78,6 @@ class Settings
     ASSERT(!m_soundedDistancesUnits.empty(), ());
   }
 
-public:
   Settings(uint32_t startBeforeSecondsVehicle, uint32_t minStartBeforeMetersVehicle,
            uint32_t maxStartBeforeMetersVehicle, uint32_t minDistToSayNotificationMeters,
            uint32_t startBeforeSecondsPedestrian, uint32_t minStartBeforeMetersPedestrian,
@@ -148,14 +150,38 @@ struct Notification
   CarDirection m_turnDir = CarDirection::None;
   PedestrianDirection m_turnDirPedestrian = PedestrianDirection::None;
   measurement_utils::Units m_lengthUnits;
+  RouteSegment::RoadNameInfo m_nextStreetInfo;
 
-  Notification(uint32_t distanceUnits, uint8_t exitNum, bool useThenInsteadOfDistance,
-               CarDirection turnDir, measurement_utils::Units lengthUnits)
+  Notification(uint32_t distanceUnits, uint8_t exitNum, bool useThenInsteadOfDistance, CarDirection turnDir,
+               measurement_utils::Units lengthUnits, RouteSegment::RoadNameInfo const & nextStreetInfo)
     : m_distanceUnits(distanceUnits)
     , m_exitNum(exitNum)
     , m_useThenInsteadOfDistance(useThenInsteadOfDistance)
     , m_turnDir(turnDir)
     , m_lengthUnits(lengthUnits)
+    , m_nextStreetInfo(nextStreetInfo)
+  {
+  }
+
+  Notification(uint32_t distanceUnits, uint8_t exitNum, bool useThenInsteadOfDistance, CarDirection turnDir,
+               measurement_utils::Units lengthUnits)
+    : m_distanceUnits(distanceUnits)
+    , m_exitNum(exitNum)
+    , m_useThenInsteadOfDistance(useThenInsteadOfDistance)
+    , m_turnDir(turnDir)
+    , m_lengthUnits(lengthUnits)
+  {
+  }
+
+  Notification(uint32_t distanceUnits, uint8_t exitNum, bool useThenInsteadOfDistance,
+               PedestrianDirection turnDirPedestrian, measurement_utils::Units lengthUnits
+    , RouteSegment::RoadNameInfo const & nextStreetInfo)
+    : m_distanceUnits(distanceUnits)
+    , m_exitNum(exitNum)
+    , m_useThenInsteadOfDistance(useThenInsteadOfDistance)
+    , m_turnDirPedestrian(turnDirPedestrian)
+    , m_lengthUnits(lengthUnits)
+    , m_nextStreetInfo(nextStreetInfo)
   {
   }
 
@@ -172,9 +198,9 @@ struct Notification
   bool operator==(Notification const & rhv) const
   {
     return m_distanceUnits == rhv.m_distanceUnits && m_exitNum == rhv.m_exitNum &&
-           m_useThenInsteadOfDistance == rhv.m_useThenInsteadOfDistance &&
-           m_turnDir == rhv.m_turnDir && m_turnDirPedestrian == rhv.m_turnDirPedestrian &&
-           m_lengthUnits == rhv.m_lengthUnits;
+           m_useThenInsteadOfDistance == rhv.m_useThenInsteadOfDistance && m_turnDir == rhv.m_turnDir &&
+           m_turnDirPedestrian == rhv.m_turnDirPedestrian && m_lengthUnits == rhv.m_lengthUnits &&
+           m_nextStreetInfo == rhv.m_nextStreetInfo;
   }
 
   bool IsPedestrianNotification() const

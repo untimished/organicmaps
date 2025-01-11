@@ -9,14 +9,10 @@
 
 #include "base/macros.hpp"
 
-#include <algorithm>
-#include <cstddef>
 #include <limits>
 #include <optional>
-#include <random>
 #include <set>
-#include <string>
-#include <utility>
+#include <unordered_set>
 #include <vector>
 
 class DataSource;
@@ -29,10 +25,8 @@ class PreRanker
 public:
   struct Params
   {
-    // Minimal distance between search results in mercators, needed for
-    // filtering of viewport search results.
-    double m_minDistanceOnMapBetweenResultsX = 0.0;
-    double m_minDistanceOnMapBetweenResultsY = 0.0;
+    // Minimal distance between search results (by x,y axes in mercator), needed for filtering of viewport search results.
+    m2::PointD m_minDistanceOnMapBetweenResults{0, 0};
 
     // This is different from geocoder's pivot because pivot is
     // usually a rectangle created by radius and center and, due to
@@ -48,9 +42,11 @@ public:
 
     int m_scale = 0;
 
-    // Batch size for Everywhere search mode. For viewport search we limit search results number
-    // with SweepNearbyResults.
-    size_t m_everywhereBatchSize = 100;
+    // Batch size for Everywhere search mode.
+    // For viewport search we limit search results number with SweepNearbyResults.
+    // Increased to 1K, no problem to read 1-2K Features per search now, but the quality is much better.
+    /// @see BA_SanMartin test.
+    size_t m_everywhereBatchSize = 1000;
 
     // The maximum total number of results to be emitted in all batches.
     size_t m_limit = 0;
@@ -80,11 +76,6 @@ public:
       m_haveFullyMatchedResult = true;
   }
 
-  // Computes missing fields for all pre-results.
-  void FillMissingFieldsInPreResults();
-
-  void Filter(bool viewportSearch);
-
   // Emit a new batch of results up the pipeline (i.e. to ranker).
   // Use |lastUpdate| to indicate that no more results will be added.
   void UpdateResults(bool lastUpdate);
@@ -96,26 +87,65 @@ public:
                                      : m_params.m_everywhereBatchSize;
   }
   size_t NumSentResults() const { return m_numSentResults; }
-  bool HaveFullyMatchedResult() const { return m_haveFullyMatchedResult; }
+  bool ContinueSearch() const { return !m_haveFullyMatchedResult || Size() < BatchSize(); }
   size_t Limit() const { return m_params.m_limit; }
 
-  template <typename Fn>
-  void ForEach(Fn && fn)
+  // Iterate results per-MWM clusters.
+  // Made it "static template" for easy unit tests implementing.
+  template <class T, class FnT>
+  static void ForEachMwmOrder(std::vector<T> & vec, FnT && fn)
   {
-    std::for_each(m_results.begin(), m_results.end(), std::forward<Fn>(fn));
+    size_t const count = vec.size();
+    if (count == 0)
+      return;
+
+    std::set<MwmSet::MwmId> processed;
+
+    size_t next = 0;
+    bool nextAssigned;
+
+    do
+    {
+      fn(vec[next]);
+
+      MwmSet::MwmId const mwmId = vec[next].GetId().m_mwmId;
+
+      nextAssigned = false;
+      for (size_t i = next + 1; i < count; ++i)
+      {
+        auto const & currId = vec[i].GetId().m_mwmId;
+        if (currId == mwmId)
+        {
+          fn(vec[i]);
+        }
+        else if (!nextAssigned && processed.count(currId) == 0)
+        {
+          next = i;
+          nextAssigned = true;
+        }
+      }
+
+      processed.insert(mwmId);
+    } while (nextAssigned);
   }
 
   void ClearCaches();
 
 private:
-  void FilterForViewportSearch();
+  // Computes missing fields for all pre-results.
+  void FillMissingFieldsInPreResults();
+  void DbgFindAndLog(std::set<uint32_t> const & ids) const;
 
+  void FilterForViewportSearch();
+  void Filter();
   void FilterRelaxedResults(bool lastUpdate);
 
   DataSource const & m_dataSource;
   Ranker & m_ranker;
-  std::vector<PreRankerResult> m_results;
-  std::vector<PreRankerResult> m_relaxedResults;
+
+  using PreResultsContainerT = std::vector<PreRankerResult>;
+  PreResultsContainerT m_results, m_relaxedResults;
+
   Params m_params;
 
   // Amount of results sent up the pipeline.
@@ -127,16 +157,15 @@ private:
   // Cache of nested rects used to estimate distance from a feature to the pivot.
   NestedRectsCache m_pivotFeatures;
 
-  // A set of ids for features that are emitted during the current search session.
-  std::set<FeatureID> m_currEmit;
+  /// @name Only for the viewport search. Store a set of ids that were emitted during the previous
+  /// search session. They're used for filtering of current search, because we need to give more priority
+  /// to results that were on map previously, to avoid result's annoying blinking/flickering on map.
+  /// @{
+  std::unordered_set<FeatureID> m_currEmit;
+  std::unordered_set<FeatureID> m_prevEmit;
+  /// @}
 
-  // A set of ids for features that were emitted during the previous
-  // search session.  They're used for filtering of current search in
-  // viewport results, because we need to give more priority to
-  // results that were on map previously.
-  std::set<FeatureID> m_prevEmit;
-
-  std::minstd_rand m_rng;
+  unsigned m_rndSeed;
 
   DISALLOW_COPY_AND_MOVE(PreRanker);
 };

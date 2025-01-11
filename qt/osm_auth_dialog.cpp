@@ -19,19 +19,18 @@ namespace qt
 {
 char const * kTokenKeySetting = "OsmTokenKey";
 char const * kTokenSecretSetting = "OsmTokenSecret";
-char const * kLoginDialogTitle = "OpenStreetMap Login Dialog";
-char const * kLogoutDialogTitle = "Logout Dialog";
+char const * kLoginDialogTitle = "OpenStreetMap Login";
+char const * kOauthTokenSetting = "OsmOauthToken";
 
 OsmAuthDialog::OsmAuthDialog(QWidget * parent)
 {
-  std::string key, secret;
-  bool const isLoginDialog = !settings::Get(kTokenKeySetting, key) || key.empty() ||
-                             !settings::Get(kTokenSecretSetting, secret) || secret.empty();
+  std::string token;
+  bool const isLoginDialog = !settings::Get(kOauthTokenSetting, token) || token.empty();
 
   QVBoxLayout * vLayout = new QVBoxLayout(parent);
 
   QHBoxLayout * loginRow = new QHBoxLayout();
-  loginRow->addWidget(new QLabel(tr("UserName or EMail:")));
+  loginRow->addWidget(new QLabel(tr("Username/email:")));
   QLineEdit * loginLineEdit = new QLineEdit();
   loginLineEdit->setObjectName("login");
   if (!isLoginDialog)
@@ -62,7 +61,7 @@ OsmAuthDialog::OsmAuthDialog(QWidget * parent)
   vLayout->addLayout(buttonsLayout);
 
   setLayout(vLayout);
-  setWindowTitle(isLoginDialog ? tr(kLoginDialogTitle) : tr(kLogoutDialogTitle));
+  setWindowTitle(tr(kLoginDialogTitle));
 }
 
 void SwitchToLogin(QDialog * dlg)
@@ -70,7 +69,6 @@ void SwitchToLogin(QDialog * dlg)
   dlg->findChild<QLineEdit *>("login")->setEnabled(true);
   dlg->findChild<QLineEdit *>("password")->setEnabled(true);
   dlg->findChild<QPushButton *>("button")->setText(dlg->tr("Login"));
-  dlg->setWindowTitle(dlg->tr(kLoginDialogTitle));
 }
 
 void SwitchToLogout(QDialog * dlg)
@@ -106,9 +104,8 @@ void OsmAuthDialog::OnAction()
     {
       if (auth.AuthorizePassword(login, password))
       {
-        auto const token = auth.GetKeySecret();
-        settings::Set(kTokenKeySetting, token.first);
-        settings::Set(kTokenSecretSetting, token.second);
+        auto const token = auth.GetAuthToken();
+        settings::Set(kOauthTokenSetting, token);
 
         SwitchToLogout(this);
       }
@@ -126,8 +123,7 @@ void OsmAuthDialog::OnAction()
   }
   else
   {
-    settings::Set(kTokenKeySetting, std::string());
-    settings::Set(kTokenSecretSetting, std::string());
+    settings::Set(kOauthTokenSetting, std::string());
 
     SwitchToLogin(this);
   }

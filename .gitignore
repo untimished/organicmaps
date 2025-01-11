@@ -16,7 +16,7 @@ screenlog.0
 
 data/styles/*/*/out/*
 data/resources-*_design/*
-data/drules_proto_design.bin
+data/drules_proto_default_design.bin
 data/colors_design.txt
 data/patterns_design.txt
 data/bookmarks
@@ -76,7 +76,6 @@ iphone/Maps/3party/Carthage/Build/iOS/*.dSYM
 iphone/Maps/3party/Carthage/Build/*.version
 
 # GeneratedFiles
-version/version.hpp
 tools/win/MapsWithMe*
 GeneratedFiles
 
@@ -85,6 +84,7 @@ data/[0-9][0-9][0-9][0-9][0-9][0-9]
 data/gps_track.dat
 # temporary files for downloader
 data/settings.ini
+data/test_data/world_feed_integration_tests_data
 
 # benchmark results
 data/benchmarks/*.trace
@@ -123,11 +123,13 @@ tizen/*/.*
 tizen/*/crash-info/*
 .idea/*
 .idea
+!android/.idea/icon.svg
 
 # Private repository files.
 .private_repository_url
 .private_repository_branch
 private.h
+# ignore old android secrets during the transition period to the new project structure
 android/release.keystore
 android/secure.properties
 android/libnotify.properties
@@ -137,13 +139,14 @@ android/firebase-app-distribution.json
 android/firebase-test-lab.json
 android/huawei-appgallery.json
 android/res/xml/network_security_config.xml
-server
+./server/
 iphone/Maps/app.omaps/
 
 *.li
 
 *.autosave
 
+# CMake
 cmake-build-*
 build/
 
@@ -155,7 +158,7 @@ designer_version.h
 *.sw?
 
 # Build version
-build_version.hpp
+platform/platform_qt_version.cpp
 
 #python modules building
 tools/python/*/build
@@ -174,9 +177,14 @@ tools/python/routing/etc/*.ini
 /node_modules/
 /package-lock.json
 
+# Visual Studio
+.vs
+
 # VS Code
 .vscode
 
-# Screenshots
-screenshots
-android/src/google/play/listings/??-??/graphics/*
+# AppStore metadata
+screenshots/
+android/src/google/play/listings/
+keywords/
+iphone/metadata/**/keywords.txt

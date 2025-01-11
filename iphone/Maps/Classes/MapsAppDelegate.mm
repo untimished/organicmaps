@@ -35,14 +35,10 @@
 // If you have a "missing header error" here, then please run configure.sh script in the root repo
 // folder.
 
-// Alert keys.
-extern NSString *const kUDAlreadyRatedKey = @"UserAlreadyRatedApp";
-
 namespace {
 NSString *const kUDLastLaunchDateKey = @"LastLaunchDate";
 NSString *const kUDSessionsCountKey = @"SessionsCount";
 NSString *const kUDFirstVersionKey = @"FirstVersion";
-NSString *const kUDLastRateRequestDate = @"LastRateRequestDate";
 NSString *const kUDLastShareRequstDate = @"LastShareRequestDate";
 NSString *const kUDAutoNightModeOff = @"AutoNightModeOff";
 NSString *const kIOSIDFA = @"IFA";
@@ -59,7 +55,6 @@ void InitLocalizedStrings() {
   f.AddString("core_my_position", L(@"core_my_position").UTF8String);
   f.AddString("core_placepage_unknown_place", L(@"core_placepage_unknown_place").UTF8String);
   f.AddString("postal_code", L(@"postal_code").UTF8String);
-  f.AddString("wifi", L(@"wifi").UTF8String);
 }
 }  // namespace
 
@@ -83,10 +78,6 @@ using namespace osm_auth_ios;
   return self.mapViewController.mapView.drapeEngineCreated;
 }
 
-- (BOOL)isGraphicContextInitialized {
-  return self.mapViewController.mapView.graphicContextInitialized;
-}
-
 - (void)searchText:(NSString *)searchString {
   if (!self.isDrapeEngineCreated) {
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -97,11 +88,6 @@ using namespace osm_auth_ios;
 
   [[MWMMapViewControlsManager manager] searchText:[searchString stringByAppendingString:@" "]
                                    forInputLocale:[MWMSettings spotlightLocaleLanguageId]];
-}
-
-- (void)incrementSessionsCountAndCheckForAlert {
-  [self incrementSessionCount];
-  [self showAlertIfRequired];
 }
 
 - (void)commonInit {
@@ -115,6 +101,7 @@ using namespace osm_auth_ios;
   NSTimeInterval const minimumBackgroundFetchIntervalInSeconds = 6 * 60 * 60;
   [UIApplication.sharedApplication setMinimumBackgroundFetchInterval:minimumBackgroundFetchIntervalInSeconds];
   [self updateApplicationIconBadgeNumber];
+  [TrackRecordingManager.shared setup];
 }
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
@@ -130,11 +117,15 @@ using namespace osm_auth_ios;
   if ([FirstSession isFirstSession]) {
     [self firstLaunchSetup];
   } else {
-    [self incrementSessionsCountAndCheckForAlert];
+    [self incrementSessionCount];
   }
   [self enableTTSForTheFirstTime];
 
+  if (![MapsAppDelegate isTestsEnvironment])
+    [[iCloudSynchronizaionManager shared] start];
+  
   [[DeepLinkHandler shared] applicationDidFinishLaunching:launchOptions];
+  // application:openUrl:options is called later for deep links if YES is returned.
   return YES;
 }
 
@@ -235,6 +226,14 @@ using namespace osm_auth_ios;
   [MWMKeyboard applicationDidBecomeActive];
   [MWMTextToSpeech applicationDidBecomeActive];
   LOG(LINFO, ("applicationDidBecomeActive - end"));
+}
+
+// TODO: Drape enabling and iCloud sync are skipped during the test run due to the app crashing in teardown. This is a temporary solution. Drape should be properly disabled instead of merely skipping the enabling process.
++ (BOOL)isTestsEnvironment {
+  NSProcessInfo * processInfo = [NSProcessInfo processInfo];
+  NSArray<NSString *> * launchArguments = [processInfo arguments];
+  BOOL isTests = [launchArguments containsObject:@"-IsTests"];
+  return isTests;
 }
 
 - (BOOL)application:(UIApplication *)application
@@ -341,11 +340,12 @@ using namespace osm_auth_ios;
 #pragma mark - Properties
 
 - (MapViewController *)mapViewController {
-  auto obj = [(UINavigationController *)self.window.rootViewController viewControllers].firstObject;
-  if ([obj isKindOfClass:[MapViewController class]])
-    return obj;
-  else
-    return nil;
+  for (id vc in [(UINavigationController *)self.window.rootViewController viewControllers]) {
+    if ([vc isKindOfClass:[MapViewController class]])
+      return vc;
+  }
+  NSAssert(false, @"Please check the logic");
+  return nil;
 }
 
 - (MWMCarPlayService *)carplayService {
@@ -382,7 +382,6 @@ using namespace osm_auth_ios;
   [standartDefaults setObject:currentVersion forKey:kUDFirstVersionKey];
   [standartDefaults setInteger:1 forKey:kUDSessionsCountKey];
   [standartDefaults setObject:NSDate.date forKey:kUDLastLaunchDateKey];
-  [standartDefaults synchronize];
 }
 
 - (void)incrementSessionCount {
@@ -397,57 +396,10 @@ using namespace osm_auth_ios;
     sessionCount++;
     [standartDefaults setInteger:sessionCount forKey:kUDSessionsCountKey];
     [standartDefaults setObject:NSDate.date forKey:kUDLastLaunchDateKey];
-    [standartDefaults synchronize];
-  }
-}
-
-- (void)showAlertIfRequired {
-  if ([self shouldShowRateAlert]) {
-    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(showRateAlert) object:nil];
-    [self performSelector:@selector(showRateAlert) withObject:nil afterDelay:30.0];
   }
 }
 
 #pragma mark - Rate
-
-- (void)showRateAlert {
-  if (!Platform::IsConnected() || [MWMRouter isRoutingActive])
-    return;
-
-  [[MWMAlertViewController activeAlertController] presentRateAlert];
-  [NSUserDefaults.standardUserDefaults setObject:NSDate.date forKey:kUDLastRateRequestDate];
-}
-
-- (BOOL)shouldShowRateAlert {
-  /// @todo Uncomment in follow-up release.
-  /*
-  NSUInteger const kMaximumSessionCountForShowingAlert = 21;
-  NSUserDefaults const *const standartDefaults = NSUserDefaults.standardUserDefaults;
-  if ([standartDefaults boolForKey:kUDAlreadyRatedKey])
-    return NO;
-
-  NSUInteger const sessionCount = [standartDefaults integerForKey:kUDSessionsCountKey];
-  if (sessionCount > kMaximumSessionCountForShowingAlert)
-    return NO;
-
-  NSDate *const lastRateRequestDate = [standartDefaults objectForKey:kUDLastRateRequestDate];
-  NSInteger const daysFromLastRateRequest = lastRateRequestDate.daysToNow;
-  // Do not show more than one alert per day.
-  if (lastRateRequestDate != nil && daysFromLastRateRequest == 0)
-    return NO;
-
-  if (self.userIsNew) {
-    // It's new user.
-    if (sessionCount == 3 || sessionCount == 10 || sessionCount == kMaximumSessionCountForShowingAlert)
-      return YES;
-  } else {
-    // User just got updated. Show alert, if it first session or if 90 days spent.
-    if (daysFromLastRateRequest >= 90 || daysFromLastRateRequest == 0)
-      return YES;
-  }
-  */
-  return NO;
-}
 
 - (BOOL)userIsNew {
   NSString *currentVersion = [NSBundle.mainBundle objectForInfoDictionaryKey:(NSString *)kCFBundleVersionKey];
@@ -462,53 +414,14 @@ using namespace osm_auth_ios;
 
 - (void)application:(UIApplication *)application
   didConnectCarInterfaceController:(CPInterfaceController *)interfaceController
-                          toWindow:(CPWindow *)window API_AVAILABLE(ios(12.0)) {
+           toWindow:(CPWindow *)window API_AVAILABLE(ios(12.0)) {
   [self.carplayService setupWithWindow:window interfaceController:interfaceController];
-  if (@available(iOS 13.0, *)) {
-    window.overrideUserInterfaceStyle = UIUserInterfaceStyleUnspecified;
-  }
-  [self updateAppearanceFromWindow:self.window toWindow:window isCarplayActivated:YES];
 }
 
 - (void)application:(UIApplication *)application
   didDisconnectCarInterfaceController:(CPInterfaceController *)interfaceController
                            fromWindow:(CPWindow *)window API_AVAILABLE(ios(12.0)) {
   [self.carplayService destroy];
-  [self updateAppearanceFromWindow:window toWindow:self.window isCarplayActivated:NO];
-}
-
-- (void)updateAppearanceFromWindow:(UIWindow *)sourceWindow
-                          toWindow:(UIWindow *)destinationWindow
-                isCarplayActivated:(BOOL)isCarplayActivated {
-  CGFloat sourceContentScale = sourceWindow.screen.scale;
-  CGFloat destinationContentScale = destinationWindow.screen.scale;
-  if (ABS(sourceContentScale - destinationContentScale) > 0.1) {
-    if (isCarplayActivated) {
-      [self updateVisualScale:destinationContentScale];
-    } else {
-      [self updateVisualScaleToMain];
-    }
-  }
-}
-
-- (void)updateVisualScale:(CGFloat)scale {
-  if ([self isGraphicContextInitialized]) {
-    [self.mapViewController.mapView updateVisualScaleTo:scale];
-  } else {
-    dispatch_async(dispatch_get_main_queue(), ^{
-      [self updateVisualScale:scale];
-    });
-  }
-}
-
-- (void)updateVisualScaleToMain {
-  if ([self isGraphicContextInitialized]) {
-    [self.mapViewController.mapView updateVisualScaleToMain];
-  } else {
-    dispatch_async(dispatch_get_main_queue(), ^{
-      [self updateVisualScaleToMain];
-    });
-  }
 }
 
 @end

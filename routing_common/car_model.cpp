@@ -2,18 +2,11 @@
 #include "routing_common/car_model_coefs.hpp"
 
 #include "indexer/classificator.hpp"
-#include "indexer/feature.hpp"
 
-#include "base/macros.hpp"
-
-#include <array>
-#include <unordered_map>
-
-using namespace std;
+namespace car_model
+{
 using namespace routing;
 
-namespace
-{
 // See model specifics in different countries here:
 //   https://wiki.openstreetmap.org/wiki/OSM_tags_for_routing/Access-Restrictions
 
@@ -28,169 +21,117 @@ namespace
 // of the route except for some edge cases.
 SpeedKMpH constexpr kSpeedOffroadKMpH = {0.01 /* weight */, kNotUsed /* eta */};
 
-VehicleModel::LimitsInitList const kCarOptionsDefault = {
-    // {{roadType, roadType}  passThroughAllowed}
-    {{"highway", "motorway"}, true},
-    {{"highway", "motorway_link"}, true},
-    {{"highway", "trunk"}, true},
-    {{"highway", "trunk_link"}, true},
-    {{"highway", "primary"}, true},
-    {{"highway", "primary_link"}, true},
-    {{"highway", "secondary"}, true},
-    {{"highway", "secondary_link"}, true},
-    {{"highway", "tertiary"}, true},
-    {{"highway", "tertiary_link"}, true},
-    {{"highway", "residential"}, true},
-    {{"highway", "unclassified"}, true},
-    {{"highway", "service"}, true},
-    {{"highway", "living_street"}, true},
-    {{"highway", "road"}, true},
-    {{"highway", "track"}, true}
-    /// @todo: Add to classificator
-    //{ {"highway", "shuttle_train"},  10 },
-    //{ {"highway", "ferry"},          5  },
-    //{ {"highway", "default"},        10 },
-    /// @todo: Check type
-    //{ {"highway", "construction"},   40 },
+VehicleModel::LimitsInitList const kDefaultOptions = {
+    // {HighwayType, passThroughAllowed}
+    {HighwayType::HighwayMotorway, true},
+    {HighwayType::HighwayMotorwayLink, true},
+    {HighwayType::HighwayTrunk, true},
+    {HighwayType::HighwayTrunkLink, true},
+    {HighwayType::HighwayPrimary, true},
+    {HighwayType::HighwayPrimaryLink, true},
+    {HighwayType::HighwaySecondary, true},
+    {HighwayType::HighwaySecondaryLink, true},
+    {HighwayType::HighwayTertiary, true},
+    {HighwayType::HighwayTertiaryLink, true},
+    {HighwayType::HighwayResidential, true},
+    {HighwayType::HighwayUnclassified, true},
+    {HighwayType::HighwayService, true},
+    {HighwayType::HighwayLivingStreet, true},
+    {HighwayType::HighwayRoad, true},
+    {HighwayType::HighwayTrack, true},
+    {HighwayType::RouteShuttleTrain, true},
+    {HighwayType::RouteFerry, true},
+    {HighwayType::ManMadePier, true}
 };
 
-VehicleModel::LimitsInitList const kCarOptionsNoPassThroughLivingStreet = {
-    {{"highway", "motorway"}, true},
-    {{"highway", "motorway_link"}, true},
-    {{"highway", "trunk"}, true},
-    {{"highway", "trunk_link"}, true},
-    {{"highway", "primary"}, true},
-    {{"highway", "primary_link"}, true},
-    {{"highway", "secondary"}, true},
-    {{"highway", "secondary_link"}, true},
-    {{"highway", "tertiary"}, true},
-    {{"highway", "tertiary_link"}, true},
-    {{"highway", "residential"}, true},
-    {{"highway", "unclassified"}, true},
-    {{"highway", "service"}, true},
-    {{"highway", "living_street"}, false},
-    {{"highway", "road"}, true},
-    {{"highway", "track"}, true}};
+VehicleModel::LimitsInitList NoPassThroughLivingStreet()
+{
+  auto res = kDefaultOptions;
+  for (auto & e : res)
+  {
+    if (e.m_type == HighwayType::HighwayLivingStreet)
+      e.m_isPassThroughAllowed = false;
+  }
+  return res;
+}
 
-VehicleModel::LimitsInitList const kCarOptionsNoPassThroughLivingStreetAndService = {
-    {{"highway", "motorway"}, true},
-    {{"highway", "motorway_link"}, true},
-    {{"highway", "trunk"}, true},
-    {{"highway", "trunk_link"}, true},
-    {{"highway", "primary"}, true},
-    {{"highway", "primary_link"}, true},
-    {{"highway", "secondary"}, true},
-    {{"highway", "secondary_link"}, true},
-    {{"highway", "tertiary"}, true},
-    {{"highway", "tertiary_link"}, true},
-    {{"highway", "residential"}, true},
-    {{"highway", "unclassified"}, true},
-    {{"highway", "service"}, false},
-    {{"highway", "living_street"}, false},
-    {{"highway", "road"}, true},
-    {{"highway", "track"}, true}};
+VehicleModel::LimitsInitList NoPassThroughService(VehicleModel::LimitsInitList res = kDefaultOptions)
+{
+  for (auto & e : res)
+  {
+    if (e.m_type == HighwayType::HighwayService)
+      e.m_isPassThroughAllowed = false;
+  }
+  return res;
+}
 
-VehicleModel::LimitsInitList const kCarOptionsDenmark = {
-    // No track
-    {{"highway", "motorway"}, true},
-    {{"highway", "motorway_link"}, true},
-    {{"highway", "trunk"}, true},
-    {{"highway", "trunk_link"}, true},
-    {{"highway", "primary"}, true},
-    {{"highway", "primary_link"}, true},
-    {{"highway", "secondary"}, true},
-    {{"highway", "secondary_link"}, true},
-    {{"highway", "tertiary"}, true},
-    {{"highway", "tertiary_link"}, true},
-    {{"highway", "residential"}, true},
-    {{"highway", "unclassified"}, true},
-    {{"highway", "service"}, true},
-    {{"highway", "living_street"}, true},
-    {{"highway", "road"}, true}};
+VehicleModel::LimitsInitList NoTrack()
+{
+  VehicleModel::LimitsInitList res;
+  res.reserve(kDefaultOptions.size() - 1);
+  for (auto const & e : kDefaultOptions)
+  {
+    if (e.m_type != HighwayType::HighwayTrack)
+      res.push_back(e);
+  }
+  return res;
+}
 
-VehicleModel::LimitsInitList const kCarOptionsGermany = {
-    // No pass through track
-    {{"highway", "motorway"}, true},
-    {{"highway", "motorway_link"}, true},
-    {{"highway", "trunk"}, true},
-    {{"highway", "trunk_link"}, true},
-    {{"highway", "primary"}, true},
-    {{"highway", "primary_link"}, true},
-    {{"highway", "secondary"}, true},
-    {{"highway", "secondary_link"}, true},
-    {{"highway", "tertiary"}, true},
-    {{"highway", "tertiary_link"}, true},
-    {{"highway", "residential"}, true},
-    {{"highway", "unclassified"}, true},
-    {{"highway", "service"}, true},
-    {{"highway", "living_street"}, true},
-    {{"highway", "road"}, true},
-    {{"highway", "track"}, false}};
+VehicleModel::LimitsInitList NoPassThroughTrack()
+{
+  auto res = kDefaultOptions;
+  for (auto & e : res)
+  {
+    if (e.m_type == HighwayType::HighwayTrack)
+      e.m_isPassThroughAllowed = false;
+  }
+  return res;
+}
 
-vector<VehicleModel::AdditionalRoadTags> const kAdditionalTags = {
-    // {{highway tags}, {weightSpeed, etaSpeed}}
-    {{"railway", "rail", "motor_vehicle"}, kHighwayBasedSpeeds.at(HighwayType::RailwayRailMotorVehicle)},
-    {{"route", "shuttle_train"}, kHighwayBasedSpeeds.at(HighwayType::RouteShuttleTrain)},
-    {{"route", "ferry"}, kHighwayBasedSpeeds.at(HighwayType::RouteFerry)},
-    {{"man_made", "pier"}, kHighwayBasedSpeeds.at(HighwayType::ManMadePier)}};
-
+/// @todo Should make some compare constrains (like in CarModel_TrackVsGravelTertiary test)
+/// to better fit these factors with reality. I have no idea, how they were set.
 VehicleModel::SurfaceInitList const kCarSurface = {
   // {{surfaceType, surfaceType}, {weightFactor, etaFactor}}
   {{"psurface", "paved_good"}, {1.0, 1.0}},
-  {{"psurface", "paved_bad"}, {0.5, 0.5}},
-  {{"psurface", "unpaved_good"}, {0.4, 0.8}},
-  {{"psurface", "unpaved_bad"}, {0.1, 0.3}}
+  {{"psurface", "paved_bad"}, {0.6, 0.7}},
+  {{"psurface", "unpaved_good"}, {0.4, 0.7}},
+  {{"psurface", "unpaved_bad"}, {0.2, 0.3}}
 };
-
-// Names must be the same with country names from countries.txt
-std::unordered_map<char const *, VehicleModel::LimitsInitList> const kCarOptionsByCountries = {
-    {"Austria", kCarOptionsNoPassThroughLivingStreet},
-    {"Belarus", kCarOptionsNoPassThroughLivingStreet},
-    {"Denmark", kCarOptionsDenmark},
-    {"Germany", kCarOptionsGermany},
-    {"Hungary", kCarOptionsNoPassThroughLivingStreet},
-    {"Romania", kCarOptionsNoPassThroughLivingStreet},
-    {"Russian Federation", kCarOptionsNoPassThroughLivingStreetAndService},
-    {"Slovakia", kCarOptionsNoPassThroughLivingStreet},
-    {"Ukraine", kCarOptionsNoPassThroughLivingStreetAndService}
-};
-}  // namespace
+}  // namespace car_model
 
 namespace routing
 {
-CarModel::CarModel()
-  : VehicleModel(classif(), kCarOptionsDefault, kCarSurface,
-                 {kHighwayBasedSpeeds, kHighwayBasedFactors})
+CarModel::CarModel() : CarModel(car_model::kDefaultOptions)
 {
-  Init();
 }
 
-CarModel::CarModel(VehicleModel::LimitsInitList const & roadLimits, HighwayBasedInfo const & info)
-  : VehicleModel(classif(), roadLimits, kCarSurface, info)
+CarModel::CarModel(VehicleModel::LimitsInitList const & roadLimits)
+  : VehicleModel(classif(), roadLimits, car_model::kCarSurface, {kHighwayBasedSpeeds, kHighwayBasedFactors})
 {
-  Init();
+  ASSERT_EQUAL(kHighwayBasedSpeeds.size(), kHighwayBasedFactors.size(), ());
+  ASSERT_EQUAL(kHighwayBasedSpeeds.size(), car_model::kDefaultOptions.size(), ());
+
+  std::vector<std::string> hwtagYesCar = {"hwtag", "yescar"};
+  auto const & cl = classif();
+
+  m_noType = cl.GetTypeByPath({"hwtag", "nocar"});
+  m_yesType = cl.GetTypeByPath(hwtagYesCar);
+
+  // Set small track speed if highway is not in kHighwayBasedSpeeds (path, pedestrian), but marked as yescar.
+  AddAdditionalRoadTypes(cl, {{ std::move(hwtagYesCar), kHighwayBasedSpeeds.Get(HighwayType::HighwayTrack) }});
+
+  // Set max possible (reasonable) car speed. See EdgeEstimator::CalcHeuristic.
+  SpeedKMpH constexpr kMaxCarSpeedKMpH(200.0);
+  CHECK_LESS(m_maxModelSpeed, kMaxCarSpeedKMpH, ());
+  m_maxModelSpeed = kMaxCarSpeedKMpH;
 }
 
-SpeedKMpH const & CarModel::GetOffroadSpeed() const { return kSpeedOffroadKMpH; }
-
-void CarModel::Init()
+SpeedKMpH CarModel::GetSpeed(FeatureTypes const & types, SpeedParams const & speedParams) const
 {
-  m_noCarType = classif().GetTypeByPath({"hwtag", "nocar"});
-  m_yesCarType = classif().GetTypeByPath({"hwtag", "yescar"});
-
-  SetAdditionalRoadTypes(classif(), kAdditionalTags);
+  return GetTypeSpeedImpl(types, speedParams, true /* isCar */);
 }
 
-VehicleModelInterface::RoadAvailability CarModel::GetRoadAvailability(feature::TypesHolder const & types) const
-{
-  if (types.Has(m_yesCarType))
-    return RoadAvailability::Available;
-
-  if (types.Has(m_noCarType))
-    return RoadAvailability::NotAvailable;
-
-  return RoadAvailability::Unknown;
-}
+SpeedKMpH const & CarModel::GetOffroadSpeed() const { return car_model::kSpeedOffroadKMpH; }
 
 // static
 CarModel const & CarModel::AllLimitsInstance()
@@ -200,30 +141,30 @@ CarModel const & CarModel::AllLimitsInstance()
 }
 
 // static
-routing::VehicleModel::LimitsInitList const & CarModel::GetOptions() { return kCarOptionsDefault; }
+VehicleModel::LimitsInitList const & CarModel::GetOptions() { return car_model::kDefaultOptions; }
 
 // static
-vector<routing::VehicleModel::AdditionalRoadTags> const & CarModel::GetAdditionalTags()
-{
-  return kAdditionalTags;
-}
-
-// static
-VehicleModel::SurfaceInitList const & CarModel::GetSurfaces() { return kCarSurface; }
+VehicleModel::SurfaceInitList const & CarModel::GetSurfaces() { return car_model::kCarSurface; }
 
 CarModelFactory::CarModelFactory(CountryParentNameGetterFn const & countryParentNameGetterFn)
   : VehicleModelFactory(countryParentNameGetterFn)
 {
-  m_models[""] = make_shared<CarModel>(
-      kCarOptionsDefault,
-      HighwayBasedInfo(kHighwayBasedSpeeds, kHighwayBasedFactors));
+  using namespace car_model;
+  using std::make_shared;
 
-  for (auto const & kv : kCarOptionsByCountries)
-  {
-    auto const * country = kv.first;
-    auto const & limit = kv.second;
-    m_models[country] =
-        make_shared<CarModel>(limit, HighwayBasedInfo(kHighwayBasedSpeeds, kHighwayBasedFactors));
-  }
+  // Names must be the same with country names from countries.txt
+  m_models[""] = make_shared<CarModel>();
+
+  m_models["Austria"] = make_shared<CarModel>(NoPassThroughLivingStreet());
+  m_models["Belarus"] = make_shared<CarModel>(NoPassThroughLivingStreet());
+  m_models["Brazil"] = make_shared<CarModel>(NoPassThroughService(NoPassThroughTrack()));
+  m_models["Denmark"] = make_shared<CarModel>(NoTrack());
+  m_models["Germany"] = make_shared<CarModel>(NoPassThroughTrack());
+  m_models["Hungary"] = make_shared<CarModel>(NoPassThroughLivingStreet());
+  m_models["Poland"] = make_shared<CarModel>(NoPassThroughService());
+  m_models["Romania"] = make_shared<CarModel>(NoPassThroughLivingStreet());
+  m_models["Russian Federation"] = make_shared<CarModel>(NoPassThroughService(NoPassThroughLivingStreet()));
+  m_models["Slovakia"] = make_shared<CarModel>(NoPassThroughLivingStreet());
+  m_models["Ukraine"] = make_shared<CarModel>(NoPassThroughService(NoPassThroughLivingStreet()));
 }
 }  // namespace routing

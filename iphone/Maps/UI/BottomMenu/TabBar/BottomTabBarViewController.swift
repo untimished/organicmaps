@@ -1,18 +1,15 @@
-protocol BottomTabBarViewProtocol: AnyObject {
-  var presenter: BottomTabBarPresenterProtocol! { get set }
-  var isHidden: Bool { get }
-  var isApplicationBadgeHidden: Bool { get set }
-}
+
+private let kUDDidShowFirstTimeRoutingEducationalHint = "kUDDidShowFirstTimeRoutingEducationalHint"
 
 class BottomTabBarViewController: UIViewController {
   var presenter: BottomTabBarPresenterProtocol!
   
   @IBOutlet var searchButton: MWMButton!
-  @IBOutlet var routeButton: MWMButton!
-  @IBOutlet var discoveryButton: MWMButton!
+  @IBOutlet var helpButton: MWMButton!
   @IBOutlet var bookmarksButton: MWMButton!
   @IBOutlet var moreButton: MWMButton!
   @IBOutlet var downloadBadge: UIView!
+  @IBOutlet var helpBadge: UIView!
   
   private var avaliableArea = CGRect.zero
   @objc var isHidden: Bool = false {
@@ -35,19 +32,21 @@ class BottomTabBarViewController: UIViewController {
   override func viewDidLoad() {
     super.viewDidLoad()
     presenter.configure()
-    updateBadge()
-
+    
     MWMSearchManager.add(self)
-    MWMNavigationDashboardManager.add(self)
   }
   
-  override func viewDidAppear(_ animated: Bool) {
-    super.viewDidAppear(animated)
+  override func viewWillAppear(_ animated: Bool) {
+    super.viewWillAppear(animated)
+    if Settings.isNY() {
+      helpButton.setTitle("🎄", for: .normal)
+      helpButton.setImage(nil, for: .normal)
+    }
+    updateBadge()
   }
   
   deinit {
     MWMSearchManager.remove(self)
-    MWMNavigationDashboardManager.remove(self)
   }
   
   static func updateAvailableArea(_ frame: CGRect) {
@@ -58,12 +57,13 @@ class BottomTabBarViewController: UIViewController {
     presenter.onSearchButtonPressed()
   }
   
-  @IBAction func onPoint2PointButtonPressed(_ sender: Any) {
-    presenter.onPoint2PointButtonPressed()
-  }
-  
-  @IBAction func onDiscoveryButtonPressed(_ sender: Any) {
-    presenter.onDiscoveryButtonPressed()
+  @IBAction func onHelpButtonPressed(_ sender: Any) {
+    if !helpBadge.isHidden {
+      presenter.onHelpButtonPressed(withBadge: true)
+      setHelpBadgeShown()
+    } else {
+      presenter.onHelpButtonPressed(withBadge: false)
+    }
   }
   
   @IBAction func onBookmarksButtonPressed(_ sender: Any) {
@@ -73,7 +73,6 @@ class BottomTabBarViewController: UIViewController {
   @IBAction func onMenuButtonPressed(_ sender: Any) {
     presenter.onMenuButtonPressed()
   }
-  
   
   private func updateAvailableArea(_ frame:CGRect) {
     avaliableArea = frame
@@ -95,8 +94,8 @@ class BottomTabBarViewController: UIViewController {
                      delay: 0,
                      options: [.beginFromCurrentState],
                      animations: {
-                      self.view.frame = newFrame
-                      self.view.alpha = alpha
+        self.view.frame = newFrame
+        self.view.alpha = alpha
       }, completion: nil)
     } else {
       self.view.frame = newFrame
@@ -106,24 +105,22 @@ class BottomTabBarViewController: UIViewController {
   
   private func updateBadge() {
     downloadBadge.isHidden = isApplicationBadgeHidden
+    helpBadge.isHidden = !needsToShowHelpBadge()
   }
 }
 
-extension BottomTabBarViewController: BottomTabBarViewProtocol {
+// MARK: - Help badge
+private extension BottomTabBarViewController {
+  private func needsToShowHelpBadge() -> Bool {
+    !UserDefaults.standard.bool(forKey: kUDDidShowFirstTimeRoutingEducationalHint)
+  }
   
-}
-
-// MARK: - MWMNavigationDashboardObserver
-
-extension BottomTabBarViewController: MWMNavigationDashboardObserver {
-  func onNavigationDashboardStateChanged() {
-    let state = MWMNavigationDashboardManager.shared().state
-    self.isHidden = state != .hidden;
+  private func setHelpBadgeShown() {
+    UserDefaults.standard.set(true, forKey: kUDDidShowFirstTimeRoutingEducationalHint)
   }
 }
 
 // MARK: - MWMSearchManagerObserver
-
 extension BottomTabBarViewController: MWMSearchManagerObserver {
   func onSearchManagerStateChanged() {
     let state = MWMSearchManager.manager().state;

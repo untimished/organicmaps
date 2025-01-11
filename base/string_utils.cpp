@@ -1,23 +1,16 @@
 #include "base/string_utils.hpp"
 
 #include "base/assert.hpp"
+#include "base/stl_helpers.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
 #include <iterator>
 
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunused-local-typedef"
-#endif
-
 #include <boost/algorithm/string/trim.hpp>
 #include <boost/math/special_functions/fpclassify.hpp>
-
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#endif
+#include <fast_double_parser.h>
 
 namespace strings
 {
@@ -29,12 +22,14 @@ T RealConverter(char const * start, char ** stop);
 template <>
 float RealConverter<float>(char const * start, char ** stop)
 {
+  // . or , parsing depends on locale!
   return std::strtof(start, stop);
 }
 
 template <>
 double RealConverter<double>(char const * start, char ** stop)
 {
+  // . or , parsing depends on locale!
   return std::strtod(start, stop);
 }
 
@@ -47,17 +42,29 @@ bool IsFinite(T t)
 template <typename T>
 bool ToReal(char const * start, T & result)
 {
-  char * stop;
-  auto const tmp = RealConverter<T>(start, &stop);
-
-  if (*stop != 0 || start == stop || !IsFinite(tmp))
-    return false;
-
-  result = tmp;
-  return true;
+  // Try faster implementation first.
+  double d;
+  char const * endptr = fast_double_parser::parse_number(start, &d);
+  if (endptr == nullptr)
+  {
+    // Fallback to our implementation, it supports numbers like "1."
+    char * stop;
+    result = RealConverter<T>(start, &stop);
+    if (*stop == 0 && start != stop && IsFinite(result))
+      return true;
+  }
+  else if (*endptr == 0 && IsFinite(d))
+  {
+    result = static_cast<T>(d);
+    return true;
+  }
+  // Do not parse strings that contain additional non-number characters.
+  return false;
 }
 
 }  // namespace
+
+UniString UniString::kSpace = MakeUniString(" ");
 
 bool UniString::IsEqualAscii(char const * s) const
 {
@@ -66,8 +73,8 @@ bool UniString::IsEqualAscii(char const * s) const
 
 SimpleDelimiter::SimpleDelimiter(char const * delims)
 {
-  std::string const s(delims);
-  std::string::const_iterator it = s.begin();
+  std::string_view const s(delims);
+  auto it = s.begin();
   while (it != s.end())
     m_delims.push_back(utf8::unchecked::next(it));
 }
@@ -76,14 +83,14 @@ SimpleDelimiter::SimpleDelimiter(char delim) { m_delims.push_back(delim); }
 
 bool SimpleDelimiter::operator()(UniChar c) const
 {
-  return std::find(m_delims.begin(), m_delims.end(), c) != m_delims.end();
+  return base::IsExist(m_delims, c);
 }
 
 UniChar LastUniChar(std::string const & s)
 {
   if (s.empty())
     return 0;
-  utf8::unchecked::iterator<std::string::const_iterator> iter(s.end());
+  utf8::unchecked::iterator iter(s.end());
   --iter;
   return *iter;
 }
@@ -113,11 +120,10 @@ bool is_finite(double d)
   return IsFinite(d);
 }
 
-UniString MakeLowerCase(UniString const & s)
+UniString MakeLowerCase(UniString s)
 {
-  UniString result(s);
-  MakeLowerCaseInplace(result);
-  return result;
+  MakeLowerCaseInplace(s);
+  return s;
 }
 
 void MakeLowerCaseInplace(std::string & s)
@@ -129,18 +135,16 @@ void MakeLowerCaseInplace(std::string & s)
   utf8::unchecked::utf32to8(uniStr.begin(), uniStr.end(), back_inserter(s));
 }
 
-std::string MakeLowerCase(std::string const & s)
+std::string MakeLowerCase(std::string s)
 {
-  std::string result(s);
-  MakeLowerCaseInplace(result);
-  return result;
+  MakeLowerCaseInplace(s);
+  return s;
 }
 
-UniString Normalize(UniString const & s)
+UniString Normalize(UniString s)
 {
-  UniString result(s);
-  NormalizeInplace(result);
-  return result;
+  NormalizeInplace(s);
+  return s;
 }
 
 std::string Normalize(std::string const & s)
@@ -200,41 +204,69 @@ void NormalizeDigits(UniString & us)
   }
 }
 
-namespace
+void AsciiToLower(std::string & s)
 {
-char ascii_to_lower(char in)
-{
-  char const diff = 'z' - 'Z';
-  static_assert(diff == 'a' - 'A', "");
-  static_assert(diff > 0, "");
+  std::transform(s.begin(), s.end(), s.begin(), [](char in)
+  {
+    char constexpr diff = 'z' - 'Z';
+    static_assert(diff == 'a' - 'A');
+    static_assert(diff > 0);
 
-  if (in >= 'A' && in <= 'Z')
-    return (in + diff);
-  return in;
-}
-}  // namespace
-
-void AsciiToLower(std::string & s) { transform(s.begin(), s.end(), s.begin(), &ascii_to_lower); }
-
-std::string & TrimLeft(std::string & s)
-{
-  s.erase(s.begin(), std::find_if(s.cbegin(), s.cend(), [](auto c) { return !std::isspace(c); }));
-  return s;
+    if (in >= 'A' && in <= 'Z')
+      return char(in + diff);
+    return in;
+  });
 }
 
-std::string & TrimRight(std::string & s)
+void AsciiToUpper(std::string & s)
 {
-  s.erase(std::find_if(s.crbegin(), s.crend(), [](auto c) { return !std::isspace(c); }).base(),
-          s.end());
-  return s;
+  std::transform(s.begin(), s.end(), s.begin(), [](char in)
+  {
+    char constexpr diff = 'z' - 'Z';
+    static_assert(diff == 'a' - 'A');
+    static_assert(diff > 0);
+
+    if (in >= 'a' && in <= 'z')
+      return char(in - diff);
+    return in;
+ });
 }
 
-std::string & Trim(std::string & s) { return TrimLeft(TrimRight(s)); }
+void Trim(std::string & s)
+{
+  boost::trim_if(s, ::isspace);
+}
 
-std::string & Trim(std::string & s, char const * anyOf)
+void Trim(std::string_view & sv)
+{
+  auto const beg = std::find_if(sv.cbegin(), sv.cend(), [](auto c) { return !std::isspace(c); });
+  if (beg != sv.end())
+  {
+    auto const end = std::find_if(sv.crbegin(), sv.crend(), [](auto c) { return !std::isspace(c); }).base();
+    sv = std::string_view(sv.data() + std::distance(sv.begin(), beg), std::distance(beg, end));
+  }
+  else
+    sv = {};
+}
+
+void Trim(std::string_view & s, std::string_view anyOf)
+{
+  auto i = s.find_first_not_of(anyOf);
+  if (i != std::string_view::npos)
+  {
+    s.remove_prefix(i);
+
+    i = s.find_last_not_of(anyOf);
+    ASSERT(i != std::string_view::npos, ());
+    s.remove_suffix(s.size() - i - 1);
+  }
+  else
+    s = {};
+}
+
+void Trim(std::string & s, std::string_view anyOf)
 {
   boost::trim_if(s, boost::is_any_of(anyOf));
-  return s;
 }
 
 bool ReplaceFirst(std::string & str, std::string const & from, std::string const & to)
@@ -262,7 +294,7 @@ bool EqualNoCase(std::string const & s1, std::string const & s2)
   return MakeLowerCase(s1) == MakeLowerCase(s2);
 }
 
-UniString MakeUniString(std::string const & utf8s)
+UniString MakeUniString(std::string_view utf8s)
 {
   UniString result;
   utf8::unchecked::utf8to32(utf8s.begin(), utf8s.end(), std::back_inserter(result));
@@ -276,11 +308,20 @@ std::string ToUtf8(UniString const & s)
   return result;
 }
 
-bool IsASCIIString(std::string const & str)
+std::u16string ToUtf16(std::string_view utf8)
 {
-  for (size_t i = 0; i < str.size(); ++i)
-    if (str[i] & 0x80)
+  std::u16string utf16;
+  utf8::unchecked::utf8to16(utf8.begin(), utf8.end(), back_inserter(utf16));
+  return utf16;
+}
+
+bool IsASCIIString(std::string_view sv)
+{
+  for (auto c : sv)
+  {
+    if (c & 0x80)
       return false;
+  }
   return true;
 }
 
@@ -291,28 +332,11 @@ bool IsASCIISpace(UniChar c)
   return c == ' ' || c == '\f' || c == '\n' || c == '\r' || c == '\t' || c == '\v';
 }
 
-bool IsASCIINumeric(std::string const & str)
-{
-  if (str.empty())
-    return false;
-  return std::all_of(str.begin(), str.end(), strings::IsASCIIDigit);
-}
-
 bool IsASCIILatin(UniChar c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); }
 
 bool StartsWith(UniString const & s, UniString const & p)
 {
   return StartsWith(s.begin(), s.end(), p.begin(), p.end());
-}
-
-bool StartsWith(std::string const & s1, char const * s2)
-{
-  return (s1.compare(0, strlen(s2), s2) == 0);
-}
-
-bool StartsWith(std::string const & s1, std::string const & s2)
-{
-  return (s1.compare(0, s2.length(), s2) == 0);
 }
 
 bool EndsWith(UniString const & s1, UniString const & s2)
@@ -323,23 +347,9 @@ bool EndsWith(UniString const & s1, UniString const & s2)
   return std::equal(s1.end() - s2.size(), s1.end(), s2.begin());
 }
 
-bool EndsWith(std::string const & s1, char const * s2)
-{
-  size_t const n = s1.size();
-  size_t const m = strlen(s2);
-  if (n < m)
-    return false;
-  return (s1.compare(n - m, m, s2) == 0);
-}
-
-bool EndsWith(std::string const & s1, std::string const & s2)
-{
-  return s1.size() >= s2.size() && s1.compare(s1.size() - s2.size(), s2.size(), s2) == 0;
-}
-
 bool EatPrefix(std::string & s, std::string const & prefix)
 {
-  if (!StartsWith(s, prefix))
+  if (!s.starts_with(prefix))
     return false;
 
   CHECK_LESS_OR_EQUAL(prefix.size(), s.size(), ());
@@ -349,7 +359,7 @@ bool EatPrefix(std::string & s, std::string const & prefix)
 
 bool EatSuffix(std::string & s, std::string const & suffix)
 {
-  if (!EndsWith(s, suffix))
+  if (!s.ends_with(suffix))
     return false;
 
   CHECK_LESS_OR_EQUAL(suffix.size(), s.size(), ());
@@ -395,7 +405,7 @@ std::string to_string_dac(double d, int dac)
 
 bool IsHTML(std::string const & utf8)
 {
-  std::string::const_iterator it = utf8.begin();
+  auto it = utf8.begin();
   size_t ltCount = 0;
   size_t gtCount = 0;
   while (it != utf8.end())
@@ -411,8 +421,7 @@ bool IsHTML(std::string const & utf8)
 
 bool AlmostEqual(std::string const & str1, std::string const & str2, size_t mismatchedCount)
 {
-  std::pair<std::string::const_iterator, std::string::const_iterator> mis(str1.begin(),
-                                                                          str2.begin());
+  std::pair mis(str1.begin(), str2.begin());
   auto const str1End = str1.end();
   auto const str2End = str2.end();
 
@@ -434,12 +443,12 @@ bool AlmostEqual(std::string const & str1, std::string const & str2, size_t mism
 void ParseCSVRow(std::string const & s, char const delimiter, std::vector<std::string> & target)
 {
   target.clear();
-  using It = TokenizeIterator<SimpleDelimiter, std::string::const_iterator, true>;
-  for (It it(s, SimpleDelimiter(delimiter)); it; ++it)
+  TokenizeIterator<SimpleDelimiter, std::string::const_iterator, true /* KeepEmptyTokens */> it(s.begin(), s.end(), delimiter);
+  for (; it; ++it)
   {
-    std::string column = *it;
-    strings::Trim(column);
-    target.push_back(move(column));
+    std::string column(*it);
+    Trim(column);
+    target.push_back(std::move(column));
   }
 
   // Special case: if the string is empty, return an empty array instead of {""}.

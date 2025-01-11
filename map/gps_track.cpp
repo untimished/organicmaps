@@ -8,7 +8,7 @@
 using namespace std;
 using namespace std::chrono;
 
-namespace
+namespace gps_track
 {
 
 inline pair<size_t, size_t> UnionRanges(pair<size_t, size_t> const & a, pair<size_t, size_t> const & b)
@@ -30,27 +30,22 @@ inline pair<size_t, size_t> UnionRanges(pair<size_t, size_t> const & a, pair<siz
 
 size_t constexpr kItemBlockSize = 1000;
 
-} // namespace
+} // namespace gps_track
 
 size_t const GpsTrack::kInvalidId = GpsTrackCollection::kInvalidId;
 
-GpsTrack::GpsTrack(string const & filePath, size_t maxItemCount, hours duration,
-                   unique_ptr<IGpsTrackFilter> && filter)
-  : m_maxItemCount(maxItemCount)
-  , m_filePath(filePath)
-  , m_duration(duration)
+GpsTrack::GpsTrack(string const & filePath, unique_ptr<IGpsTrackFilter> && filter)
+  : m_filePath(filePath)
   , m_needClear(false)
   , m_needSendSnapshop(false)
-  , m_filter(move(filter))
+  , m_filter(std::move(filter))
   , m_threadExit(false)
   , m_threadWakeup(false)
 {
   if (!m_filter)
     m_filter = make_unique<GpsTrackNullFilter>();
 
-  ASSERT_GREATER(m_maxItemCount, 0, ());
   ASSERT(!m_filePath.empty(), ());
-  ASSERT_GREATER(m_duration.count(), 0, ());
 }
 
 GpsTrack::~GpsTrack()
@@ -69,7 +64,7 @@ GpsTrack::~GpsTrack()
 void GpsTrack::AddPoint(location::GpsInfo const & point)
 {
   {
-    lock_guard<mutex> lg(m_dataGuard);
+    std::lock_guard lg(m_dataGuard);
     m_points.emplace_back(point);
   }
   ScheduleTask();
@@ -78,40 +73,38 @@ void GpsTrack::AddPoint(location::GpsInfo const & point)
 void GpsTrack::AddPoints(vector<location::GpsInfo> const & points)
 {
   {
-    lock_guard<mutex> lg(m_dataGuard);
+    std::lock_guard lg(m_dataGuard);
     m_points.insert(m_points.end(), points.begin(), points.end());
   }
   ScheduleTask();
 }
 
+GpsTrackInfo GpsTrack::GetTrackInfo() const
+{
+  return m_collection ? m_collection->GetTrackInfo() : GpsTrackInfo();
+}
+
 void GpsTrack::Clear()
 {
   {
-    lock_guard<mutex> lg(m_dataGuard);
+    std::lock_guard lg(m_dataGuard);
     m_points.clear();
     m_needClear = true;
   }
   ScheduleTask();
 }
 
-void GpsTrack::SetDuration(hours duration)
+size_t GpsTrack::GetSize() const
 {
-  ASSERT_GREATER(duration.count(), 0, ());
-
-  {
-    lock_guard<mutex> lg(m_dataGuard);
-    if (m_duration == duration)
-      return;
-    m_duration = duration;
-  }
-  if (HasCallback())
-    ScheduleTask();
+  CHECK(m_collection != nullptr, ());
+  return m_collection->GetSize();
 }
 
-hours GpsTrack::GetDuration() const
+bool GpsTrack::IsEmpty() const
 {
-  lock_guard<mutex> lg(m_dataGuard);
-  return m_duration;
+  if (!m_collection)
+    return true;
+  return m_collection->IsEmpty();
 }
 
 void GpsTrack::SetCallback(TGpsTrackDiffCallback callback)
@@ -157,7 +150,7 @@ void GpsTrack::InitStorageIfNeed()
 
   try
   {
-    m_storage = make_unique<GpsTrackStorage>(m_filePath, m_maxItemCount);
+    m_storage = make_unique<GpsTrackStorage>(m_filePath);
   }
   catch (RootException const & e)
   {
@@ -165,11 +158,11 @@ void GpsTrack::InitStorageIfNeed()
   }
 }
 
-void GpsTrack::InitCollection(hours duration)
+void GpsTrack::InitCollection()
 {
   ASSERT(m_collection == nullptr, ());
 
-  m_collection = make_unique<GpsTrackCollection>(m_maxItemCount, duration);
+  m_collection = make_unique<GpsTrackCollection>();
 
   InitStorageIfNeed();
   if (!m_storage)
@@ -181,18 +174,17 @@ void GpsTrack::InitCollection(hours duration)
     // and filtered points are inserted in the runtime collection.
 
     vector<location::GpsInfo> originPoints;
-    originPoints.reserve(kItemBlockSize);
+    originPoints.reserve(gps_track::kItemBlockSize);
 
     m_storage->ForEach([this, &originPoints](location::GpsInfo const & originPoint)->bool
     {
       originPoints.emplace_back(originPoint);
       if (originPoints.size() == originPoints.capacity())
       {
-        vector<location::GpsTrackInfo> points;
+        vector<location::GpsInfo> points;
         m_filter->Process(originPoints, points);
 
-        pair<size_t, size_t> evictedIds;
-        m_collection->Add(points, evictedIds);
+        m_collection->Add(points);
 
         originPoints.clear();
       }
@@ -201,11 +193,10 @@ void GpsTrack::InitCollection(hours duration)
 
     if (!originPoints.empty())
     {
-      vector<location::GpsTrackInfo> points;
+      vector<location::GpsInfo> points;
       m_filter->Process(originPoints, points);
 
-      pair<size_t, size_t> evictedIds;
-      m_collection->Add(points, evictedIds);
+      m_collection->Add(points);
     }
   }
   catch (RootException const & e)
@@ -219,20 +210,18 @@ void GpsTrack::InitCollection(hours duration)
 void GpsTrack::ProcessPoints()
 {
   vector<location::GpsInfo> originPoints;
-  hours duration;
   bool needClear;
   // Steal data for processing
   {
-    lock_guard<mutex> lg(m_dataGuard);
+    std::lock_guard lg(m_dataGuard);
     originPoints.swap(m_points);
-    duration = m_duration;
     needClear = m_needClear;
     m_needClear = false;
   }
 
   // Create collection only if callback appears
   if (!m_collection && HasCallback())
-    InitCollection(duration);
+    InitCollection();
 
   // All origin points are written in the storage,
   // and filtered points are inserted in the runtime collection.
@@ -242,12 +231,12 @@ void GpsTrack::ProcessPoints()
   if (!m_collection)
     return;
 
-  vector<location::GpsTrackInfo> points;
+  vector<location::GpsInfo> points;
   m_filter->Process(originPoints, points);
 
   pair<size_t, size_t> addedIds;
   pair<size_t, size_t> evictedIds;
-  UpdateCollection(duration, needClear, points, addedIds, evictedIds);
+  UpdateCollection(needClear, points, addedIds, evictedIds);
 
   NotifyCallback(addedIds, evictedIds);
 }
@@ -278,30 +267,18 @@ void GpsTrack::UpdateStorage(bool needClear, vector<location::GpsInfo> const & p
   }
 }
 
-void GpsTrack::UpdateCollection(hours duration, bool needClear, vector<location::GpsTrackInfo> const & points,
+void GpsTrack::UpdateCollection(bool needClear, vector<location::GpsInfo> const & points,
                                 pair<size_t, size_t> & addedIds, pair<size_t, size_t> & evictedIds)
 {
-  // Apply Clear, SetDuration and Add points
-
+  // Apply Clear and Add points
   // Clear points from collection, if need.
-  pair<size_t, size_t> evictedIdsByClear = make_pair(kInvalidId, kInvalidId);
-  if (needClear)
-    evictedIdsByClear = m_collection->Clear(false /* resetIds */);
-
-  // Set duration for collection, if need
-  // Set duration before Add because new duration can be more than previous value.
-  pair<size_t, size_t> evictedIdsByDuration = make_pair(kInvalidId, kInvalidId);
-  if (duration != m_collection->GetDuration())
-    evictedIdsByDuration = m_collection->SetDuration(duration);
+  evictedIds = needClear ? m_collection->Clear(false /* resetIds */) : make_pair(kInvalidId, kInvalidId);;
 
   // Add points to the collection, if need
-  pair<size_t, size_t> evictedIdsByAdd = make_pair(kInvalidId, kInvalidId);
   if (!points.empty())
-    addedIds = m_collection->Add(points, evictedIdsByAdd);
+    addedIds = m_collection->Add(points);
   else
     addedIds = make_pair(kInvalidId, kInvalidId);
-
-  evictedIds = UnionRanges(evictedIdsByAdd, UnionRanges(evictedIdsByClear, evictedIdsByDuration));
 }
 
 void GpsTrack::NotifyCallback(pair<size_t, size_t> const & addedIds, pair<size_t, size_t> const & evictedIds)
@@ -315,9 +292,9 @@ void GpsTrack::NotifyCallback(pair<size_t, size_t> const & addedIds, pair<size_t
   {
     m_needSendSnapshop = false;
 
-    vector<pair<size_t, location::GpsTrackInfo>> toAdd;
+    vector<pair<size_t, location::GpsInfo>> toAdd;
     toAdd.reserve(m_collection->GetSize());
-    m_collection->ForEach([&toAdd](location::GpsTrackInfo const & point, size_t id)->bool
+    m_collection->ForEach([&toAdd](location::GpsInfo const & point, size_t id)->bool
     {
       toAdd.emplace_back(id, point);
       return true;
@@ -326,17 +303,17 @@ void GpsTrack::NotifyCallback(pair<size_t, size_t> const & addedIds, pair<size_t
     if (toAdd.empty())
       return; // nothing to send
 
-    m_callback(move(toAdd), make_pair(kInvalidId, kInvalidId));
+    m_callback(std::move(toAdd), make_pair(kInvalidId, kInvalidId), m_collection->GetTrackInfo());
   }
   else
   {
-    vector<pair<size_t, location::GpsTrackInfo>> toAdd;
+    vector<pair<size_t, location::GpsInfo>> toAdd;
     if (addedIds.first != kInvalidId)
     {
       size_t const addedCount = addedIds.second - addedIds.first + 1;
       ASSERT_GREATER_OR_EQUAL(m_collection->GetSize(), addedCount, ());
       toAdd.reserve(addedCount);
-      m_collection->ForEach([&toAdd](location::GpsTrackInfo const & point, size_t id)->bool
+      m_collection->ForEach([&toAdd](location::GpsInfo const & point, size_t id)->bool
       {
         toAdd.emplace_back(id, point);
         return true;
@@ -347,6 +324,6 @@ void GpsTrack::NotifyCallback(pair<size_t, size_t> const & addedIds, pair<size_t
     if (toAdd.empty() && evictedIds.first == kInvalidId)
       return; // nothing to send
 
-    m_callback(move(toAdd), evictedIds);
+    m_callback(std::move(toAdd), evictedIds, m_collection->GetTrackInfo());
   }
 }

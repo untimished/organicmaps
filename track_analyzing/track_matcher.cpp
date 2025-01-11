@@ -2,9 +2,7 @@
 
 #include "track_analyzing/exceptions.hpp"
 
-#include "routing/city_roads.hpp"
 #include "routing/index_graph_loader.hpp"
-#include "routing/maxspeeds.hpp"
 
 #include "routing_common/car_model.hpp"
 
@@ -14,6 +12,9 @@
 
 #include "base/stl_helpers.hpp"
 
+
+namespace track_analyzing
+{
 using namespace routing;
 using namespace std;
 using namespace track_analyzing;
@@ -34,9 +35,10 @@ double DistanceToSegment(m2::PointD const & segmentBegin, m2::PointD const & seg
 
 double DistanceToSegment(Segment const & segment, m2::PointD const & point, IndexGraph & indexGraph)
 {
+  auto const & road = indexGraph.GetRoadGeometry(segment.GetFeatureId());
   return DistanceToSegment(
-      mercator::FromLatLon(indexGraph.GetGeometry().GetPoint(segment.GetRoadPoint(false))),
-      mercator::FromLatLon(indexGraph.GetGeometry().GetPoint(segment.GetRoadPoint(true))), point);
+      mercator::FromLatLon(road.GetPoint(segment.GetPointId(false))),
+      mercator::FromLatLon(road.GetPoint(segment.GetPointId(true))), point);
 }
 
 bool EdgesContain(IndexGraph::SegmentEdgeListT const & edges, Segment const & segment)
@@ -51,8 +53,6 @@ bool EdgesContain(IndexGraph::SegmentEdgeListT const & edges, Segment const & se
 }
 }  // namespace
 
-namespace track_analyzing
-{
 // TrackMatcher ------------------------------------------------------------------------------------
 TrackMatcher::TrackMatcher(storage::Storage const & storage, NumMwmId mwmId,
                            platform::CountryFile const & countryFile)
@@ -65,11 +65,10 @@ TrackMatcher::TrackMatcher(storage::Storage const & storage, NumMwmId mwmId,
   CHECK_EQUAL(registerResult.second, MwmSet::RegResult::Success,
               ("Can't register mwm", countryFile.GetName()));
 
-  MwmSet::MwmHandle const handle = m_dataSource.GetMwmHandleByCountryFile(countryFile);
+  MwmSet::MwmHandle handle = m_dataSource.GetMwmHandleByCountryFile(countryFile);
+
   m_graph = make_unique<IndexGraph>(
-      make_shared<Geometry>(GeometryLoader::Create(m_dataSource, handle, m_vehicleModel,
-                                                   AttrLoader(m_dataSource, handle),
-                                                   false /* loadAltitudes */)),
+      make_shared<Geometry>(GeometryLoader::Create(handle, m_vehicleModel, false /* loadAltitudes */)),
       EdgeEstimator::Create(VehicleType::Car, *m_vehicleModel, nullptr /* trafficStash */,
         nullptr /* dataSource */, nullptr /* numMvmIds */));
 
@@ -139,40 +138,41 @@ void TrackMatcher::Step::FillCandidatesWithNearbySegments(
     DataSource const & dataSource, IndexGraph const & graph,
     VehicleModelInterface const & vehicleModel, NumMwmId mwmId)
 {
-  dataSource.ForEachInRect(
-      [&](FeatureType & ft) {
-        if (!ft.GetID().IsValid())
-          return;
+  dataSource.ForEachInRect([&](FeatureType & ft)
+  {
+    if (!ft.GetID().IsValid())
+      return;
 
-        if (ft.GetID().m_mwmId.GetInfo()->GetType() != MwmInfo::COUNTRY)
-          return;
+    if (ft.GetID().m_mwmId.GetInfo()->GetType() != MwmInfo::COUNTRY)
+      return;
 
-        if (!vehicleModel.IsRoad(ft))
-          return;
+    feature::TypesHolder const types(ft);
+    if (!vehicleModel.IsRoad(types))
+      return;
 
-        ft.ParseGeometry(FeatureType::BEST_GEOMETRY);
+    ft.ParseGeometry(FeatureType::BEST_GEOMETRY);
 
-        for (size_t segIdx = 0; segIdx + 1 < ft.GetPointsCount(); ++segIdx)
+    for (size_t segIdx = 0; segIdx + 1 < ft.GetPointsCount(); ++segIdx)
+    {
+      double const distance =
+          DistanceToSegment(ft.GetPoint(segIdx), ft.GetPoint(segIdx + 1), m_point);
+      if (distance < kMatchingRange)
+      {
+        AddCandidate(Segment(mwmId, ft.GetID().m_index, static_cast<uint32_t>(segIdx),
+                             true /* forward */),
+                     distance, graph);
+
+        if (!vehicleModel.IsOneWay(types))
         {
-          double const distance =
-              DistanceToSegment(ft.GetPoint(segIdx), ft.GetPoint(segIdx + 1), m_point);
-          if (distance < kMatchingRange)
-          {
-            AddCandidate(Segment(mwmId, ft.GetID().m_index, static_cast<uint32_t>(segIdx),
-                                 true /* forward */),
-                         distance, graph);
-
-            if (!vehicleModel.IsOneWay(ft))
-            {
-              AddCandidate(Segment(mwmId, ft.GetID().m_index, static_cast<uint32_t>(segIdx),
-                                   false /* forward */),
-                           distance, graph);
-            }
-          }
+          AddCandidate(Segment(mwmId, ft.GetID().m_index, static_cast<uint32_t>(segIdx),
+                               false /* forward */),
+                       distance, graph);
         }
-      },
-      mercator::RectByCenterXYAndSizeInMeters(m_point, kMatchingRange),
-      scales::GetUpperScale());
+      }
+    }
+  },
+  mercator::RectByCenterXYAndSizeInMeters(m_point, kMatchingRange),
+  scales::GetUpperScale());
 }
 
 void TrackMatcher::Step::FillCandidates(Step const & previousStep, IndexGraph & graph)

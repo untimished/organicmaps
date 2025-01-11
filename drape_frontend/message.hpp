@@ -56,6 +56,7 @@ public:
     Invalidate,
     Allow3dMode,
     Allow3dBuildings,
+    SetMapLangIndex,
     EnablePerspective,
     FlushCirclesPack,
     CacheCirclesPack,
@@ -102,6 +103,7 @@ public:
     NotifyGraphicsReady,
     EnableIsolines,
     OnEnterBackground,
+    Arrow3dRecache
   };
 
   virtual ~Message() = default;

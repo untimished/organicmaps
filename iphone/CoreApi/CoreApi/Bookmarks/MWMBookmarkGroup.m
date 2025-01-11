@@ -53,7 +53,7 @@
 }
 
 - (BOOL)isEmpty {
-  return ![self.manager isCategoryNotEmpty:self.categoryId];
+  return [self.manager isCategoryEmpty:self.categoryId];
 }
 
 - (BOOL)hasDescription {
@@ -82,6 +82,10 @@
 
 - (MWMBookmarkGroupType)type {
   return [self.manager getCategoryGroupType:self.categoryId];
+}
+
+- (BOOL)isHtmlDescription {
+  return [self.manager isHtmlDescription:self.categoryId];
 }
 
 @end

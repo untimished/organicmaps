@@ -10,22 +10,22 @@ namespace
 //          and add assertions about the highest bit.
 //          The old scheme used the highest bit and the new one does not.
 // uint64_t const kTypeMask = 0x7F00000000000000;
-uint64_t const kTypeMask = 0xFF00000000000000;
-uint64_t const kReservedMask = 0x00FF000000000000;
-uint64_t const kSerialMask = 0x0000FFFFFFFFFFFF;
+uint64_t const kTypeMask      = 0xFF00000000000000;
+uint64_t const kReservedMask  = 0x00FF000000000000;
+uint64_t const kSerialMask    = 0x0000FFFFFFFFFFFF;
 }  // namespace
 
 namespace base
 {
 GeoObjectId::GeoObjectId(uint64_t encodedId) : m_encodedId(encodedId) {}
 
-GeoObjectId::GeoObjectId(GeoObjectId::Type type, uint64_t id)
+GeoObjectId::GeoObjectId(Type type, uint64_t id)
   : m_encodedId((static_cast<uint64_t>(type) << 56) | id) {}
 
 uint64_t GeoObjectId::GetSerialId() const
 {
-  CHECK_NOT_EQUAL(m_encodedId & kTypeMask, 0, ());
-  CHECK_EQUAL(m_encodedId & kReservedMask, 0, ());
+  ASSERT_NOT_EQUAL(m_encodedId & kTypeMask, 0, ());
+  ASSERT_EQUAL(m_encodedId & kReservedMask, 0, ());
   return m_encodedId & kSerialMask;
 }
 
@@ -33,20 +33,20 @@ uint64_t GeoObjectId::GetEncodedId() const { return m_encodedId; }
 
 GeoObjectId::Type GeoObjectId::GetType() const
 {
-  CHECK_EQUAL(m_encodedId & kReservedMask, 0, ());
+  ASSERT_EQUAL(m_encodedId & kReservedMask, 0, ());
   uint64_t const typeBits = (m_encodedId & kTypeMask) >> 56;
   switch (typeBits)
   {
-  case 0x00: return GeoObjectId::Type::Invalid;
-  case 0x01: return GeoObjectId::Type::OsmNode;
-  case 0x02: return GeoObjectId::Type::OsmWay;
-  case 0x03: return GeoObjectId::Type::OsmRelation;
-  case 0x04: return GeoObjectId::Type::BookingComNode;
-  case 0x05: return GeoObjectId::Type::OsmSurrogate;
-  case 0x06: return GeoObjectId::Type::Fias;
-  case 0x40: return GeoObjectId::Type::ObsoleteOsmNode;
-  case 0x80: return GeoObjectId::Type::ObsoleteOsmWay;
-  case 0xC0: return GeoObjectId::Type::ObsoleteOsmRelation;
+  case 0x00: return Type::Invalid;
+  case 0x01: return Type::OsmNode;
+  case 0x02: return Type::OsmWay;
+  case 0x03: return Type::OsmRelation;
+  case 0x04: return Type::BookingComNode;
+  case 0x05: return Type::OsmSurrogate;
+  case 0x06: return Type::Fias;
+  case 0x40: return Type::ObsoleteOsmNode;
+  case 0x80: return Type::ObsoleteOsmWay;
+  case 0xC0: return Type::ObsoleteOsmRelation;
   }
   UNREACHABLE();
 }
@@ -74,7 +74,7 @@ std::ostream & operator<<(std::ostream & os, GeoObjectId const & geoObjectId)
 
 std::istream & operator>>(std::istream & os, GeoObjectId & geoObjectId)
 {
-  decltype(geoObjectId.GetEncodedId()) encodedId;
+  uint64_t encodedId;
   os >> encodedId;
   geoObjectId = GeoObjectId(encodedId);
   return os;

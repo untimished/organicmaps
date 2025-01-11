@@ -4,14 +4,13 @@
 #include "generator/cities_ids_builder.hpp"
 #include "generator/feature_builder.hpp"
 #include "generator/feature_generator.hpp"
+#include "generator/feature_merger.hpp"
 #include "generator/feature_sorter.hpp"
 #include "generator/generator_tests_support/test_feature.hpp"
-#include "generator/postcode_points_builder.hpp"
 #include "generator/search_index_builder.hpp"
 
 #include "indexer/city_boundary.hpp"
 #include "indexer/data_header.hpp"
-#include "indexer/feature_data.hpp"
 #include "indexer/feature_meta.hpp"
 #include "indexer/features_offsets_table.hpp"
 #include "indexer/ftypes_matcher.hpp"
@@ -29,10 +28,13 @@
 
 #include "defines.hpp"
 
-#include <memory>
 
-using namespace std;
+namespace generator
+{
+namespace tests_support
+{
 using namespace feature;
+using std::string, std::vector;
 
 namespace
 {
@@ -55,16 +57,12 @@ bool WriteRegionDataForTests(string const & path, vector<string> const & languag
 }
 }  // namespace
 
-namespace generator
-{
-namespace tests_support
-{
 TestMwmBuilder::TestMwmBuilder(platform::LocalCountryFile & file, DataHeader::MapType type,
                                uint32_t version)
   : m_file(file)
   , m_type(type)
   , m_collector(
-        make_unique<FeaturesCollector>(m_file.GetPath(MapFileType::Map) + EXTENSION_TMP))
+        std::make_unique<FeaturesCollector>(m_file.GetPath(MapFileType::Map) + EXTENSION_TMP))
   , m_version(version)
 {
 }
@@ -82,29 +80,44 @@ void TestMwmBuilder::Add(TestFeature const & feature)
   CHECK(Add(fb), (fb));
 }
 
+void TestMwmBuilder::AddSafe(TestFeature const & feature)
+{
+  FeatureBuilder fb;
+  feature.Serialize(fb);
+  (void)Add(fb);
+}
+
 bool TestMwmBuilder::Add(FeatureBuilder & fb)
 {
   CHECK(m_collector, ("It's not possible to add features after call to Finish()."));
+
+  switch (m_type)
+  {
+  case DataHeader::MapType::Country:
+    if (!feature::PreprocessForCountryMap(fb))
+      return false;
+    break;
+  case DataHeader::MapType::World:
+    if (!feature::PreprocessForWorldMap(fb))
+      return false;
+    break;
+  case DataHeader::MapType::WorldCoasts:
+    CHECK(false, ("Coasts are not supported in test builder"));
+    break;
+  }
 
   auto const & isCityTownOrVillage = ftypes::IsCityTownOrVillageChecker::Instance();
   if (isCityTownOrVillage(fb.GetTypes()) && fb.GetGeomType() == GeomType::Area)
   {
     auto const & metadata = fb.GetMetadata();
     uint64_t testId;
-    CHECK(strings::to_uint64(metadata.Get(Metadata::FMD_TEST_ID), testId), ());
+    CHECK(strings::to_uint(metadata.Get(Metadata::FMD_TEST_ID), testId), ());
     m_boundariesTable.Append(testId, indexer::CityBoundary(fb.GetOuterGeometry()));
 
-    auto const center = fb.GetGeometryCenter();
-    fb.SetCenter(center);
+    fb.SetCenter(fb.GetGeometryCenter());
   }
 
-  if (!fb.PreSerializeAndRemoveUselessNamesForIntermediate())
-  {
-    LOG(LWARNING, ("Can't pre-serialize feature."));
-    return false;
-  }
-
-  if (!fb.RemoveInvalidTypes())
+  if (!fb.RemoveInvalidTypes() || !fb.PreSerializeAndRemoveUselessNamesForIntermediate())
   {
     LOG(LWARNING, ("No types."));
     return false;
@@ -114,10 +127,12 @@ bool TestMwmBuilder::Add(FeatureBuilder & fb)
   return true;
 }
 
-void TestMwmBuilder::SetUKPostcodesData(
-    string const & postcodesPath, shared_ptr<storage::CountryInfoGetter> const & countryInfoGetter)
+void TestMwmBuilder::SetPostcodesData(string const & postcodesPath,
+                                      indexer::PostcodePointsDatasetType postcodesType,
+                                      std::shared_ptr<storage::CountryInfoGetter> const & countryInfoGetter)
 {
-  m_ukPostcodesPath = postcodesPath;
+  m_postcodesPath = postcodesPath;
+  m_postcodesType = postcodesType;
   m_postcodesCountryInfoGetter = countryInfoGetter;
 }
 
@@ -136,6 +151,7 @@ void TestMwmBuilder::Finish()
   GenerateInfo info;
   info.m_targetDir = m_file.GetDirectory();
   info.m_tmpDir = m_file.GetDirectory();
+  info.m_intermediateDir = m_file.GetDirectory();
   info.m_versionDate = static_cast<uint32_t>(base::YYMMDDToSecondsSinceEpoch(m_version));
   CHECK(GenerateFinalFeatures(info, m_file.GetCountryFile().GetName(), m_type),
         ("Can't sort features."));
@@ -153,16 +169,16 @@ void TestMwmBuilder::Finish()
                                               true /* forceRebuild */, 1 /* threadsCount */),
         ("Can't build search index."));
 
-  if (!m_ukPostcodesPath.empty() && m_postcodesCountryInfoGetter)
+  if (!m_postcodesPath.empty() && m_postcodesCountryInfoGetter)
   {
     CHECK(indexer::BuildPostcodePointsWithInfoGetter(m_file.GetDirectory(), m_file.GetCountryName(),
-                                                     indexer::PostcodePointsDatasetType::UK,
-                                                     m_ukPostcodesPath, true /* forceRebuild */,
+                                                     m_postcodesType,
+                                                     m_postcodesPath, true /* forceRebuild */,
                                                      *m_postcodesCountryInfoGetter),
           ("Can't build postcodes section."));
   }
 
-  UNUSED_VALUE(base::DeleteFileX(path + TEMP_ADDR_FILENAME));
+  UNUSED_VALUE(base::DeleteFileX(path + TEMP_ADDR_EXTENSION));
 
   if (m_type == DataHeader::MapType::World)
   {

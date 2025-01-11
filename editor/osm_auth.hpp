@@ -7,8 +7,14 @@
 
 namespace osm
 {
-using KeySecret = std::pair<std::string /*key*/, std::string /*secret*/>;
-using RequestToken = KeySecret;
+struct Oauth2Params
+{
+  std::string m_clientId;
+  std::string m_clientSecret;
+  std::string m_scope;
+  std::string m_redirectUri;
+};
+
 
 /// All methods that interact with the OSM server are blocking and not asynchronous.
 class OsmOAuth
@@ -34,8 +40,6 @@ public:
 
   /// A pair of <http error code, response contents>.
   using Response = std::pair<int, std::string>;
-  /// A pair of <url, key-secret>.
-  using UrlRequestToken = std::pair<std::string, RequestToken>;
 
   DECLARE_EXCEPTION(OsmOAuthException, RootException);
   DECLARE_EXCEPTION(NetworkError, OsmOAuthException);
@@ -53,25 +57,24 @@ public:
   DECLARE_EXCEPTION(FinishAuthorizationServerError, OsmOAuthException);
   DECLARE_EXCEPTION(ResetPasswordServerError, OsmOAuthException);
 
-  static bool IsValid(KeySecret const & ks) noexcept;
-  static bool IsValid(UrlRequestToken const & urt) noexcept;
+  static bool IsValid(std::string const & ks);
 
   /// The constructor. Simply stores a lot of strings in fields.
-  OsmOAuth(std::string const & consumerKey, std::string const & consumerSecret,
-           std::string const & baseUrl, std::string const & apiUrl) noexcept;
+  OsmOAuth(std::string const & oauth2ClientId, std::string const & oauth2Secret, std::string const & oauth2Scope,
+           std::string const & oauth2RedirectUri, std::string baseUrl, std::string apiUrl);
 
   /// Should be used everywhere in production code instead of servers below.
-  static OsmOAuth ServerAuth() noexcept;
-  static OsmOAuth ServerAuth(KeySecret const & userKeySecret) noexcept;
+  static OsmOAuth ServerAuth();
+  static OsmOAuth ServerAuth(std::string const & oauthToken);
 
   /// master.apis.dev.openstreetmap.org
-  static OsmOAuth DevServerAuth() noexcept;
+  static OsmOAuth DevServerAuth();
   /// api.openstreetmap.org
-  static OsmOAuth ProductionServerAuth() noexcept;
+  static OsmOAuth ProductionServerAuth();
 
-  void SetKeySecret(KeySecret const & keySecret) noexcept;
-  KeySecret const & GetKeySecret() const noexcept;
-  bool IsAuthorized() const noexcept;
+  void SetAuthToken(std::string const & authToken);
+  std::string const & GetAuthToken() const;
+  bool IsAuthorized() const;
 
   /// @returns false if login and/or password are invalid.
   bool AuthorizePassword(std::string const & login, std::string const & password);
@@ -80,7 +83,7 @@ public:
   /// @returns false if Google credentials are invalid.
   bool AuthorizeGoogle(std::string const & googleToken);
   /// @returns false if email has not been registered on a server.
-  bool ResetPassword(std::string const & email) const;
+  //bool ResetPassword(std::string const & email) const;
 
   /// Throws in case of network errors.
   /// @param[method] The API method, must start with a forward slash.
@@ -90,30 +93,43 @@ public:
   /// @param[api] If false, request is made to m_baseUrl.
   Response DirectRequest(std::string const & method, bool api = true) const;
 
+  // Getters
+  std::string GetBaseUrl() const { return m_baseUrl; }
+  std::string GetClientId() const { return m_oauth2params.m_clientId; }
+  std::string GetClientSecret() const { return m_oauth2params.m_clientSecret; }
+  std::string GetScope() const { return m_oauth2params.m_scope; }
+  std::string GetRedirectUri() const { return m_oauth2params.m_redirectUri; }
+
   /// @name Methods for WebView-based authentication.
   //@{
-  UrlRequestToken GetFacebookOAuthURL() const;
-  UrlRequestToken GetGoogleOAuthURL() const;
-  KeySecret FinishAuthorization(RequestToken const & requestToken,
-                                std::string const & verifier) const;
-  // AuthResult FinishAuthorization(KeySecret const & requestToken, string const & verifier);
-  std::string GetRegistrationURL() const noexcept { return m_baseUrl + "/user/new"; }
-  std::string GetResetPasswordURL() const noexcept { return m_baseUrl + "/user/forgot-password"; }
+  std::string FinishAuthorization(std::string const & oauth2code) const;
+  std::string GetRegistrationURL() const { return m_baseUrl + "/user/new"; }
+  std::string GetResetPasswordURL() const { return m_baseUrl + "/user/forgot-password"; }
+  std::string GetHistoryURL(std::string const & user) const
+  {
+    return m_baseUrl + "/user/" + user + "/history";
+  }
+  std::string GetNotesURL(std::string const & user) const
+  {
+    return m_baseUrl + "/user/" + user + "/notes";
+  }
+  std::string BuildOAuth2Url() const;
   //@}
 
 private:
   struct SessionID
   {
     std::string m_cookies;
-    std::string m_token;
+    std::string m_authenticityToken;
   };
 
-  /// Key and secret for application.
-  KeySecret const m_consumerKeySecret;
+  /// OAuth2 parameters (including secret) for application.
+  Oauth2Params const m_oauth2params;
   std::string const m_baseUrl;
   std::string const m_apiUrl;
-  /// Key and secret to sign every OAuth request.
-  KeySecret m_tokenKeySecret;
+  /// Token to authenticate every OAuth request.
+  //std::string const m_oauth2code;
+  std::string m_oauth2token;
 
   SessionID FetchSessionId(std::string const & subUrl = "/login",
                            std::string const & cookies = "") const;
@@ -130,9 +146,8 @@ private:
   /// @returns non-empty string with oauth_verifier value.
   std::string SendAuthRequest(std::string const & requestTokenKey, SessionID const & lastSid) const;
   /// @returns valid key and secret or throws otherwise.
-  RequestToken FetchRequestToken() const;
-  KeySecret FetchAccessToken(SessionID const & sid) const;
-  //AuthResult FetchAccessToken(SessionID const & sid);
+  std::string FetchRequestToken(SessionID const & sid) const;
+  std::string FetchAccessToken(SessionID const & sid) const;
 };
 
 std::string DebugPrint(OsmOAuth::Response const & code);

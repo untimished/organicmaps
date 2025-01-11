@@ -3,6 +3,7 @@
 #include "indexer/classificator.hpp"
 #include "indexer/editable_map_object.hpp"
 #include "indexer/ftypes_matcher.hpp"
+#include "indexer/validate_and_format_contacts.hpp"
 
 #include "coding/string_utf8_multilang.hpp"
 
@@ -17,7 +18,9 @@
 #include <sstream>
 #include <string>
 
-using namespace std;
+namespace editor
+{
+using std::string, std::string_view;
 
 namespace
 {
@@ -26,17 +29,27 @@ constexpr char const * kIndex = "mwm_file_index";
 constexpr char const * kUploadTimestamp = "upload_timestamp";
 constexpr char const * kUploadStatus = "upload_status";
 constexpr char const * kUploadError = "upload_error";
-constexpr char const * kHouseNumber = "addr:housenumber";
-constexpr char const * kCuisine = "cuisine";
+
+string_view constexpr kHouseNumber = "addr:housenumber";
+string_view constexpr kCuisine = "cuisine";
+string_view constexpr kDietVegetarian = "diet:vegetarian";
+string_view constexpr kDietVegan = "diet:vegan";
+string_view constexpr kVegetarian = "vegetarian";
+string_view constexpr kVegan = "vegan";
+string_view constexpr kYes = "yes";
 
 constexpr char const * kUnknownType = "unknown";
 constexpr char const * kNodeType = "node";
 constexpr char const * kWayType = "way";
 constexpr char const * kRelationType = "relation";
 
-pugi::xml_node FindTag(pugi::xml_document const & document, string const & key)
+string_view constexpr kColon = ":";
+
+pugi::xml_node FindTag(pugi::xml_document const & document, string_view k)
 {
-  return document.select_node(("//tag[@k='" + key + "']").data()).node();
+  string key = "//tag[@k='";
+  key.append(k).append("']");
+  return document.select_node(key.data()).node();
 }
 
 ms::LatLon GetLatLonFromNode(pugi::xml_node const & node)
@@ -85,9 +98,6 @@ void ValidateElement(pugi::xml_node const & nodeOrWay)
 }
 }  // namespace
 
-namespace editor
-{
-
 XMLFeature::XMLFeature(Type const type)
 {
   ASSERT_NOT_EQUAL(type, Type::Unknown, ());
@@ -97,7 +107,7 @@ XMLFeature::XMLFeature(Type const type)
 
 XMLFeature::XMLFeature(string const & xml)
 {
-  m_document.load(xml.data());
+  m_document.load_string(xml.data());
   ValidateElement(GetRootNode());
 }
 
@@ -132,13 +142,13 @@ bool XMLFeature::operator==(XMLFeature const & other) const
   return ToOSMString() == other.ToOSMString();
 }
 
-vector<XMLFeature> XMLFeature::FromOSM(string const & osmXml)
+std::vector<XMLFeature> XMLFeature::FromOSM(string const & osmXml)
 {
   pugi::xml_document doc;
   if (doc.load_string(osmXml.data()).status != pugi::status_ok)
     MYTHROW(editor::InvalidXML, ("Not valid XML:", osmXml));
 
-  vector<XMLFeature> features;
+  std::vector<XMLFeature> features;
   for (auto const & n : doc.child("osm").children())
   {
     if (StringToType(n.name()) != Type::Unknown)
@@ -151,33 +161,38 @@ XMLFeature::Type XMLFeature::GetType() const { return StringToType(GetRootNode()
 
 string XMLFeature::GetTypeString() const { return GetRootNode().name(); }
 
-void XMLFeature::Save(ostream & ost) const { m_document.save(ost, "  "); }
+void XMLFeature::Save(std::ostream & ost) const { m_document.save(ost, "  "); }
 
 string XMLFeature::ToOSMString() const
 {
-  ostringstream ost;
+  std::ostringstream ost;
   // Ugly way to wrap into <osm>..</osm> tags.
   // Unfortunately, pugi xml library doesn't allow to insert documents into other documents.
-  ost << "<?xml version=\"1.0\"?>" << endl;
-  ost << "<osm>" << endl;
+  ost << "<?xml version=\"1.0\"?>\n";
+  ost << "<osm>\n";
   m_document.save(ost, "  ", pugi::format_no_declaration | pugi::format_indent);
-  ost << "</osm>" << endl;
+  ost << "</osm>\n";
   return ost.str();
 }
 
 void XMLFeature::ApplyPatch(XMLFeature const & featureWithChanges)
 {
   // TODO(mgsergio): Get these alt tags from the config.
-  vector<vector<string>> const alternativeTags = {{"phone", "contact:phone", "contact:mobile"},
-                                                  {"website", "contact:website", "url"},
-                                                  {"fax", "contact:fax"},
-                                                  {"email", "contact:email"}};
-  featureWithChanges.ForEachTag([&alternativeTags, this](string const & k, string const & v) {
+  base::StringIL const alternativeTags[] = {
+    {"phone", "contact:phone", "contact:mobile", "mobile"},
+    {"website", "contact:website", "url"},
+    {"fax", "contact:fax"},
+    {"email", "contact:email"}
+  };
+
+  featureWithChanges.ForEachTag([&alternativeTags, this](string_view k, string_view v)
+  {
     // Avoid duplication for similar alternative osm tags.
     for (auto const & alt : alternativeTags)
     {
-      ASSERT(!alt.empty(), ());
-      if (k == alt.front())
+      auto it = alt.begin();
+      ASSERT(it != alt.end(), ());
+      if (k == *it)
       {
         for (auto const & tag : alt)
         {
@@ -217,11 +232,11 @@ void XMLFeature::SetCenter(m2::PointD const & mercatorCenter)
   SetCenter(mercator::ToLatLon(mercatorCenter));
 }
 
-vector<m2::PointD> XMLFeature::GetGeometry() const
+std::vector<m2::PointD> XMLFeature::GetGeometry() const
 {
   ASSERT_NOT_EQUAL(GetType(), Type::Unknown, ());
   ASSERT_NOT_EQUAL(GetType(), Type::Node, ());
-  vector<m2::PointD> geometry;
+  std::vector<m2::PointD> geometry;
   for (auto const & xCenter : GetRootNode().select_nodes("nd"))
   {
     ASSERT(xCenter.node(), ("no nd attribute."));
@@ -230,25 +245,22 @@ vector<m2::PointD> XMLFeature::GetGeometry() const
   return geometry;
 }
 
-string XMLFeature::GetName(string const & lang) const
+string XMLFeature::GetName(std::string_view lang) const
 {
-  ASSERT_EQUAL(string(kDefaultLang),
-               string(StringUtf8Multilang::GetLangByCode(StringUtf8Multilang::kDefaultCode)), ());
-  ASSERT_EQUAL(string(kIntlLang),
-               string(StringUtf8Multilang::GetLangByCode(StringUtf8Multilang::kInternationalCode)),
-               ());
-  ASSERT_EQUAL(string(kAltLang),
-               string(StringUtf8Multilang::GetLangByCode(StringUtf8Multilang::kAltNameCode)), ());
-  ASSERT_EQUAL(string(kOldLang),
-               string(StringUtf8Multilang::GetLangByCode(StringUtf8Multilang::kOldNameCode)), ());
+  ASSERT_EQUAL(kDefaultLang, StringUtf8Multilang::GetLangByCode(StringUtf8Multilang::kDefaultCode), ());
+  ASSERT_EQUAL(kIntlLang, StringUtf8Multilang::GetLangByCode(StringUtf8Multilang::kInternationalCode), ());
+  ASSERT_EQUAL(kAltLang, StringUtf8Multilang::GetLangByCode(StringUtf8Multilang::kAltNameCode), ());
+  ASSERT_EQUAL(kOldLang, StringUtf8Multilang::GetLangByCode(StringUtf8Multilang::kOldNameCode), ());
   if (lang == kIntlLang)
     return GetTagValue(kIntlName);
   if (lang == kAltLang)
     return GetTagValue(kAltName);
   if (lang == kOldLang)
     return GetTagValue(kOldName);
-  auto const suffix = (lang == kDefaultLang || lang.empty()) ? "" : ":" + lang;
-  return GetTagValue(kDefaultName + suffix);
+  if (lang == kDefaultLang || lang.empty())
+    return GetTagValue(kDefaultName);
+  return GetTagValue(std::string{kDefaultName}.append(kColon).append(lang));
+  //return GetTagValue(suffix.insert(0, kDefaultName));
 }
 
 string XMLFeature::GetName(uint8_t const langCode) const
@@ -256,9 +268,9 @@ string XMLFeature::GetName(uint8_t const langCode) const
   return GetName(StringUtf8Multilang::GetLangByCode(langCode));
 }
 
-void XMLFeature::SetName(string const & name) { SetName(kDefaultLang, name); }
+void XMLFeature::SetName(string_view name) { SetName(kDefaultLang, name); }
 
-void XMLFeature::SetName(string const & lang, string const & name)
+void XMLFeature::SetName(string_view lang, string_view name)
 {
   if (lang == kIntlLang)
   {
@@ -272,14 +284,17 @@ void XMLFeature::SetName(string const & lang, string const & name)
   {
     SetTagValue(kOldName, name);
   }
+  else if (lang == kDefaultLang || lang.empty())
+  {
+    SetTagValue(kDefaultName, name);
+  }
   else
   {
-    auto const suffix = (lang == kDefaultLang || lang.empty()) ? "" : ":" + lang;
-    SetTagValue(kDefaultName + suffix, name);
+    SetTagValue(std::string{kDefaultName}.append(kColon).append(lang), name);
   }
 }
 
-void XMLFeature::SetName(uint8_t const langCode, string const & name)
+void XMLFeature::SetName(uint8_t const langCode, string_view name)
 {
   SetName(StringUtf8Multilang::GetLangByCode(langCode), name);
 }
@@ -288,9 +303,69 @@ string XMLFeature::GetHouse() const { return GetTagValue(kHouseNumber); }
 
 void XMLFeature::SetHouse(string const & house) { SetTagValue(kHouseNumber, house); }
 
-string XMLFeature::GetCuisine() const { return GetTagValue(kCuisine); }
+/// https://github.com/organicmaps/organicmaps/issues/1118
+/// @todo Make full diet:xxx support.
+/// @{
+string XMLFeature::GetCuisine() const
+{
+  auto res = GetTagValue(kCuisine);
+  auto const appendCuisine = [&res](std::string_view s)
+  {
+    if (!res.empty())
+      res += ';';
+    res += s;
+  };
 
-void XMLFeature::SetCuisine(string const & cuisine) { SetTagValue(kCuisine, cuisine); }
+  if (GetTagValue(kDietVegan) == kYes)
+    appendCuisine(kVegan);
+  if (GetTagValue(kDietVegetarian) == kYes)
+    appendCuisine(kVegetarian);
+  return res;
+}
+
+void XMLFeature::SetCuisine(string cuisine)
+{
+  auto const findAndErase = [&cuisine](std::string_view s)
+  {
+    size_t const i = cuisine.find(s);
+    if (i != std::string_view::npos)
+    {
+      size_t from = 0;
+      size_t sz = s.size();
+      if (i > 0)
+      {
+        from = i - 1;
+        ASSERT_EQUAL(cuisine[from], ';', ());
+        ++sz;
+      }
+      else if (cuisine.size() > sz)
+      {
+        ASSERT_EQUAL(cuisine[sz], ';', ());
+        ++sz;
+      }
+
+      cuisine.erase(from, sz);
+      return true;
+    }
+    return false;
+  };
+
+  if (findAndErase(kVegan))
+    SetTagValue(kDietVegan, kYes);
+  else
+    RemoveTag(kDietVegan);
+
+  if (findAndErase(kVegetarian))
+    SetTagValue(kDietVegetarian, kYes);
+  else
+    RemoveTag(kDietVegetarian);
+
+  if (!cuisine.empty())
+    SetTagValue(kCuisine, cuisine);
+  else
+    RemoveTag(kCuisine);
+}
+/// @}
 
 time_t XMLFeature::GetModificationTime() const
 {
@@ -336,35 +411,42 @@ void XMLFeature::SetUploadError(string const & error) { SetAttribute(kUploadErro
 
 bool XMLFeature::HasAnyTags() const { return GetRootNode().child("tag"); }
 
-bool XMLFeature::HasTag(string const & key) const { return FindTag(m_document, key); }
+bool XMLFeature::HasTag(string_view key) const { return FindTag(m_document, key); }
 
-bool XMLFeature::HasAttribute(string const & key) const
+bool XMLFeature::HasAttribute(string_view key) const
 {
   return GetRootNode().attribute(key.data());
 }
 
-bool XMLFeature::HasKey(string const & key) const { return HasTag(key) || HasAttribute(key); }
+bool XMLFeature::HasKey(string_view key) const { return HasTag(key) || HasAttribute(key); }
 
-string XMLFeature::GetTagValue(string const & key) const
+string XMLFeature::GetTagValue(string_view key) const
 {
   auto const tag = FindTag(m_document, key);
   return tag.attribute("v").value();
 }
 
-void XMLFeature::SetTagValue(string const & key, string value)
+void XMLFeature::SetTagValue(string_view key, string_view value)
 {
   strings::Trim(value);
   auto tag = FindTag(m_document, key);
   if (!tag)
   {
     tag = GetRootNode().append_child("tag");
-    tag.append_attribute("k").set_value(key.data());
-    tag.append_attribute("v").set_value(value.data());
+    tag.append_attribute("k").set_value(key.data(), key.size());
+    tag.append_attribute("v").set_value(value.data(), value.size());
   }
   else
   {
-    tag.attribute("v") = value.data();
+    tag.attribute("v").set_value(value.data(), value.size());
   }
+}
+
+void XMLFeature::RemoveTag(string_view key)
+{
+  auto tag = FindTag(m_document, key);
+  if (tag)
+    GetRootNode().remove_child(tag);
 }
 
 string XMLFeature::GetAttribute(string const & key) const
@@ -417,7 +499,8 @@ XMLFeature::Type XMLFeature::StringToType(string const & type)
 
 void ApplyPatch(XMLFeature const & xml, osm::EditableMapObject & object)
 {
-  xml.ForEachName([&object](string const & lang, string const & name) {
+  xml.ForEachName([&object](string_view lang, string_view name)
+  {
     object.SetName(name, StringUtf8Multilang::GetLangIndex(lang));
   });
 
@@ -427,14 +510,12 @@ void ApplyPatch(XMLFeature const & xml, osm::EditableMapObject & object)
 
   auto const cuisineStr = xml.GetCuisine();
   if (!cuisineStr.empty())
-  {
-    auto const cuisines = strings::Tokenize(cuisineStr, ";");
-    object.SetCuisines(cuisines);
-  }
+    object.SetCuisines(strings::Tokenize(cuisineStr, ";"));
 
-  xml.ForEachTag([&object](string const & k, string const & v) {
+  xml.ForEachTag([&object](string_view k, string v)
+  {
     // Skip result because we iterate via *all* tags here.
-    (void)object.UpdateMetadataValue(k, v);
+    (void)object.UpdateMetadataValue(k, std::move(v));
   });
 }
 
@@ -453,10 +534,12 @@ XMLFeature ToXML(osm::EditableMapObject const & object, bool serializeType)
     toFeature.SetGeometry(begin(triangles), end(triangles));
   }
 
-  object.GetNameMultilang().ForEach(
-      [&toFeature](uint8_t const & lang, string const & name) { toFeature.SetName(lang, name); });
+  object.GetNameMultilang().ForEach([&toFeature](uint8_t const & lang, string_view name)
+  {
+    toFeature.SetName(lang, name);
+  });
 
-  string const house = object.GetHouseNumber();
+  string const & house = object.GetHouseNumber();
   if (!house.empty())
     toFeature.SetHouse(house);
 
@@ -497,7 +580,7 @@ XMLFeature ToXML(osm::EditableMapObject const & object, bool serializeType)
 
       string const strType = classif().GetReadableObjectName(type);
       strings::SimpleTokenizer iter(strType, "-");
-      string const k = *iter;
+      string_view const k = *iter;
       if (++iter)
       {
         // First (main) type is always stored as "k=amenity v=restaurant".
@@ -505,7 +588,7 @@ XMLFeature ToXML(osm::EditableMapObject const & object, bool serializeType)
         if (toFeature.GetTagValue(k).empty())
           toFeature.SetTagValue(k, *iter);
         else
-          toFeature.SetTagValue(*iter, "yes");
+          toFeature.SetTagValue(*iter, kYes);
       }
       else
       {
@@ -517,10 +600,13 @@ XMLFeature ToXML(osm::EditableMapObject const & object, bool serializeType)
     }
   }
 
-  object.ForEachMetadataItem(true /* skipSponsored */,
-                             [&toFeature](string const & tag, string const & value) {
-                               toFeature.SetTagValue(tag, value);
-                             });
+  object.ForEachMetadataItem([&toFeature](string_view tag, string_view value)
+  {
+    if (osm::isSocialContactTag(tag) && value.find('/') != std::string::npos)
+      toFeature.SetTagValue(tag, osm::socialContactToURL(tag, value));
+    else
+      toFeature.SetTagValue(tag, value);
+  });
 
   return toFeature;
 }
@@ -531,7 +617,7 @@ bool FromXML(XMLFeature const & xml, osm::EditableMapObject & object)
                ("At the moment only new nodes (points) can be created."));
   object.SetPointType();
   object.SetMercator(xml.GetMercatorCenter());
-  xml.ForEachName([&object](string const & lang, string const & name)
+  xml.ForEachName([&object](string_view lang, string_view name)
   {
     object.SetName(name, StringUtf8Multilang::GetLangIndex(lang));
   });
@@ -542,17 +628,14 @@ bool FromXML(XMLFeature const & xml, osm::EditableMapObject & object)
 
   auto const cuisineStr = xml.GetCuisine();
   if (!cuisineStr.empty())
-  {
-    auto const cuisines = strings::Tokenize(cuisineStr, ";");
-    object.SetCuisines(cuisines);
-  }
+    object.SetCuisines(strings::Tokenize(cuisineStr, ";"));
 
   feature::TypesHolder types = object.GetTypes();
 
   Classificator const & cl = classif();
-  xml.ForEachTag([&](string const & k, string const & v)
+  xml.ForEachTag([&](string_view k, string_view v)
   {
-    if (object.UpdateMetadataValue(k, v))
+    if (object.UpdateMetadataValue(k, string(v)))
       return;
 
     // Cuisines are already processed before this loop.
@@ -566,11 +649,12 @@ bool FromXML(XMLFeature const & xml, osm::EditableMapObject & object)
       return;
 
     uint32_t type = 0;
-    if (k == "amenity" && v == "recycling")
+    if (k == "amenity" && v == "recycling" && xml.HasTag("recycling_type"))
     {
-      if (xml.HasTag("recycling_type") && xml.GetTagValue("recycling_type") == "centre")
+      auto const typeValue = xml.GetTagValue("recycling_type");
+      if (typeValue == "centre")
         type = ftypes::IsRecyclingCentreChecker::Instance().GetType();
-      else
+      else if (typeValue == "container")
         type = ftypes::IsRecyclingContainerChecker::Instance().GetType();
     }
 
@@ -601,7 +685,7 @@ bool FromXML(XMLFeature const & xml, osm::EditableMapObject & object)
 
 string DebugPrint(XMLFeature const & feature)
 {
-  ostringstream ost;
+  std::ostringstream ost;
   feature.Save(ost);
   return ost.str();
 }

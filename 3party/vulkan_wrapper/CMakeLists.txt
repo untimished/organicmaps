@@ -1,16 +1,22 @@
 project(vulkan_wrapper)
 
-add_clang_compile_options("-Wno-deprecated-declarations")
-add_gcc_compile_options("-Wno-deprecated-declarations")
-
-set(CMAKE_PREFIX_PATH ./)
-
-include_directories(../Vulkan-Headers/include)
-
-set(
-  SRC
+set(SRC
   vulkan_wrapper.cpp
   vulkan_wrapper.h
 )
 
 add_library(${PROJECT_NAME} ${SRC})
+
+if (WITH_SYSTEM_PROVIDED_3PARTY)
+  find_package(VulkanHeaders REQUIRED)
+  target_link_libraries(${PROJECT_NAME} Vulkan::Headers)
+else()
+  set(VulkanHeaders_INCLUDE_DIR ../Vulkan-Headers/include)
+  target_include_directories(${PROJECT_NAME} PUBLIC ../Vulkan-Headers/include)
+endif()
+
+target_include_directories(${PROJECT_NAME} PUBLIC .)
+
+
+# dlopen
+target_link_libraries(${PROJECT_NAME} $<$<BOOL:CMAKE_DL_LIBS>:${CMAKE_DL_LIBS}>)

@@ -1,27 +1,20 @@
 #pragma once
 
 #include "routing/base/astar_vertex_data.hpp"
+
 #include "routing/edge_estimator.hpp"
-#include "routing/geometry.hpp"
 #include "routing/index_graph.hpp"
 #include "routing/joint_segment.hpp"
 #include "routing/latlon_with_altitude.hpp"
-#include "routing/road_graph.hpp"
 #include "routing/route.hpp"
 #include "routing/routing_options.hpp"
 #include "routing/segment.hpp"
 #include "routing/transit_info.hpp"
 
-#include "routing/base/astar_graph.hpp"
-
 #include "routing_common/num_mwm_id.hpp"
-
-#include "geometry/point2d.hpp"
-#include "geometry/point_with_altitude.hpp"
 
 #include <functional>
 #include <memory>
-#include <set>
 #include <string>
 #include <vector>
 
@@ -99,8 +92,8 @@ public:
   virtual double CalculateETA(Segment const & from, Segment const & to) = 0;
   virtual double CalculateETAWithoutPenalty(Segment const & segment) = 0;
 
-  /// \returns transitions for mwm with id |numMwmId|.
-  virtual std::vector<Segment> const & GetTransitions(NumMwmId numMwmId, bool isEnter);
+  using TransitionFnT = std::function<void(Segment const &)>;
+  virtual void ForEachTransition(NumMwmId numMwmId, bool isEnter, TransitionFnT const & fn);
 
   virtual bool IsRoutingOptionsGood(Segment const & /* segment */);
   virtual RoutingOptions GetRoutingOptions(Segment const & /* segment */);
@@ -111,21 +104,25 @@ public:
   virtual void DropAStarParents();
 
   virtual bool AreWavesConnectible(Parents<Segment> & forwardParents, Segment const & commonVertex,
-                                   Parents<Segment> & backwardParents,
-                                   std::function<uint32_t(Segment const &)> && fakeFeatureConverter);
+                                   Parents<Segment> & backwardParents);
+
+  using FakeConverterT = std::function<void (JointSegment &)>;
   virtual bool AreWavesConnectible(Parents<JointSegment> & forwardParents, JointSegment const & commonVertex,
                                    Parents<JointSegment> & backwardParents,
-                                   std::function<uint32_t(JointSegment const &)> && fakeFeatureConverter);
+                                   FakeConverterT const & fakeFeatureConverter);
 
   /// \returns transit-specific information for segment. For nontransit segments returns nullptr.
-  virtual std::unique_ptr<TransitInfo> GetTransitInfo(Segment const & segment) = 0;
+  virtual std::unique_ptr<TransitInfo> GetTransitInfo(Segment const & segment);
 
   virtual std::vector<RouteSegment::SpeedCamera> GetSpeedCamInfo(Segment const & segment);
+  virtual SpeedInUnits GetSpeedLimit(Segment const & segment);
 
   virtual IndexGraph & GetIndexGraph(NumMwmId numMwmId) = 0;
   virtual CrossMwmGraph & GetCrossMwmGraph();
   virtual void GetTwinsInner(Segment const & segment, bool isOutgoing,
                              std::vector<Segment> & twins) = 0;
+
+  virtual RouteWeight GetCrossBorderPenalty(NumMwmId mwmId1, NumMwmId mwmId2);
 
 protected:
   void GetTwins(Segment const & segment, bool isOutgoing, bool useRoutingOptions,

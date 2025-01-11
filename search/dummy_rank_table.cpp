@@ -2,16 +2,14 @@
 
 #include "base/macros.hpp"
 
-#include <limits>
-
 namespace search
 {
-uint8_t DummyRankTable::Get(uint64_t /* i */) const { return 0; }
+uint8_t DummyRankTable::Get(uint64_t /* i */) const { return kNoRank; }
 
 uint64_t DummyRankTable::Size() const
 {
   NOTIMPLEMENTED();
-  return std::numeric_limits<uint64_t>::max();
+  return 0;
 }
 
 RankTable::Version DummyRankTable::GetVersion() const
@@ -20,7 +18,7 @@ RankTable::Version DummyRankTable::GetVersion() const
   return RankTable::VERSION_COUNT;
 }
 
-void DummyRankTable::Serialize(Writer & /* writer */, bool /* preserveHostEndianness */)
+void DummyRankTable::Serialize(Writer &)
 {
   NOTIMPLEMENTED();
 }

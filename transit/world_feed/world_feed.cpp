@@ -1,16 +1,15 @@
 #include "transit/world_feed/world_feed.hpp"
 
 #include "transit/transit_entities.hpp"
-#include "transit/world_feed/date_time_helpers.hpp"
 
 #include "platform/platform.hpp"
+#include "platform/measurement_utils.hpp"
 
 #include "coding/string_utf8_multilang.hpp"
 
 #include "base/assert.hpp"
 #include "base/file_name_utils.hpp"
 #include "base/logging.hpp"
-#include "base/newtype.hpp"
 #include "base/stl_helpers.hpp"
 
 #include <algorithm>
@@ -20,11 +19,8 @@
 #include <memory>
 #include <optional>
 #include <tuple>
-#include <utility>
 
-#include "3party/boost/boost/algorithm/string.hpp"
-
-#include "3party/jansson/myjansson.hpp"
+#include "cppjansson/cppjansson.hpp"
 
 namespace
 {
@@ -320,7 +316,6 @@ IdGenerator::IdGenerator(std::string const & idMappingPath) : m_idMappingPath(id
 
     std::string idStr;
     std::string hash;
-    bool inserted = false;
 
     if (!std::getline(mappingFile, idStr))
     {
@@ -337,9 +332,7 @@ IdGenerator::IdGenerator(std::string const & idMappingPath) : m_idMappingPath(id
       std::getline(mappingFile, hash);
 
       auto const id = static_cast<TransitId>(std::stol(idStr));
-
-      std::tie(std::ignore, inserted) = m_hashToId.emplace(hash, id);
-      CHECK(inserted, ("Not unique", id, hash));
+      CHECK(m_hashToId.emplace(hash, id).second, (hash, id));
     }
   }
   catch (std::ifstream::failure const & se)
@@ -420,8 +413,6 @@ WorldFeed::WorldFeed(IdGenerator & generator, IdGenerator & generatorEdges,
 
 bool WorldFeed::FillNetworks()
 {
-  bool inserted = false;
-
   for (const auto & agency : m_feed.get_agencies())
   {
     // For one agency_name there can be multiple agency_id in the same feed.
@@ -430,10 +421,7 @@ bool WorldFeed::FillNetworks()
     if (m_gtfsHash.size() + agencyHash.size() <= kMaxGtfsHashSize)
       m_gtfsHash += agencyHash;
 
-    std::tie(std::ignore, inserted) =
-        m_gtfsIdToHash[FieldIdx::AgencyIdx].emplace(agency.agency_id, agencyHash);
-
-    if (!inserted)
+    if (!m_gtfsIdToHash[FieldIdx::AgencyIdx].emplace(agency.agency_id, agencyHash).second)
     {
       LOG(LINFO, ("agency_id duplicates in same feed:", agencyHash));
       continue;
@@ -444,16 +432,13 @@ bool WorldFeed::FillNetworks()
     if (m_feed.get_agencies().size() == 1)
       m_gtfsIdToHash[FieldIdx::AgencyIdx].emplace("", agencyHash);
 
-    std::tie(std::ignore, inserted) = m_agencyHashes.insert(agencyHash);
-    if (!inserted)
+    if (!m_agencyHashes.insert(agencyHash).second)
     {
       LOG(LINFO, ("Agency hash copy from other feed:", agencyHash, "Skipped."));
       m_agencySkipList.insert(agencyHash);
     }
 
-    std::tie(std::ignore, inserted) =
-        m_networks.m_data.emplace(m_idGenerator.MakeId(agencyHash), agency.agency_name);
-    CHECK(inserted, ());
+    CHECK(m_networks.m_data.emplace(m_idGenerator.MakeId(agencyHash), agency.agency_name).second, ());
   }
 
   return !m_networks.m_data.empty();
@@ -461,8 +446,6 @@ bool WorldFeed::FillNetworks()
 
 bool WorldFeed::FillRoutes()
 {
-  bool inserted = false;
-
   for (const auto & route : m_feed.get_routes())
   {
     // Filters irrelevant types, e.g. taxi, subway.
@@ -489,9 +472,7 @@ bool WorldFeed::FillRoutes()
       continue;
 
     std::string const routeHash = BuildHash(agencyHash, route.route_id);
-    std::tie(std::ignore, inserted) =
-        m_gtfsIdToHash[FieldIdx::RoutesIdx].emplace(route.route_id, routeHash);
-    CHECK(inserted, (route.route_id, routeHash));
+    CHECK(m_gtfsIdToHash[FieldIdx::RoutesIdx].emplace(route.route_id, routeHash).second, (route.route_id, routeHash));
 
     RouteData data;
     data.m_networkId = m_idGenerator.MakeId(agencyHash);
@@ -499,9 +480,7 @@ bool WorldFeed::FillRoutes()
     data.m_routeType = routeType;
     data.m_title = route.route_long_name.empty() ? route.route_short_name : route.route_long_name;
 
-    std::tie(std::ignore, inserted) =
-        m_routes.m_data.emplace(m_idGenerator.MakeId(routeHash), data);
-    CHECK(inserted, ());
+    CHECK(m_routes.m_data.emplace(m_idGenerator.MakeId(routeHash), std::move(data)).second, ());
   }
 
   return !m_routes.m_data.empty();
@@ -509,7 +488,7 @@ bool WorldFeed::FillRoutes()
 
 bool WorldFeed::SetFeedLanguage()
 {
-  static std::string const kNativeForCountry = "default";
+  static char constexpr kNativeForCountry[] = "default";
 
   m_feedLanguage = m_feed.get_feed_info().feed_lang;
   if (m_feedLanguage.empty())
@@ -518,7 +497,7 @@ bool WorldFeed::SetFeedLanguage()
     return false;
   }
 
-  boost::algorithm::to_lower(m_feedLanguage);
+  strings::AsciiToLower(m_feedLanguage);
 
   StringUtf8Multilang multilang;
   if (multilang.GetLangIndex(m_feedLanguage) != StringUtf8Multilang::kUnsupportedLanguageCode)
@@ -572,8 +551,7 @@ bool WorldFeed::UpdateStop(TransitId stopId, gtfs::StopTime const & stopTime,
   }
   else
   {
-    LOG(LINFO,
-        ("stop is present in stop_times, but not in stops:", stopId, stopTime.stop_id, lineId));
+    LOG(LINFO, ("Stop is present in stop_times, but not in stops:", stopId, stopTime.stop_id, lineId));
     return false;
   }
 
@@ -582,7 +560,7 @@ bool WorldFeed::UpdateStop(TransitId stopId, gtfs::StopTime const & stopTime,
   data.m_title = stop->stop_name;
   data.m_gtfsParentId = stop->parent_station;
   data.UpdateTimetable(lineId, stopTime);
-  it->second = data;
+  it->second = std::move(data);
   return true;
 }
 
@@ -723,7 +701,7 @@ bool WorldFeed::FillLinesAndShapes()
     for (auto const & stopTime : stopTimes[trip.trip_id])
       stopIds += stopTime.stop_id + kDelimiter;
 
-    std::string const & lineHash = BuildHash(routeHash, trip.shape_id, stopIds);
+    std::string const lineHash = BuildHash(routeHash, trip.shape_id, stopIds);
     auto const lineId = m_idGenerator.MakeId(lineHash);
 
     auto [itShape, insertedShape] = m_gtfsIdToHash[ShapesIdx].emplace(trip.shape_id, "");
@@ -761,7 +739,7 @@ bool WorldFeed::FillLinesAndShapes()
     data.m_gtfsTripId = trip.trip_id;
     data.m_gtfsServiceIds.emplace(trip.service_id);
     // |m_stopIds|, |m_intervals| and |m_serviceDays| will be filled on the next steps.
-    it->second = data;
+    it->second = std::move(data);
 
     m_gtfsIdToHash[TripsIdx].emplace(trip.trip_id, lineHash);
   }
@@ -921,7 +899,8 @@ std::optional<Direction> WorldFeed::ProjectStopsToShape(
   IdList const & stopIds = stopsOnLines.m_stopSeq;
   TransitId const shapeId = itShape->first;
 
-  auto const tryProject = [&](Direction direction) {
+  auto const tryProject = [&](Direction direction)
+  {
     auto shape = itShape->second.m_points;
     std::optional<m2::PointD> prevPoint = std::nullopt;
     for (size_t i = 0; i < stopIds.size(); ++i)
@@ -976,7 +955,7 @@ std::optional<Direction> WorldFeed::ProjectStopsToShape(
       stopsToIndexes[stopId].push_back(curIdx);
     }
 
-    itShape->second.m_points = shape;
+    itShape->second.m_points = std::move(shape);
     return true;
   };
 
@@ -1017,7 +996,7 @@ std::unordered_map<TransitId, std::vector<StopsOnLines>> WorldFeed::GetStopsForS
     {
       StopsOnLines stopsOnLines(lineData.m_stopIds);
       stopsOnLines.m_lines.insert(lineId);
-      shapeData.emplace_back(stopsOnLines);
+      shapeData.emplace_back(std::move(stopsOnLines));
     }
   }
 
@@ -1126,8 +1105,6 @@ std::pair<size_t, size_t> WorldFeed::ModifyShapes()
 
 void WorldFeed::FillTransfers()
 {
-  bool inserted = false;
-
   for (auto const & transfer : m_feed.get_transfers())
   {
     if (transfer.transfer_type == gtfs::TransferType::NotPossible)
@@ -1171,13 +1148,12 @@ void WorldFeed::FillTransfers()
                                              std::to_string(stop1Id), std::to_string(stop2Id));
 
       data.m_featureId = m_idGeneratorEdges.MakeId(edgeHash);
-      std::tie(std::ignore, inserted) = m_edgesTransfers.m_data.emplace(transferId, data);
+
+      if (!m_edgesTransfers.m_data.emplace(transferId, data).second)
+        LOG(LWARNING, ("Transfers copy", transfer.from_stop_id, transfer.to_stop_id));
 
       LinkTransferIdToStop(stop1, transitId);
       LinkTransferIdToStop(stop2, transitId);
-
-      if (!inserted)
-        LOG(LWARNING, ("Transfers copy", transfer.from_stop_id, transfer.to_stop_id));
     }
   }
 }
@@ -1239,7 +1215,7 @@ bool WorldFeed::SpeedExceedsMaxVal(EdgeId const & edgeId, EdgeData const & edgeD
   m2::PointD const & stop1 = m_stops.m_data.at(edgeId.m_fromStopId).m_point;
   m2::PointD const & stop2 = m_stops.m_data.at(edgeId.m_toStopId).m_point;
 
-  static double const maxSpeedMpS = KmphToMps(routing::kTransitMaxSpeedKMpH);
+  static double const maxSpeedMpS = measurement_utils::KmphToMps(routing::kTransitMaxSpeedKMpH);
   double const speedMpS = mercator::DistanceOnEarth(stop1, stop2) / edgeData.m_weight;
 
   bool speedExceedsMaxVal = speedMpS > maxSpeedMpS;
@@ -1247,7 +1223,7 @@ bool WorldFeed::SpeedExceedsMaxVal(EdgeId const & edgeId, EdgeData const & edgeD
   {
     LOG(LWARNING,
         ("Invalid edge weight conflicting with kTransitMaxSpeedKMpH:", edgeId.m_fromStopId,
-         edgeId.m_toStopId, edgeId.m_lineId, "speed (km/h):", MpsToKmph(speedMpS),
+         edgeId.m_toStopId, edgeId.m_lineId, "speed (km/h):", measurement_utils::MpsToKmph(speedMpS),
          "maxSpeed (km/h):", routing::kTransitMaxSpeedKMpH));
   }
 
@@ -1770,8 +1746,7 @@ bool IsSplineSubset(IdList const & stops, IdList const & stopsOther)
 
   for (TransitId stopId : stops)
   {
-    auto const it = std::find(stopsOther.begin(), stopsOther.end(), stopId);
-    if (it == stopsOther.end())
+    if (!base::IsExist(stopsOther, stopId))
       return false;
   }
 
@@ -2069,10 +2044,7 @@ void LinkTransferIdToStop(StopData & stop, TransitId transferId)
 {
   // We use vector instead of unordered set because we assume that transfers count for stop doesn't
   // exceed 2 or maybe 4.
-  if (std::find(stop.m_transferIds.begin(), stop.m_transferIds.end(), transferId) ==
-      stop.m_transferIds.end())
-  {
+  if (!base::IsExist(stop.m_transferIds, transferId))
     stop.m_transferIds.push_back(transferId);
-  }
 }
 }  // namespace transit

@@ -16,7 +16,7 @@
 #include <limits>
 #include <vector>
 
-namespace
+namespace maxspeeds_test
 {
 using namespace measurement_utils;
 using namespace routing;
@@ -27,7 +27,29 @@ void TestMaxspeedsSerialization(vector<FeatureMaxspeed> const & speeds)
   vector<char> buffer;
   MemWriter<vector<char>> w(buffer);
 
-  MaxspeedsSerializer::Serialize(speeds, w);
+  std::vector<MaxspeedsSerializer::FeatureSpeedMacro> inputSpeeds;
+  inputSpeeds.reserve(speeds.size());
+  MaxspeedConverter const & converter = GetMaxspeedConverter();
+  for (auto const & s : speeds)
+  {
+    inputSpeeds.push_back({ s.GetFeatureId(),
+                            converter.SpeedToMacro(s.GetForwardSpeedInUnits()),
+                            converter.SpeedToMacro(s.GetBackwardSpeedInUnits()) });
+  }
+
+  int constexpr SPEEDS_COUNT = MaxspeedsSerializer::DEFAULT_SPEEDS_COUNT;
+  SpeedInUnits defSpeeds[SPEEDS_COUNT];
+  MaxspeedsSerializer::HW2SpeedMap defaultMap[SPEEDS_COUNT];
+
+  if (!speeds.empty())
+  {
+    defSpeeds[0] = speeds.front().GetForwardSpeedInUnits();
+    defSpeeds[1] = speeds.back().GetForwardSpeedInUnits();
+    defaultMap[0][HighwayType::HighwayPrimary] = converter.SpeedToMacro(defSpeeds[0]);
+    defaultMap[1][HighwayType::HighwaySecondary] = converter.SpeedToMacro(defSpeeds[1]);
+  }
+
+  MaxspeedsSerializer::Serialize(inputSpeeds, defaultMap, w);
 
   size_t const sz = buffer.size();
 
@@ -38,9 +60,12 @@ void TestMaxspeedsSerialization(vector<FeatureMaxspeed> const & speeds)
 
   for (auto const & s : speeds)
     TEST_EQUAL(maxspeeds.GetMaxspeed(s.GetFeatureId()), s.GetMaxspeed(), (s));
+
+  TEST_EQUAL(maxspeeds.GetDefaultSpeed(false, HighwayType::HighwayPrimary), defSpeeds[0].GetSpeed(), ());
+  TEST_EQUAL(maxspeeds.GetDefaultSpeed(true, HighwayType::HighwaySecondary), defSpeeds[1].GetSpeed(), ());
 }
 
-UNIT_TEST(MaxspeedConverter)
+UNIT_TEST(MaxspeedConverter_Smoke)
 {
   auto const & conv = GetMaxspeedConverter();
 
@@ -72,11 +97,36 @@ UNIT_TEST(MaxspeedConverter)
   TEST_EQUAL(conv.MacroToSpeed(SpeedMacro::Speed60KmPH), SpeedInUnits(60, Units::Metric), ());
   TEST_EQUAL(conv.MacroToSpeed(SpeedMacro::Speed90KmPH), SpeedInUnits(90, Units::Metric), ());
   TEST_EQUAL(conv.MacroToSpeed(SpeedMacro::Speed30MPH), SpeedInUnits(30, Units::Imperial), ());
+}
 
-  // Test on IsValidMacro() method.
-  TEST(!conv.IsValidMacro(0), ());
-  TEST(conv.IsValidMacro(1), ()); // static_cast<uint8_t>(None) == 1
-  TEST(!conv.IsValidMacro(9), ()); // A value which is undefined in SpeedMacro enum class.
+UNIT_TEST(MaxspeedConverter_ClosestValidMacro)
+{
+  auto const & conv = GetMaxspeedConverter();
+
+  SpeedInUnits expected{1, Units::Metric};
+  TEST_EQUAL(conv.ClosestValidMacro({0, Units::Metric}), expected, ());
+  TEST_EQUAL(conv.ClosestValidMacro(expected), expected, ());
+
+  expected = {380, Units::Metric};
+  TEST_EQUAL(conv.ClosestValidMacro(expected), expected, ());
+  TEST_EQUAL(conv.ClosestValidMacro({400, Units::Metric}), expected, ());
+
+  expected = {3, Units::Imperial};
+  TEST_EQUAL(conv.ClosestValidMacro({0, Units::Imperial}), expected, ());
+  TEST_EQUAL(conv.ClosestValidMacro({1, Units::Imperial}), expected, ());
+  TEST_EQUAL(conv.ClosestValidMacro(expected), expected, ());
+
+  expected = {125, Units::Imperial};
+  TEST_EQUAL(conv.ClosestValidMacro(expected), expected, ());
+  TEST_EQUAL(conv.ClosestValidMacro({150, Units::Imperial}), expected, ());
+
+  expected = {50, Units::Metric};
+  TEST_EQUAL(conv.ClosestValidMacro({48, Units::Metric}), expected, ());
+  TEST_EQUAL(conv.ClosestValidMacro({52, Units::Metric}), expected, ());
+
+  expected = {40, Units::Imperial};
+  TEST_EQUAL(conv.ClosestValidMacro({42, Units::Imperial}), expected, ());
+  TEST_EQUAL(conv.ClosestValidMacro({38, Units::Imperial}), expected, ());
 }
 
 UNIT_TEST(MaxspeedsSerializer_Smoke)
@@ -153,7 +203,7 @@ UNIT_TEST(MaxspeedsSerializer_BigImperial)
   TestMaxspeedsSerialization(maxspeeds);
 }
 
-UNIT_TEST(Maxspeed)
+UNIT_TEST(Maxspeed_Smoke)
 {
   {
     Maxspeed maxspeed;
@@ -184,6 +234,5 @@ UNIT_TEST(Maxspeed)
     TEST_EQUAL(maxspeed.GetSpeedInUnits(false /* forward */), 40, ());
     TEST_EQUAL(maxspeed.GetSpeedKmPH(false /* forward */), 40, ());
   }
-
 }
-}  // namespace
+}  // namespace maxspeeds_test

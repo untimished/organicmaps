@@ -13,7 +13,8 @@ enum class DownloadStatus
   InProgress,
   Completed,
   Failed,
-  FileNotFound
+  FileNotFound,
+  FailedSHA,
 };
 
 inline std::string DebugPrint(DownloadStatus status)
@@ -24,14 +25,13 @@ inline std::string DebugPrint(DownloadStatus status)
   case DownloadStatus::Completed: return "Completed";
   case DownloadStatus::Failed: return "Failed";
   case DownloadStatus::FileNotFound: return "File not found";
+  case DownloadStatus::FailedSHA: return "Failed SHA check";
   }
   UNREACHABLE();
 }
 
 struct Progress
 {
-  Progress() = default;
-
   static int64_t constexpr kUnknownTotalSize = -1;
 
   static Progress constexpr Unknown()

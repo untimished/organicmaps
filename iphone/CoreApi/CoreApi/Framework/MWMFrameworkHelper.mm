@@ -1,5 +1,8 @@
 #import "MWMFrameworkHelper.h"
 #import "MWMMapSearchResult+Core.h"
+#import "ProductsConfiguration+Core.h"
+#import "Product+Core.h"
+#import "TrackInfo+Core.h"
 
 #include "Framework.h"
 
@@ -7,6 +10,19 @@
 
 #include "platform/local_country_file_utils.hpp"
 #include "platform/network_policy_ios.h"
+
+static Framework::ProductsPopupCloseReason ConvertProductPopupCloseReasonToCore(ProductsPopupCloseReason reason) {
+  switch (reason) {
+    case ProductsPopupCloseReasonClose:
+      return Framework::ProductsPopupCloseReason::Close;
+    case ProductsPopupCloseReasonSelectProduct:
+      return Framework::ProductsPopupCloseReason::SelectProduct;
+    case ProductsPopupCloseReasonAlreadyDonated:
+      return Framework::ProductsPopupCloseReason::AlreadyDonated;
+    case ProductsPopupCloseReasonRemindLater:
+      return Framework::ProductsPopupCloseReason::RemindLater;
+  }
+}
 
 @implementation MWMFrameworkHelper
 
@@ -30,19 +46,28 @@
   auto &f = GetFramework();
 
   auto const style = f.GetMapStyle();
+  auto const isOutdoor = ^BOOL(MapStyle style) {
+    switch (style) {
+      case MapStyleOutdoorsLight:
+      case MapStyleOutdoorsDark:
+        return YES;
+      default:
+        return NO;
+    }
+  }(style);
   auto const newStyle = ^MapStyle(MWMTheme theme) {
     switch (theme) {
       case MWMThemeDay:
-        return MapStyleClear;
+        return isOutdoor ? MapStyleOutdoorsLight : MapStyleDefaultLight;
       case MWMThemeVehicleDay:
-        return MapStyleVehicleClear;
+        return MapStyleVehicleLight;
       case MWMThemeNight:
-        return MapStyleDark;
+        return isOutdoor ? MapStyleOutdoorsDark : MapStyleDefaultDark;
       case MWMThemeVehicleNight:
         return MapStyleVehicleDark;
       case MWMThemeAuto:
         NSAssert(NO, @"Invalid theme");
-        return MapStyleClear;
+        return MapStyleDefaultLight;
     }
   }(theme);
 
@@ -103,8 +128,12 @@
   GetFramework().Move(offset.horizontal, offset.vertical, true);
 }
 
-+ (void)deactivateMapSelection:(BOOL)notifyUI {
-  GetFramework().DeactivateMapSelection(notifyUI);
++ (void)scrollMap:(double) distanceX :(double) distanceY {
+  GetFramework().Scroll(distanceX, distanceY);
+}
+
++ (void)deactivateMapSelection {
+  GetFramework().DeactivateMapSelection();
 }
 
 + (void)switchMyPositionMode {
@@ -130,22 +159,28 @@
 + (void)searchInDownloader:(NSString *)query
                inputLocale:(NSString *)locale
                 completion:(SearchInDownloaderCompletions)completion {
-  storage::DownloaderSearchParams searchParams;
-  searchParams.m_query = query.UTF8String;
-  searchParams.m_inputLocale = locale.precomposedStringWithCompatibilityMapping.UTF8String;
-  searchParams.m_onResults = [completion](storage::DownloaderSearchResults const &results) {
-    NSMutableArray *resultsArray = [NSMutableArray arrayWithCapacity:results.m_results.size()];
-    for (auto const &searchResult : results.m_results) {
-      MWMMapSearchResult *result = [[MWMMapSearchResult alloc] initWithSearchResult:searchResult];
-      [resultsArray addObject:result];
+  storage::DownloaderSearchParams params{
+    query.UTF8String,
+    locale.precomposedStringWithCompatibilityMapping.UTF8String,
+    // m_onResults
+    [completion](storage::DownloaderSearchResults const & results)
+    {
+      NSMutableArray *resultsArray = [NSMutableArray arrayWithCapacity:results.m_results.size()];
+      for (auto const & res : results.m_results)
+      {
+        MWMMapSearchResult *result = [[MWMMapSearchResult alloc] initWithSearchResult:res];
+        [resultsArray addObject:result];
+      }
+      completion(resultsArray, results.m_endMarker);
     }
-    completion([resultsArray copy], results.m_endMarker);
   };
-  GetFramework().GetSearchAPI().SearchInDownloader(searchParams);
+
+  GetFramework().GetSearchAPI().SearchInDownloader(std::move(params));
 }
 
-+ (BOOL)canEditMap {
-  return GetFramework().CanEditMap();
++ (BOOL)canEditMapAtViewportCenter {
+  auto const &f = GetFramework();
+  return f.CanEditMapForPosition(f.GetViewportCenter());
 }
 
 + (void)showOnMap:(MWMMarkGroupID)categoryId {
@@ -162,6 +197,68 @@
 
 + (void)updatePlacePageData {
   GetFramework().UpdatePlacePageInfoForCurrentSelection();
+}
+
++ (void)updateAfterDeleteBookmark {
+  auto & frm = GetFramework();
+  auto buildInfo = frm.GetCurrentPlacePageInfo().GetBuildInfo();
+  buildInfo.m_match = place_page::BuildInfo::Match::FeatureOnly;
+  buildInfo.m_userMarkId = kml::kInvalidMarkId;
+  buildInfo.m_source = place_page::BuildInfo::Source::Other;
+  frm.UpdatePlacePageInfoForCurrentSelection(buildInfo);
+}
+
++ (int)currentZoomLevel {
+  return GetFramework().GetDrawScale();
+}
+
+// MARK: - TrackRecorder
+
++ (void)startTrackRecording {
+  GetFramework().StartTrackRecording();
+}
+
++ (void)setTrackRecordingUpdateHandler:(TrackRecordingUpdatedHandler _Nullable)trackRecordingDidUpdate {
+  if (!trackRecordingDidUpdate)
+  {
+    GetFramework().SetTrackRecordingUpdateHandler(nullptr);
+    return;
+  }
+  GetFramework().SetTrackRecordingUpdateHandler([trackRecordingDidUpdate](GpsTrackInfo const & gpsTrackInfo) {
+    TrackInfo * info = [[TrackInfo alloc] initWithGpsTrackInfo:gpsTrackInfo];
+    trackRecordingDidUpdate(info);
+  });
+}
+
++ (void)stopTrackRecording {
+  GetFramework().StopTrackRecording();
+}
+
++ (void)saveTrackRecordingWithName:(nullable NSString *)name {
+  GetFramework().SaveTrackRecordingWithName(name == nil ? "" : name.UTF8String);
+}
+
++ (BOOL)isTrackRecordingEnabled {
+  return GetFramework().IsTrackRecordingEnabled();
+}
+
++ (BOOL)isTrackRecordingEmpty {
+  return GetFramework().IsTrackRecordingEmpty();
+}
+
+// MARK: - ProductsManager
+
++ (nullable ProductsConfiguration *)getProductsConfiguration {
+  auto const & config = GetFramework().GetProductsConfiguration();
+  return config.has_value() ? [[ProductsConfiguration alloc] init:config.value()] : nil;
+}
+
++ (void)didCloseProductsPopupWithReason:(ProductsPopupCloseReason)reason {
+  GetFramework().DidCloseProductsPopup(ConvertProductPopupCloseReasonToCore(reason));
+}
+
++ (void)didSelectProduct:(Product *)product {
+  GetFramework().DidSelectProduct({product.title.UTF8String, product.link.UTF8String});
 }
 
 @end

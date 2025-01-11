@@ -11,8 +11,11 @@
 #include <iterator>
 #include <limits>
 
-#include "3party/jansson/myjansson.hpp"
-#include "3party/opening_hours/opening_hours.hpp"
+namespace transit
+{
+std::string const kHashPrefix = "mapsme_transit";
+std::string const kDefaultLang = "default";
+std::string const kSubwayRouteType = "subway";
 
 namespace
 {
@@ -60,12 +63,7 @@ void UpdateReversedSegmentIndexes(transit::LineSegment & segment, size_t polylin
 }
 }  // namespace
 
-namespace transit
-{
-std::string const kHashPrefix = "mapsme_transit";
-std::string const kDefaultLang = "default";
-std::string const kSubwayRouteType = "subway";
-std::string const kDefaultHours = "24/7";
+
 
 SubwayConverter::SubwayConverter(std::string const & subwayJson, WorldFeed & feed)
   : m_subwayJson(subwayJson), m_feed(feed)
@@ -251,7 +249,7 @@ std::pair<TransitId, StopData> SubwayConverter::MakeStop(routing::transit::Stop 
   stopData.m_point = stopSubway.GetPoint();
   stopData.m_osmId = stopSubway.GetOsmId();
 
-  if (stopSubway.GetFeatureId() != routing::transit::kInvalidFeatureId)
+  if (stopSubway.GetFeatureId() != kInvalidFeatureId)
     stopData.m_featureId = stopSubway.GetFeatureId();
 
   return {stopId, stopData};
@@ -387,11 +385,8 @@ bool SubwayConverter::ConvertTransfers()
     {
       for (auto const & [lineId, lineData] : m_feed.m_lines.m_data)
       {
-        auto it = std::find(lineData.m_stopIds.begin(), lineData.m_stopIds.end(), stopId);
-        if (it != lineData.m_stopIds.end())
-        {
+        if (base::IsExist(lineData.m_stopIds, stopId))
           routeToStops[lineData.m_routeId].insert(stopId);
-        }
       }
     }
 
@@ -818,11 +813,10 @@ void SubwayConverter::PrepareLinesMetadata()
               auto const & [startPoint2, endPoint2] =
                   GetSegmentEdgesOnPolyline(polyline2, segments2[k]);
 
-              CHECK(base::AlmostEqualAbs(startPoint1, startPoint2, kEps) &&
-                            base::AlmostEqualAbs(endPoint1, endPoint2, kEps) ||
-                        base::AlmostEqualAbs(startPoint1, endPoint2, kEps) &&
-                            base::AlmostEqualAbs(endPoint1, startPoint2, kEps),
-                    ());
+              CHECK((base::AlmostEqualAbs(startPoint1, startPoint2, kEps) &&
+                     base::AlmostEqualAbs(endPoint1, endPoint2, kEps)) ||
+                    (base::AlmostEqualAbs(startPoint1, endPoint2, kEps) &&
+                     base::AlmostEqualAbs(endPoint1, startPoint2, kEps)), ());
 
               ShiftSegmentOnShape(segments1[k], shapeLink1);
               ShiftSegmentOnShape(segments2[k], shapeLink2);

@@ -1,18 +1,13 @@
 #pragma once
 
 #include "base/mem_trie.hpp"
-#include "base/stl_helpers.hpp"
 #include "base/string_utils.hpp"
 
 #include <algorithm>
 #include <array>
-#include <cstdint>
-#include <iostream>
-#include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
-#include <utility>
 #include <vector>
 
 class Reader;
@@ -66,15 +61,15 @@ public:
   // Should match codes in the array below.
   static int8_t constexpr kEnglishCode = 1;
   static int8_t constexpr kUnsupportedLocaleCode = -1;
-  static int8_t constexpr kSimplifiedChineseCode = 37;
-  static int8_t constexpr kTraditionalChineseCode = 38;
+  static int8_t constexpr kSimplifiedChineseCode = 44;
+  static int8_t constexpr kTraditionalChineseCode = 45;
   // *NOTE* These constants should be updated when adding new
   // translation to categories.txt. When editing, keep in mind to check
   // CategoriesHolder::MapLocaleToInteger() and
   // CategoriesHolder::MapIntegerToLocale() as their implementations
   // strongly depend on the contents of the variable.
   // TODO: Refactor for more flexibility and to avoid breaking rules in two methods mentioned above.
-  static std::array<CategoriesHolder::Mapping, 38> constexpr kLocaleMapping = {{
+  static std::array<CategoriesHolder::Mapping, 45> constexpr kLocaleMapping = {{
       {"en", kEnglishCode},
       {"en-AU", 2},
       {"en-GB", 3},
@@ -82,42 +77,49 @@ public:
       {"ar", 5},
       {"be", 6},
       {"bg", 7},
-      {"cs", 8},
-      {"da", 9},
-      {"de", 10},
-      {"el", 11},
-      {"es", 12},
-      {"es-MX", 13},
-      {"fa", 14},
-      {"fi", 15},
-      {"fr", 16},
-      {"he", 17},
-      {"hu", 18},
-      {"id", 19},
-      {"it", 20},
-      {"ja", 21},
-      {"ko", 22},
-      {"nb", 23},
-      {"nl", 24},
-      {"pl", 25},
-      {"pt", 26},
-      {"pt-BR", 27},
-      {"ro", 28},
-      {"ru", 29},
-      {"sk", 30},
-      {"sv", 31},
-      {"sw", 32},
-      {"th", 33},
-      {"tr", 34},
-      {"uk", 35},
-      {"vi", 36},
+      {"ca", 8},
+      {"cs", 9},
+      {"da", 10},
+      {"de", 11},
+      {"el", 12},
+      {"es", 13},
+      {"es-MX", 14},
+      {"et", 15},
+      {"eu", 16},
+      {"fa", 17},
+      {"fi", 18},
+      {"fr", 19},
+      {"he", 20},
+      {"hi", 21},
+      {"hu", 22},
+      {"id", 23},
+      {"it", 24},
+      {"ja", 25},
+      {"ko", 26},
+      {"lv", 27},
+      {"mr", 28},
+      {"nb", 29},
+      {"nl", 30},
+      {"pl", 31},
+      {"pt", 32},
+      {"pt-BR", 33},
+      {"ro", 34},
+      {"ru", 35},
+      {"sk", 36},
+      {"sr", 37},
+      {"sv", 38},
+      {"sw", 39},
+      {"th", 40},
+      {"tr", 41},
+      {"uk", 42},
+      {"vi", 43},
       {"zh-Hans", kSimplifiedChineseCode},
       {"zh-Hant", kTraditionalChineseCode},
   }};
 
   // List of languages that are currently disabled in the application
   // because their translations are not yet complete.
-  static std::array<char const *, 3> constexpr kDisabledLanguages = {"el", "he", "sw"};
+  static std::array<char const *, 1> constexpr kDisabledLanguages = {"sw"};
 
   explicit CategoriesHolder(std::unique_ptr<Reader> && reader);
 
@@ -169,7 +171,7 @@ public:
   void ForEachTypeByName(int8_t locale, strings::UniString const & name, ToDo && toDo) const
   {
     auto const localePrefix = strings::UniString(1, static_cast<strings::UniChar>(locale));
-    m_name2type.ForEachInNode(localePrefix + name, std::forward<ToDo>(toDo));
+    m_name2type.ForEachInNode(localePrefix + name, toDo);
   }
 
   GroupTranslations const & GetGroupTranslations() const { return m_groupTranslations; }
@@ -194,7 +196,7 @@ public:
 
   // Converts any language |locale| from UI to the corresponding
   // internal integer code.
-  static int8_t MapLocaleToInteger(std::string const & locale);
+  static int8_t MapLocaleToInteger(std::string_view const locale);
 
   // Returns corresponding string representation for an internal
   // integer |code|. Returns an empty string in case of invalid

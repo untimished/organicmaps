@@ -4,23 +4,25 @@
 
 #include <type_traits>
 
-using namespace std;
-
 namespace
 {
-template <typename Number, typename EnableIf = enable_if_t<is_integral<Number>::value, void>>
+template <typename Number, typename EnableIf = std::enable_if_t<std::is_integral<Number>::value, void>>
 bool SumWillOverflow(Number lhs, Number rhs)
 {
   if (lhs > 0)
-    return rhs > numeric_limits<Number>::max() - lhs;
+    return rhs > std::numeric_limits<Number>::max() - lhs;
   if (lhs < 0)
-    return rhs < numeric_limits<Number>::min() - lhs;
+    return rhs < std::numeric_limits<Number>::min() - lhs;
   return false;
 }
 }  // namespace
 
 namespace routing
 {
+
+int RouteWeight::s_PassThroughPenaltyS = 30*60;   // 30 minutes
+int RouteWeight::s_AccessPenaltyS = 2*60*60;      // 2 hours
+
 double RouteWeight::ToCrossMwmWeight() const
 {
   if (m_numPassThroughChanges > 0 || m_numAccessChanges > 0)
@@ -45,8 +47,8 @@ RouteWeight RouteWeight::operator+(RouteWeight const & rhs) const
 
 RouteWeight RouteWeight::operator-(RouteWeight const & rhs) const
 {
-  ASSERT_NOT_EQUAL(m_numPassThroughChanges, numeric_limits<int8_t>::min(), ());
-  ASSERT_NOT_EQUAL(m_numAccessChanges, numeric_limits<int8_t>::min(), ());
+  ASSERT_NOT_EQUAL(m_numPassThroughChanges, std::numeric_limits<int8_t>::min(), ());
+  ASSERT_NOT_EQUAL(m_numAccessChanges, std::numeric_limits<int8_t>::min(), ());
   ASSERT(
       !SumWillOverflow(m_numPassThroughChanges, static_cast<int8_t>(-rhs.m_numPassThroughChanges)),
       (m_numPassThroughChanges, -rhs.m_numPassThroughChanges));
@@ -80,6 +82,7 @@ RouteWeight & RouteWeight::operator+=(RouteWeight const & rhs)
 
 bool RouteWeight::operator<(RouteWeight const & rhs) const
 {
+  /*
   if (m_numPassThroughChanges != rhs.m_numPassThroughChanges)
     return m_numPassThroughChanges < rhs.m_numPassThroughChanges;
   // We compare m_numAccessChanges after m_numPassThroughChanges because we can have multiple
@@ -96,33 +99,38 @@ bool RouteWeight::operator<(RouteWeight const & rhs) const
 
   if (m_weight != rhs.m_weight)
     return m_weight < rhs.m_weight;
-  // Prefer bigger transit time if total weights are same.
+  */
+
+  // The reason behind that is described here:
+  // https://github.com/organicmaps/organicmaps/issues/1788
+  // Before that change, a very small weight but with m_numPassThroughChanges > 0 was *always worse* than
+  // a very big weight but with m_numPassThroughChanges == 0.
+  auto const w1 = GetIntegratedWeight();
+  auto const w2 = rhs.GetIntegratedWeight();
+  if (w1 != w2)
+    return w1 < w2;
+
+  // Prefer bigger transit (on public transport) time if total weights are the same.
   return m_transitTime > rhs.m_transitTime;
 }
 
-/// @todo Introduce this integrated weight criteria into operator< to avoid strange situation when
-/// short path but with m_numAccessChanges > 0 is worse than very long path but with m_numAccessChanges == 0.
-/// Make some reasonable multiply factors with tests.
 double RouteWeight::GetIntegratedWeight() const
 {
   double res = m_weight;
 
-  // +200% for each additional change.
   if (m_numPassThroughChanges)
-    res += m_numPassThroughChanges * m_weight * 2;
+    res += m_numPassThroughChanges * s_PassThroughPenaltyS;
 
-  // +200% for each additional change.
   if (m_numAccessChanges)
-    res += m_numAccessChanges * m_weight * 2;
+    res += m_numAccessChanges * s_AccessPenaltyS;
 
-  // +100% for each conditional.
   if (m_numAccessConditionalPenalties)
-    res += m_numAccessConditionalPenalties * m_weight;
+    res += m_numAccessConditionalPenalties * s_AccessPenaltyS / 2;
 
   return res;
 }
 
-ostream & operator<<(ostream & os, RouteWeight const & routeWeight)
+std::ostream & operator<<(std::ostream & os, RouteWeight const & routeWeight)
 {
   os << "("
      << static_cast<int32_t>(routeWeight.GetNumPassThroughChanges()) << ", "

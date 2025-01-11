@@ -1,9 +1,6 @@
 project(search_tests)
 
-include_directories(${OMIM_ROOT}/3party/jansson/src)
-
-set(
-  SRC
+set(SRC
   algos_tests.cpp
   bookmarks_processor_tests.cpp
   feature_offset_match_tests.cpp
@@ -25,35 +22,18 @@ set(
   results_tests.cpp
   region_info_getter_tests.cpp
   segment_tree_tests.cpp
+  suggest_tests.cpp
   string_match_test.cpp
   text_index_tests.cpp
+  utm_mgrs_coords_match_test.cpp
 )
 
 omim_add_test(${PROJECT_NAME} ${SRC})
 
-omim_link_libraries(
-  ${PROJECT_NAME}
-  search_tests_support
+target_link_libraries(${PROJECT_NAME}
   generator_tests_support
   platform_tests_support
-  kml
+  search_tests_support
   search
-  editor
-  indexer
-  storage
-  ge0
-  platform
-  geometry
-  coding
-  base
-  jansson
-  oauthcpp
-  opening_hours
-  protobuf
-  pugixml
-  succinct
-  icu
-  ${LIBZ}
+  kml
 )
-
-link_qt5_core(${PROJECT_NAME})

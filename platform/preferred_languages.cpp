@@ -1,15 +1,17 @@
 #include "platform/preferred_languages.hpp"
+#include "platform/settings.hpp"
 
-#include "base/string_utils.hpp"
-#include "base/logging.hpp"
+#include "coding/string_utf8_multilang.hpp"
+
+#include "base/buffer_vector.hpp"
 #include "base/macros.hpp"
+#include "base/string_utils.hpp"
 
 #include "std/target_os.hpp"
 
+#include <cstdlib>  // getenv
+#include <cstring>  // strlen
 #include <string>
-#include <vector>
-
-using namespace std;
 
 #if defined(OMIM_OS_MAC) || defined(OMIM_OS_IPHONE)
   #include <CoreFoundation/CFLocale.h>
@@ -21,8 +23,8 @@ using namespace std;
 #elif defined(OMIM_OS_LINUX)
   #include <cstdlib>
 #elif defined(OMIM_OS_ANDROID)
-  /// Body for this function is inside android/jni sources
-  string GetAndroidSystemLanguage();
+  /// Body for this function is inside android/app/src/main/cpp sources
+  std::string GetAndroidSystemLanguage();
 #else
   #error "Define language preferences for your platform"
 #endif
@@ -40,144 +42,164 @@ static const MSLocale gLocales[] = {{0x1,"ar"},{0x2,"bg"},{0x3,"ca"},{0x4,"zh-Ha
 
 namespace languages
 {
-void GetSystemPreferred(vector<string> & languages)
+struct SystemLanguages
 {
-#if defined(OMIM_OS_MAC) || defined(OMIM_OS_IPHONE) || defined(OMIM_OS_LINUX)
-  // check environment variables
-  char const * p = getenv("LANGUAGE");
-  if (p && strlen(p))  // LANGUAGE can contain several values divided by ':'
-  {
-    string const str(p);
-    strings::SimpleTokenizer iter(str, ":");
-    for (; iter; ++iter)
-      languages.push_back(*iter);
-  }
-  else if ((p = getenv("LC_ALL")))
-    languages.push_back(p);
-  else if ((p = getenv("LC_MESSAGES")))
-    languages.push_back(p);
-  else if ((p = getenv("LANG")))
-    languages.push_back(p);
+  buffer_vector<std::string, 4> m_langs;
 
-#if defined(OMIM_OS_MAC) || defined(OMIM_OS_IPHONE)
-  else
+  SystemLanguages()
   {
-    // Mac and iOS implementation
-    CFArrayRef langs = CFLocaleCopyPreferredLanguages();
-    char buf[30];
-    for (CFIndex i = 0; i < CFArrayGetCount(langs); ++i)
+    /// @DebugNote
+    // Hardcode draw text language.
+    //m_langs.push_back("hi");
+    //return;
+
+#if defined(OMIM_OS_MAC) || defined(OMIM_OS_IPHONE) || defined(OMIM_OS_LINUX)
+    // check environment variables
+    char const * p = std::getenv("LANGUAGE");
+    if (p && strlen(p))  // LANGUAGE can contain several values divided by ':'
+      strings::Tokenize(p, ":", [this](std::string_view s) { m_langs.push_back(std::string(s)); });
+    else if ((p = getenv("LC_ALL")))
+      m_langs.push_back(p);
+    else if ((p = getenv("LC_MESSAGES")))
+      m_langs.push_back(p);
+    else if ((p = getenv("LANG")))
+      m_langs.push_back(p);
+
+  #if defined(OMIM_OS_MAC) || defined(OMIM_OS_IPHONE)
+    else
     {
-      CFStringRef strRef = (CFStringRef)CFArrayGetValueAtIndex(langs, i);
-      CFStringGetCString(strRef, buf, 30, kCFStringEncodingUTF8);
-      languages.push_back(buf);
+      // Mac and iOS implementation
+      CFArrayRef langs = CFLocaleCopyPreferredLanguages();
+      char buf[30];
+      for (CFIndex i = 0; i < CFArrayGetCount(langs); ++i)
+      {
+        CFStringRef strRef = (CFStringRef)CFArrayGetValueAtIndex(langs, i);
+        CFStringGetCString(strRef, buf, 30, kCFStringEncodingUTF8);
+        m_langs.push_back(buf);
+      }
+      CFRelease(langs);
     }
-    CFRelease(langs);
-  }
-#endif
+  #endif
 
 #elif defined(OMIM_OS_WINDOWS)
-  // if we're on Vista or above, take list of preferred languages
-  typedef BOOL (WINAPI *PGETUSERPREFERREDUILANGUAGES)(DWORD, PULONG, PWCHAR, PULONG);
-  PGETUSERPREFERREDUILANGUAGES p =
-      reinterpret_cast<PGETUSERPREFERREDUILANGUAGES>(
-          GetProcAddress(GetModuleHandleA("Kernel32.dll"), "GetUserPreferredUILanguages"));
-  if (p)
-  {
-    // Vista or above, get buffer size first
-    ULONG numLangs;
-    WCHAR * buf = NULL;
-    ULONG bufSize = 0;
-    CHECK_EQUAL(TRUE, p(MUI_LANGUAGE_NAME, &numLangs, buf, &bufSize), ());
-    CHECK_GREATER(bufSize, 0U, ("GetUserPreferredUILanguages failed"));
-    buf = new WCHAR[++bufSize];
-    p(MUI_LANGUAGE_NAME, &numLangs, buf, &bufSize);
-    size_t len;
-    WCHAR * pCurr = buf;
-    while ((len = wcslen(pCurr)))
+    // if we're on Vista or above, take list of preferred languages
+    typedef BOOL (WINAPI *PGETUSERPREFERREDUILANGUAGES)(DWORD, PULONG, PWCHAR, PULONG);
+    PGETUSERPREFERREDUILANGUAGES p =
+        reinterpret_cast<PGETUSERPREFERREDUILANGUAGES>(
+            GetProcAddress(GetModuleHandleA("Kernel32.dll"), "GetUserPreferredUILanguages"));
+    if (p)
     {
-      char * utf8Buf = new char[len*2];
-      CHECK_NOT_EQUAL(WideCharToMultiByte(CP_UTF8, 0, pCurr, -1, utf8Buf, len*2, NULL, NULL), 0, ());
-      languages.push_back(utf8Buf);
-      delete[] utf8Buf;
-      pCurr += len + 1;
-    }
-    delete[] buf;
-  }
-
-  if (languages.empty())
-  {
-    // used mostly on WinXP
-    LANGID langId = GetUserDefaultLangID();
-    for (size_t i = 0; i < ARRAY_SIZE(gLocales); ++i)
-      if (gLocales[i].m_code == langId)
+      // Vista or above, get buffer size first
+      ULONG numLangs;
+      WCHAR * buf = NULL;
+      ULONG bufSize = 0;
+      CHECK_EQUAL(TRUE, p(MUI_LANGUAGE_NAME, &numLangs, buf, &bufSize), ());
+      CHECK_GREATER(bufSize, 0U, ("GetUserPreferredUILanguages failed"));
+      buf = new WCHAR[++bufSize];
+      p(MUI_LANGUAGE_NAME, &numLangs, buf, &bufSize);
+      size_t len;
+      WCHAR * pCurr = buf;
+      while ((len = wcslen(pCurr)))
       {
-        languages.push_back(gLocales[i].m_name);
-        break;
+        char * utf8Buf = new char[len*2];
+        CHECK_NOT_EQUAL(WideCharToMultiByte(CP_UTF8, 0, pCurr, -1, utf8Buf, len*2, NULL, NULL), 0, ());
+        m_langs.push_back(utf8Buf);
+        delete[] utf8Buf;
+        pCurr += len + 1;
       }
-  }
+      delete[] buf;
+    }
+
+    if (m_langs.empty())
+    {
+      // used mostly on WinXP
+      LANGID langId = GetUserDefaultLangID();
+      for (size_t i = 0; i < ARRAY_SIZE(gLocales); ++i)
+        if (gLocales[i].m_code == langId)
+        {
+          m_langs.push_back(gLocales[i].m_name);
+          break;
+        }
+    }
 
 #elif defined(OMIM_OS_ANDROID)
-  languages.push_back(GetAndroidSystemLanguage());
+    m_langs.push_back(GetAndroidSystemLanguage());
 #else
-  #error "Define language preferences for your platform"
+    #error "Define language preferences for your platform"
 #endif
+  }
+};
+
+buffer_vector<std::string, 4> const & GetSystemPreferred()
+{
+  static SystemLanguages const langs;
+  return langs.m_langs;
 }
 
-string GetPreferred()
+std::string GetPreferred()
 {
-  vector<string> arr;
-  GetSystemPreferred(arr);
-
   // generate output string
-  string result;
-  for (size_t i = 0; i < arr.size(); ++i)
+  std::string result;
+  for (auto const & e : GetSystemPreferred())
   {
-    result.append(arr[i]);
+    result.append(e);
     result.push_back('|');
   }
 
   if (result.empty())
     result = "default";
   else
-    result.resize(result.size() - 1);
+    result.pop_back();
   return result;
 }
 
-string GetCurrentOrig()
+std::string GetCurrentOrig()
 {
-  vector<string> arr;
-  GetSystemPreferred(arr);
+  auto const & arr = GetSystemPreferred();
   if (arr.empty())
     return "en";
   else
     return arr[0];
 }
 
-string Normalize(string const & lang)
+std::string Normalize(std::string_view lang)
 {
-  strings::SimpleTokenizer const iter(lang, "-_ ");
-  ASSERT(iter, (lang));
-  return *iter;
+  return std::string{lang.substr(0, lang.find_first_of("-_ "))};
 }
 
-string GetCurrentNorm()
+std::string GetCurrentNorm()
 {
   return Normalize(GetCurrentOrig());
 }
 
-string GetCurrentTwine()
+std::string GetCurrentMapLanguage()
 {
-  string const lang = GetCurrentOrig();
+  std::string languageCode;
+  if (!settings::Get(settings::kMapLanguageCode, languageCode) || languageCode.empty())
+  {
+    for (auto const & systemLanguage : GetSystemPreferred())
+    {
+      auto normalizedLang = Normalize(systemLanguage);
+      if (StringUtf8Multilang::GetLangIndex(normalizedLang) != StringUtf8Multilang::kUnsupportedLanguageCode)
+        return normalizedLang;
+    }
+    return std::string(StringUtf8Multilang::GetLangByCode(StringUtf8Multilang::kDefaultCode));
+  }
+  return languageCode;
+}
+
+std::string GetTwine(std::string const & lang)
+{
   // Special cases for different Chinese variations.
   if (lang.find("zh") == 0)
   {
-    string lower = lang;
+    std::string lower = lang;
     strings::AsciiToLower(lower);
 
     // Traditional Chinese.
     for (char const * s : {"hant", "tw", "hk", "mo"})
     {
-      if (lower.find(s) != string::npos)
+      if (lower.find(s) != std::string::npos)
         return "zh-Hant";
     }
 
@@ -187,4 +209,15 @@ string GetCurrentTwine()
   // Use short (2 or 3 chars) versions for all other languages.
   return Normalize(lang);
 }
+
+std::string GetCurrentTwine()
+{
+  return GetTwine(GetCurrentOrig());
+}
+
+std::string GetCurrentMapTwine()
+{
+  return GetTwine(GetCurrentMapLanguage());
+}
+
 }  // namespace languages

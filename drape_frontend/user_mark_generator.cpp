@@ -93,7 +93,7 @@ void UserMarkGenerator::UpdateIndex(kml::MarkGroupId groupId)
 
   IDCollections & idCollection = *groupIt->second;
 
-  for (auto markId : idCollection.m_markIds)
+  for (auto const & markId : idCollection.m_markIds)
   {
     UserMarkRenderParams const & params = *m_marks[markId];
     for (int zoomLevel = params.m_minZoom; zoomLevel <= scales::GetUpperScale(); ++zoomLevel)
@@ -104,8 +104,11 @@ void UserMarkGenerator::UpdateIndex(kml::MarkGroupId groupId)
     }
   }
 
-  for (auto lineId : idCollection.m_lineIds)
+  for (auto const & lineId : idCollection.m_lineIds)
   {
+    // Collect unique intersected tiles.
+    std::set<TileKey> tiles;
+
     UserLineRenderParams const & params = *m_lines[lineId];
 
     int const startZoom = GetNearestLineIndexZoom(params.m_minZoom);
@@ -113,20 +116,27 @@ void UserMarkGenerator::UpdateIndex(kml::MarkGroupId groupId)
     {
       if (zoomLevel < startZoom)
         continue;
+
       // Process spline by segments that are no longer than tile size.
       double const maxLength = mercator::Bounds::kRangeX / (1 << (zoomLevel - 1));
 
-      df::ProcessSplineSegmentRects(params.m_spline, maxLength,
-                                    [&](m2::RectD const & segmentRect)
+      for (auto const & spline : params.m_splines)
       {
-        CalcTilesCoverage(segmentRect, zoomLevel, [&](int tileX, int tileY)
+        df::ProcessSplineSegmentRects(spline, maxLength, [&](m2::RectD const & segmentRect)
         {
-          TileKey const tileKey(tileX, tileY, zoomLevel);
-          auto groupIDs = GetIdCollection(tileKey, groupId);
-          groupIDs->m_lineIds.push_back(lineId);
+          CalcTilesCoverage(segmentRect, zoomLevel, [&](int tileX, int tileY)
+          {
+            tiles.emplace(tileX, tileY, zoomLevel);
+          });
+          return true;
         });
-        return true;
-      });
+      }
+    }
+
+    for (auto const & tileKey : tiles)
+    {
+      auto groupIDs = GetIdCollection(tileKey, groupId);
+      groupIDs->m_lineIds.push_back(lineId);
     }
   }
 
@@ -249,28 +259,23 @@ void UserMarkGenerator::GenerateUserMarksGeometry(ref_ptr<dp::GraphicsContext> c
 
 void UserMarkGenerator::CacheUserLines(ref_ptr<dp::GraphicsContext> context,
                                        TileKey const & tileKey, MarksIDGroups const & indexesGroups,
-                                       ref_ptr<dp::TextureManager> textures, dp::Batcher & batcher)
+                                       ref_ptr<dp::TextureManager> textures, dp::Batcher & batcher) const
 {
-  for (auto & groupPair : indexesGroups)
+  for (auto const & gp : indexesGroups)
   {
-    kml::MarkGroupId groupId = groupPair.first;
-    if (m_groupsVisibility.find(groupId) == m_groupsVisibility.end())
-      continue;
-
-    df::CacheUserLines(context, tileKey, textures, groupPair.second->m_lineIds, m_lines, batcher);
+    if (m_groupsVisibility.find(gp.first) != m_groupsVisibility.end())
+      df::CacheUserLines(context, tileKey, textures, gp.second->m_lineIds, m_lines, batcher);
   }
 }
 
 void UserMarkGenerator::CacheUserMarks(ref_ptr<dp::GraphicsContext> context,
                                        TileKey const & tileKey, MarksIDGroups const & indexesGroups,
-                                       ref_ptr<dp::TextureManager> textures, dp::Batcher & batcher)
+                                       ref_ptr<dp::TextureManager> textures, dp::Batcher & batcher) const
 {
-  for (auto & groupPair : indexesGroups)
+  for (auto const & gp : indexesGroups)
   {
-    kml::MarkGroupId groupId = groupPair.first;
-    if (m_groupsVisibility.find(groupId) == m_groupsVisibility.end())
-      continue;
-    df::CacheUserMarks(context, tileKey, textures, groupPair.second->m_markIds, m_marks, batcher);
+    if (m_groupsVisibility.find(gp.first) != m_groupsVisibility.end())
+      df::CacheUserMarks(context, tileKey, textures, gp.second->m_markIds, m_marks, batcher);
   }
 }
 

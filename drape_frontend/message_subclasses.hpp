@@ -5,6 +5,7 @@
 #include "drape_frontend/custom_features_context.hpp"
 #include "drape_frontend/drape_api.hpp"
 #include "drape_frontend/drape_api_builder.hpp"
+#include "drape_frontend/drape_engine_params.hpp"
 #include "drape_frontend/gps_track_point.hpp"
 #include "drape_frontend/gui/layer_render.hpp"
 #include "drape_frontend/gui/skin.hpp"
@@ -27,17 +28,18 @@
 #include "drape/render_bucket.hpp"
 #include "drape/viewport.hpp"
 
+#include "platform/location.hpp"
+
 #include "geometry/polyline2d.hpp"
 #include "geometry/rect2d.hpp"
 #include "geometry/screenbase.hpp"
 #include "geometry/triangle2d.hpp"
 
-#include "platform/location.hpp"
-
 #include <condition_variable>
 #include <functional>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -404,28 +406,27 @@ class SetAddNewPlaceModeMessage : public Message
 {
 public:
   SetAddNewPlaceModeMessage(bool enable, std::vector<m2::TriangleD> && boundArea,
-                            bool enableKineticScroll, bool hasPosition, m2::PointD const & position)
+                            bool enableKineticScroll, m2::PointD const * optionalPosition)
     : m_enable(enable)
     , m_boundArea(std::move(boundArea))
     , m_enableKineticScroll(enableKineticScroll)
-    , m_hasPosition(hasPosition)
-    , m_position(position)
-  {}
+  {
+    if (optionalPosition)
+      m_position = *optionalPosition;
+  }
 
   Type GetType() const override { return Type::SetAddNewPlaceMode; }
 
   std::vector<m2::TriangleD> && AcceptBoundArea() { return std::move(m_boundArea); }
   bool IsEnabled() const { return m_enable; }
   bool IsKineticScrollEnabled() const { return m_enableKineticScroll; }
-  bool HasPosition() const { return m_hasPosition; }
-  m2::PointD const & GetPosition() const { return m_position; }
+  auto const & GetOptionalPosition() const { return m_position; }
 
 private:
   bool m_enable;
   std::vector<m2::TriangleD> m_boundArea;
   bool m_enableKineticScroll;
-  bool m_hasPosition;
-  m2::PointD m_position;
+  std::optional<m2::PointD> m_position;
 };
 
 class BlockTapEventsMessage : public Message
@@ -446,9 +447,11 @@ private:
 class MapShapesMessage : public Message
 {
 public:
-  MapShapesMessage(drape_ptr<MyPosition> && shape, drape_ptr<SelectionShape> && selection)
+  MapShapesMessage(drape_ptr<MyPosition> && shape, drape_ptr<SelectionShape> && selection,
+                   Arrow3d::PreloadedData preloadedArrow3dData)
     : m_shape(std::move(shape))
     , m_selection(std::move(selection))
+    , m_preloadedArrow3dData(std::move(preloadedArrow3dData))
   {}
 
   Type GetType() const override { return Type::MapShapes; }
@@ -457,10 +460,15 @@ public:
 
   drape_ptr<MyPosition> && AcceptShape() { return std::move(m_shape); }
   drape_ptr<SelectionShape> AcceptSelection() { return std::move(m_selection); }
+  Arrow3d::PreloadedData && AcceptPeloadedArrow3dData()
+  {
+    return std::move(m_preloadedArrow3dData);
+  }
 
 private:
   drape_ptr<MyPosition> m_shape;
   drape_ptr<SelectionShape> m_selection;
+  Arrow3d::PreloadedData m_preloadedArrow3dData;
 };
 
 class ChangeMyPositionModeMessage : public Message
@@ -887,6 +895,22 @@ private:
   bool const m_allow3dBuildings;
 };
 
+class SetMapLangIndexMessage : public Message
+{
+public:
+  explicit SetMapLangIndexMessage(int8_t mapLangIndex)
+    : m_mapLangIndex(mapLangIndex)
+  {}
+
+  Type GetType() const override { return Type::SetMapLangIndex; }
+
+  int8_t MapLangIndex() const { return m_mapLangIndex; }
+
+private:
+  int8_t const m_mapLangIndex;
+};
+
+
 class EnablePerspectiveMessage : public Message
 {
 public:
@@ -1198,7 +1222,7 @@ public:
 
   Type GetType() const override { return Type::DrapeApiAddLines; }
 
-  DrapeApi::TLines const & GetLines() const { return m_lines; }
+  DrapeApi::TLines & GetLines() { return m_lines; }
 
 private:
   DrapeApi::TLines m_lines;
@@ -1420,5 +1444,23 @@ public:
 private:
   Functor m_functor;
   uint64_t const m_notifyId;
+};
+
+class Arrow3dRecacheMessage : public Message
+{
+public:
+  Arrow3dRecacheMessage(std::optional<Arrow3dCustomDecl> arrow3dCustomDecl)
+    : m_arrow3dCustomDecl(std::move(arrow3dCustomDecl))
+  {}
+
+  Type GetType() const override { return Type::Arrow3dRecache; }
+
+  std::optional<Arrow3dCustomDecl> const & GetArrow3dCustomDecl() const
+  {
+    return m_arrow3dCustomDecl;
+  }
+
+private:
+  std::optional<Arrow3dCustomDecl> m_arrow3dCustomDecl;
 };
 }  // namespace df

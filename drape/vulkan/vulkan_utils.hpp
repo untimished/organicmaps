@@ -6,7 +6,6 @@
 #include "base/logging.hpp"
 
 #include <vulkan_wrapper.h>
-#include <vulkan/vulkan.h>
 
 #include <string>
 #include <vector>
@@ -60,15 +59,21 @@ struct SamplerKey
 
 #define LOG_ERROR_VK_CALL(method, statusCode) \
   LOG(LDEBUG, ("Vulkan error:", #method, "finished with code", \
-               dp::vulkan::GetVulkanResultString(statusCode)));
+               dp::vulkan::GetVulkanResultString(statusCode)))
 
-#define LOG_ERROR_VK(message) LOG(LDEBUG, ("Vulkan error:", message));
+#define LOG_ERROR_VK(message) LOG(LDEBUG, ("Vulkan error:", message))
 
 #define CHECK_VK_CALL(method) \
   do { \
     VkResult const statusCode = method; \
     CHECK(statusCode == VK_SUCCESS, ("Vulkan error:", #method, "finished with code", \
                                      dp::vulkan::GetVulkanResultString(statusCode))); \
+  } while (false)
+
+#define CHECK_VK_CALL_EX(method, msg) \
+  do { \
+    VkResult const statusCode = method; \
+    CHECK_EQUAL(statusCode, VK_SUCCESS, msg); \
   } while (false)
 
 #define CHECK_RESULT_VK_CALL(method, statusCode) \

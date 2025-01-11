@@ -1,7 +1,12 @@
 project(base)
 
-set(
-  SRC
+set(SRC
+  # Our code will be recompiled on modification of these headers.
+  ../std/boost_container_hash.hpp
+  ../std/boost_geometry.hpp
+  ../std/glm_gtx_rotate_vector.hpp
+  ../std/target_os.hpp
+  ../std/windows.hpp
   array_adapters.hpp
   assert.hpp
   atomic_shared_ptr.hpp
@@ -28,7 +33,6 @@ set(
   file_name_utils.hpp
   geo_object_id.cpp
   geo_object_id.hpp
-  get_time.hpp
   gmtime.cpp
   gmtime.hpp
   internal/message.cpp
@@ -50,10 +54,8 @@ set(
   normalize_unicode.cpp
   non_intersecting_intervals.hpp
   observer_list.hpp
-  optional_lock_guard.hpp
   pprof.cpp
   pprof.hpp
-  random.cpp
   random.hpp
   range_iterator.hpp
   ref_counted.hpp
@@ -62,6 +64,7 @@ set(
   set_operations.hpp
   shared_buffer_manager.cpp
   shared_buffer_manager.hpp
+  small_map.hpp
   small_set.hpp
   src_point.cpp
   src_point.hpp
@@ -101,5 +104,14 @@ set(
 )
 
 omim_add_library(${PROJECT_NAME} ${SRC})
+
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+target_link_libraries(${PROJECT_NAME} INTERFACE Threads::Threads)
+target_link_libraries(${PROJECT_NAME} PUBLIC utf8cpp::utf8cpp)
+
+if (NOT WITH_SYSTEM_PROVIDED_3PARTY)
+  target_include_directories(${PROJECT_NAME} PRIVATE "${OMIM_ROOT}/3party/fast_double_parser/include")
+endif()
 
 omim_add_test_subdirectory(base_tests)

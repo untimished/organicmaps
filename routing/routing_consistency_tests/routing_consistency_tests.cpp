@@ -16,8 +16,10 @@
 #include <map>
 #include <string>
 
-#include "gflags/gflags.h"
+#include <gflags/gflags.h>
 
+namespace routing_consistency_tests
+{
 using namespace routing;
 using namespace std;
 using storage::CountryInfo;
@@ -27,7 +29,7 @@ double constexpr kRouteLengthAccuracy =  0.15;
 
 // Testing stub to make routing test tools linkable.
 static CommandLineOptions g_options;
-CommandLineOptions const & GetTestingOptions() {return g_options;}
+CommandLineOptions const & GetTestingOptions() { return g_options; }
 
 DEFINE_string(input_file, "", "File with statistics output.");
 DEFINE_string(data_path, "../../data/", "Working directory, 'path_to_exe/../../data' if empty.");
@@ -175,7 +177,7 @@ void ReadInput(istream & stream, RouteTester & tester)
   tester.PrintStatistics();
 }
 
-int main(int argc, char ** argv)
+int RunRoutingConsistencyTests(int argc, char ** argv)
 {
   gflags::SetUsageMessage("Check mwm and routing files consistency. Calculating roads from a user statistics.");
 
@@ -192,3 +194,6 @@ int main(int argc, char ** argv)
 
   return 0;
 }
+}  // namespace testingmain routing_consistency_tests
+
+int main(int argc, char ** argv) { return ::routing_consistency_tests::RunRoutingConsistencyTests(argc, argv); }

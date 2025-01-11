@@ -3,24 +3,17 @@
 #include "qt/qt_common/map_widget.hpp"
 #include "qt/routing_turns_visualizer.hpp"
 #include "qt/ruler.hpp"
+#include "qt/selection.hpp"
 
-#include "map/everywhere_search_params.hpp"
-#include "map/place_page_info.hpp"
 #include "map/routing_manager.hpp"
 
 #include "search/result.hpp"
 
-#include "routing/router.hpp"
-
-#include "drape_frontend/drape_engine.hpp"
-#include "drape_frontend/gui/skin.hpp"
+#include "indexer/map_style.hpp"
 
 #include <QtWidgets/QRubberBand>
 
-#include <condition_variable>
-#include <functional>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <string>
 
@@ -49,7 +42,7 @@ public Q_SLOTS:
   void ChoosePositionModeDisable();
 
 public:
-  DrawWidget(Framework & framework, bool apiOpenGLES3, std::unique_ptr<ScreenshotParams> && screenshotParams,
+  DrawWidget(Framework & framework, std::unique_ptr<ScreenshotParams> && screenshotParams,
              QWidget * parent);
   ~DrawWidget() override;
 
@@ -67,8 +60,6 @@ public:
 
   void SetMapStyle(MapStyle mapStyle);
 
-  void SetRouter(routing::RouterType routerType);
-
   void SetRuler(bool enabled);
 
   RouteMarkType GetRoutePointAddMode() const { return m_routePointAddMode; }
@@ -78,14 +69,19 @@ public:
   void OnRouteRecommendation(RoutingManager::Recommendation recommendation);
 
   void RefreshDrawingRules();
-
-  static void SetDefaultSurfaceFormat(bool apiOpenGLES3);
+  void SetMapStyleToDefault();
+  void SetMapStyleToVehicle();
+  void SetMapStyleToOutdoors();
 
 protected:
   /// @name Overriden from MapWidget.
   //@{
   void initializeGL() override;
 
+  // Touch events
+  bool event(QEvent * event) override;
+
+  // Non-touch events
   void mousePressEvent(QMouseEvent * e) override;
   void mouseMoveEvent(QMouseEvent * e) override;
   void mouseReleaseEvent(QMouseEvent * e) override;
@@ -96,15 +92,16 @@ protected:
 
 private:
   void SubmitFakeLocationPoint(m2::PointD const & pt);
-  void SubmitRulerPoint(QMouseEvent * e);
-  void SubmitRoutingPoint(m2::PointD const & pt);
+  void SubmitRulerPoint(m2::PointD const & pt);
+  void SubmitRoutingPoint(m2::PointD const & pt, bool pointIsMercator);
   void SubmitBookmark(m2::PointD const & pt);
   void ShowPlacePage();
 
   void VisualizeMwmsBordersInRect(m2::RectD const & rect, bool withVertices,
                                   bool fromPackedPolygon, bool boundingBox);
 
-  m2::PointD GetCoordsFromSettingsIfExists(bool start, m2::PointD const & pt);
+  m2::PointD P2G(m2::PointD const & pt) const;
+  m2::PointD GetCoordsFromSettingsIfExists(bool start, m2::PointD const & pt, bool pointIsMercator) const;
 
   QRubberBand * m_rubberBand;
   QPoint m_rubberBandOrigin;
@@ -112,27 +109,19 @@ private:
   bool m_emulatingLocation;
 
 public:
-  enum class SelectionMode
-  {
-    Features,
-    CityBoundaries,
-    CityRoads,
-    MwmsBordersByPolyFiles,
-    MwmsBordersWithVerticesByPolyFiles,
-    MwmsBordersByPackedPolygon,
-    MwmsBordersWithVerticesByPackedPolygon,
-    BoundingBoxByPolyFiles,
-    BoundingBoxByPackedPolygon,
-  };
+  /// Pass empty \a mode to drop selection.
+  void SetSelectionMode(std::optional<SelectionMode> mode) { m_selectionMode = mode; }
 
-  void SetSelectionMode(SelectionMode mode) { m_currentSelectionMode = {mode}; }
-  void DropSelectionMode() { m_currentSelectionMode = {}; }
-  bool SelectionModeIsSet() { return static_cast<bool>(m_currentSelectionMode); }
-  SelectionMode GetSelectionMode() const { return *m_currentSelectionMode; }
+  void DropSelectionIfMWMBordersMode()
+  {
+    static_assert(SelectionMode::MWMBorders < SelectionMode::Cancelled, "");
+    if (m_selectionMode && *m_selectionMode > SelectionMode::MWMBorders && *m_selectionMode < SelectionMode::Cancelled)
+      m_selectionMode = {};
+  }
 
 private:
   void ProcessSelectionMode();
-  std::optional<SelectionMode> m_currentSelectionMode;
+  std::optional<SelectionMode> m_selectionMode;
   RouteMarkType m_routePointAddMode = RouteMarkType::Finish;
 
   std::unique_ptr<Screenshoter> m_screenshoter;

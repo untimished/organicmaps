@@ -8,7 +8,6 @@
 #include "base/macros.hpp"
 #include "base/small_set.hpp"
 
-#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -21,12 +20,10 @@ public:
   using TypeName = std::string;
   using TypeNames = std::vector<TypeName>;
 
+  NewFeatureCategories() = default;
   explicit NewFeatureCategories(editor::EditorConfig const & config);
 
-  NewFeatureCategories(NewFeatureCategories && other);
-
-  NewFeatureCategories() = default;
-
+  NewFeatureCategories(NewFeatureCategories && other) noexcept;
   NewFeatureCategories & operator=(NewFeatureCategories && other) = default;
 
   // Adds all known synonyms in language |lang| for all categories that
@@ -42,15 +39,11 @@ public:
   // The returned list is sorted.
   TypeNames Search(std::string const & query) const;
 
-  // Returns all registered names of categories in language |lang| and
-  // types corresponding to these names. The language must have been added before.
-  // If |lang| is not supported, "en" is used.
-  // The returned list is sorted.
-  TypeNames const & GetAllCreatableTypeNames() const;
+  // Returns all registered classifier category types (GetReadableObjectName).
+  TypeNames const & GetAllCreatableTypeNames() const { return m_types; }
 
 private:
-  using Langs =
-      base::SmallSet<static_cast<uint64_t>(CategoriesHolder::kLocaleMapping.size()) + 1>;
+  using Langs = base::SmallSet<CategoriesHolder::kLocaleMapping.size() + 1>;
 
   indexer::CategoriesIndex m_index;
   Langs m_addedLangs;

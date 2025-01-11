@@ -1,9 +1,6 @@
 project(storage)
 
-include_directories(${OMIM_ROOT}/3party/jansson/src)
-
-set(
-  SRC
+set(SRC
   country.hpp
   country_decl.cpp
   country_decl.hpp
@@ -51,22 +48,27 @@ set(
   storage_helpers.hpp
 )
 
-if(${PLATFORM_IPHONE})
-  append(
-    SRC
+if (PLATFORM_IPHONE)
+  append(SRC
     background_downloading/downloader_adapter_ios.h
     background_downloading/downloader_adapter_ios.mm
     background_downloading/downloader_queue.hpp
   )
 else()
-  append(
-    SRC
+  append(SRC
     http_map_files_downloader.cpp
     http_map_files_downloader.hpp
   )
 endif()
 
 omim_add_library(${PROJECT_NAME} ${SRC})
+
+target_link_libraries(${PROJECT_NAME}
+  platform
+  coding
+  mwm_diff
+  cppjansson
+)
 
 omim_add_test_subdirectory(storage_tests)
 omim_add_test_subdirectory(storage_integration_tests)

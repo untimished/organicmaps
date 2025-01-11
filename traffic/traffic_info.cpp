@@ -19,12 +19,10 @@
 #include "coding/zlib.hpp"
 
 #include "base/assert.hpp"
-#include "base/bits.hpp"
 #include "base/logging.hpp"
 #include "base/string_utils.hpp"
 
 #include <algorithm>
-#include <limits>
 #include <sstream>
 #include <string>
 
@@ -32,10 +30,10 @@
 #include "private.h"
 
 
-using namespace std;
-
 namespace traffic
 {
+using namespace std;
+
 namespace
 {
 bool ReadRemoteFile(string const & url, vector<uint8_t> & contents, int & errorCode)
@@ -139,7 +137,7 @@ TrafficInfo::TrafficInfo(MwmSet::MwmId const & mwmId, int64_t currentDataVersion
 TrafficInfo TrafficInfo::BuildForTesting(Coloring && coloring)
 {
   TrafficInfo info;
-  info.m_coloring = move(coloring);
+  info.m_coloring = std::move(coloring);
   return info;
 }
 
@@ -177,13 +175,15 @@ SpeedGroup TrafficInfo::GetSpeedGroup(RoadSegmentId const & id) const
 void TrafficInfo::ExtractTrafficKeys(string const & mwmPath, vector<RoadSegmentId> & result)
 {
   result.clear();
-  feature::ForEachFeature(mwmPath, [&](FeatureType & ft, uint32_t const fid) {
-    if (!routing::CarModel::AllLimitsInstance().IsRoad(ft))
+  feature::ForEachFeature(mwmPath, [&](FeatureType & ft, uint32_t const fid)
+  {
+    feature::TypesHolder const types(ft);
+    if (!routing::CarModel::AllLimitsInstance().IsRoad(types))
       return;
 
     ft.ParseGeometry(FeatureType::BEST_GEOMETRY);
     auto const numPoints = static_cast<uint16_t>(ft.GetPointsCount());
-    uint8_t const numDirs = routing::CarModel::AllLimitsInstance().IsOneWay(ft) ? 1 : 2;
+    uint8_t const numDirs = routing::CarModel::AllLimitsInstance().IsOneWay(types) ? 1 : 2;
     for (uint16_t i = 0; i + 1 < numPoints; ++i)
     {
       for (uint8_t dir = 0; dir < numDirs; ++dir)
@@ -202,7 +202,9 @@ void TrafficInfo::CombineColorings(vector<TrafficInfo::RoadSegmentId> const & ke
   result.clear();
   size_t numKnown = 0;
   size_t numUnknown = 0;
+#ifdef DEBUG
   size_t numUnexpectedKeys = knownColors.size();
+#endif
   for (auto const & key : keys)
   {
     auto it = knownColors.find(key);
@@ -214,8 +216,7 @@ void TrafficInfo::CombineColorings(vector<TrafficInfo::RoadSegmentId> const & ke
     else
     {
       result[key] = it->second;
-      ASSERT_GREATER(numUnexpectedKeys, 0, ());
-      --numUnexpectedKeys;
+      ASSERT_GREATER(numUnexpectedKeys--, 0, ());
       ++numKnown;
     }
   }

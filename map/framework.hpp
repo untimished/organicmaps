@@ -3,7 +3,6 @@
 #include "map/api_mark_point.hpp"
 #include "map/bookmark.hpp"
 #include "map/bookmark_manager.hpp"
-#include "map/caching_address_getter.hpp"
 #include "map/features_fetcher.hpp"
 #include "map/isolines_manager.hpp"
 #include "map/mwm_url.hpp"
@@ -18,6 +17,7 @@
 #include "map/track.hpp"
 #include "map/traffic_manager.hpp"
 #include "map/transit/transit_reader.hpp"
+#include "map/gps_track_collection.hpp"
 
 #include "drape_frontend/gui/skin.hpp"
 #include "drape_frontend/drape_api.hpp"
@@ -30,51 +30,39 @@
 #include "kml/type_utils.hpp"
 
 #include "editor/new_feature_categories.hpp"
+#include "editor/osm_editor.hpp"
 
 #include "indexer/caching_rank_table_loader.hpp"
-#include "indexer/data_header.hpp"
 #include "indexer/data_source.hpp"
 #include "indexer/data_source_helpers.hpp"
 #include "indexer/map_object.hpp"
 #include "indexer/map_style.hpp"
 
-#include "search/city_finder.hpp"
 #include "search/displayed_categories.hpp"
-#include "search/mode.hpp"
-#include "search/region_address_getter.hpp"
 #include "search/result.hpp"
 #include "search/reverse_geocoder.hpp"
 
 #include "storage/downloading_policy.hpp"
 #include "storage/storage.hpp"
 
-#include "tracking/reporter.hpp"
-
-
-#include "platform/country_defines.hpp"
 #include "platform/location.hpp"
 #include "platform/platform.hpp"
+#include "platform/distance.hpp"
+#include "platform/products.hpp"
 
 #include "routing/router.hpp"
-#include "routing/routing_session.hpp"
 
 #include "geometry/rect2d.hpp"
 #include "geometry/screenbase.hpp"
 
-#include "base/deferred_task.hpp"
 #include "base/macros.hpp"
 #include "base/strings_bundle.hpp"
-#include "base/thread_checker.hpp"
 
 #include "std/target_os.hpp"
 
-#include <cstdint>
 #include <functional>
-#include <list>
 #include <memory>
-#include <optional>
 #include <string>
-#include <utility>
 #include <vector>
 
 namespace osm
@@ -177,16 +165,11 @@ protected:
 
   drape_ptr<df::DrapeEngine> m_drapeEngine;
 
-  // Time in seconds.
-  double m_startForegroundTime = 0.0;
-  double m_startBackgroundTime = 0.0;
-
   StorageDownloadingPolicy m_storageDownloadingPolicy;
   storage::Storage m_storage;
   bool m_enabledDiffs;
 
   location::TMyPositionModeChanged m_myPositionListener;
-  df::DrapeEngine::UserPositionPendingTimeoutHandler m_myPositionPendingTimeoutListener;
 
   std::unique_ptr<BookmarkManager> m_bmManager;
 
@@ -227,7 +210,7 @@ protected:
   void InitTransliteration();
 
 public:
-  explicit Framework(FrameworkParams const & params = {});
+  explicit Framework(FrameworkParams const & params = {}, bool loadMaps = true);
   virtual ~Framework() override;
 
   df::DrapeApi & GetDrapeApi() { return m_drapeApi; }
@@ -235,6 +218,9 @@ public:
   /// \returns true if there're unsaved changes in map with |countryId| and false otherwise.
   /// \note It works for group and leaf node.
   bool HasUnsavedEdits(storage::CountryId const & countryId);
+
+  void LoadMapsSync();
+  void LoadMapsAsync(std::function<void()> && callback);
 
   /// Registers all local map files in internal indexes.
   void RegisterAllMaps();
@@ -249,16 +235,10 @@ public:
   /// Shows group or leaf mwm on the map.
   void ShowNode(storage::CountryId const & countryId);
 
-  // TipsApi::Delegate override.
-  /// Checks, whether the country which contains the specified point is loaded.
-  bool IsCountryLoaded(m2::PointD const & pt) const;
   /// Checks, whether the country is loaded.
-  bool IsCountryLoadedByName(std::string const & name) const;
+  bool IsCountryLoadedByName(std::string_view name) const;
 
   void InvalidateRect(m2::RectD const & rect);
-
-  /// @name Get any country info by point.
-  storage::CountryId GetCountryIndex(m2::PointD const & pt) const;
 
   std::string GetCountryName(m2::PointD const & pt) const;
 
@@ -269,8 +249,7 @@ public:
     AskForUpdateMaps,
     Migrate
   };
-
-  DoAfterUpdate ToDoAfterUpdate() const;
+//  DoAfterUpdate ToDoAfterUpdate() const;
 
   storage::Storage & GetStorage() { return m_storage; }
   storage::Storage const & GetStorage() const { return m_storage; }
@@ -304,16 +283,19 @@ public:
   BookmarkManager & GetBookmarkManager();
   BookmarkManager const & GetBookmarkManager() const;
 
-  // Utilities
+  /// @name Visualize utilities, used in desktop only. Implemented in framework_visualize.cpp
+  /// @{
   void VisualizeRoadsInRect(m2::RectD const & rect);
   void VisualizeCityBoundariesInRect(m2::RectD const & rect);
   void VisualizeCityRoadsInRect(m2::RectD const & rect);
+  void VisualizeCrossMwmTransitionsInRect(m2::RectD const & rect);
+  /// @}
 
 public:
   // SearchAPI::Delegate overrides:
   void RunUITask(std::function<void()> fn) override;
-  void ShowViewportSearchResults(search::Results::ConstIter begin,
-                                 search::Results::ConstIter end, bool clear) override;
+  using SearchResultsIterT = SearchAPI::Delegate::ResultsIterT;
+  void ShowViewportSearchResults(SearchResultsIterT begin, SearchResultsIterT end, bool clear) override;
   void ClearViewportSearchResults() override;
   // PositionProvider, SearchApi::Delegate and TipsApi::Delegate override.
   std::optional<m2::PointD> GetCurrentPosition() const override;
@@ -327,7 +309,9 @@ private:
   void DeactivateHotelSearchMark();
 
 public:
-  void DeactivateMapSelection(bool notifyUI);
+  void DeactivateMapSelection();
+  void DeactivateMapSelectionCircle();
+  void SwitchFullScreen();
   /// Used to "refresh" UI in some cases (e.g. feature editing).
   void UpdatePlacePageInfoForCurrentSelection(
       std::optional<place_page::BuildInfo> const & overrideInfo = {});
@@ -338,21 +322,27 @@ public:
     using OnOpen = std::function<void()>;
     /// Called to notify UI that object on a map was deselected (UI should hide Place Page).
     /// If switchFullScreenMode is true, ui can [optionally] enter or exit full screen mode.
-    using OnClose = std::function<void(bool /*switchFullScreenMode*/)>;
+    using OnClose = std::function<void()>;
     using OnUpdate = std::function<void()>;
+    using OnSwitchFullScreen = std::function<void()>;
   };
 
   void SetPlacePageListeners(PlacePageEvent::OnOpen onOpen,
                              PlacePageEvent::OnClose onClose,
-                             PlacePageEvent::OnUpdate onUpdate);
+                             PlacePageEvent::OnUpdate onUpdate,
+                             PlacePageEvent::OnSwitchFullScreen onSwitchFullScreen);
   bool HasPlacePageInfo() const { return m_currentPlacePageInfo.has_value(); }
   place_page::Info const & GetCurrentPlacePageInfo() const;
   place_page::Info & GetCurrentPlacePageInfo();
+  void BuildAndSetPlacePageInfo(place_page::BuildInfo const & buildInfo)
+  {
+    OnTapEvent(buildInfo);
+  }
 
   void InvalidateRendering();
   void EnableDebugRectRendering(bool enabled);
 
-  void EnableChoosePositionMode(bool enable, bool enableBounds, bool applyPosition, m2::PointD const & position);
+  void EnableChoosePositionMode(bool enable, bool enableBounds, m2::PointD const * optionalPosition);
   void BlockTapEvents(bool block);
 
   using TCurrentCountryChanged = std::function<void(storage::CountryId const &)>;
@@ -362,7 +352,6 @@ public:
 
   std::vector<std::string> GetRegionsCountryIdByRect(m2::RectD const & rect, bool rough) const;
   std::vector<MwmSet::MwmId> GetMwmsByRect(m2::RectD const & rect, bool rough) const;
-  MwmSet::MwmId GetMwmIdByName(std::string const & name) const;
 
   void ReadFeatures(std::function<void(FeatureType &)> const & reader,
                     std::vector<FeatureID> const & features);
@@ -371,10 +360,9 @@ private:
   std::optional<place_page::Info> m_currentPlacePageInfo;
 
   void OnTapEvent(place_page::BuildInfo const & buildInfo);
-  std::optional<place_page::Info> BuildPlacePageInfo(place_page::BuildInfo const & buildInfo);
-  void BuildTrackPlacePage(BookmarkManager::TrackSelectionInfo const & trackSelectionInfo,
-                           place_page::Info & info);
-  BookmarkManager::TrackSelectionInfo FindTrackInTapPosition(place_page::BuildInfo const & buildInfo) const;
+  place_page::Info BuildPlacePageInfo(place_page::BuildInfo const & buildInfo);
+  void BuildTrackPlacePage(Track::TrackSelectionInfo const & trackSelectionInfo, place_page::Info & info);
+  Track::TrackSelectionInfo FindTrackInTapPosition(place_page::BuildInfo const & buildInfo) const;
   UserMark const * FindUserMarkInTapPosition(place_page::BuildInfo const & buildInfo) const;
   FeatureID FindBuildingAtPoint(m2::PointD const & mercator) const;
 
@@ -385,6 +373,7 @@ private:
   PlacePageEvent::OnOpen m_onPlacePageOpen;
   PlacePageEvent::OnClose m_onPlacePageClose;
   PlacePageEvent::OnUpdate m_onPlacePageUpdate;
+  PlacePageEvent::OnSwitchFullScreen m_onSwitchFullScreen;
 
 private:
   std::vector<m2::TriangleD> GetSelectedFeatureTriangles() const;
@@ -397,7 +386,8 @@ public:
   void SwitchMyPositionNextMode();
   /// Should be set before Drape initialization. Guarantees that fn is called in main thread context.
   void SetMyPositionModeListener(location::TMyPositionModeChanged && fn);
-  void SetMyPositionPendingTimeoutListener(df::DrapeEngine::UserPositionPendingTimeoutHandler && fn);
+
+  location::EMyPositionMode GetMyPositionMode() const;
 
 private:
   void OnUserPositionChanged(m2::PointD const & position, bool hasPosition);
@@ -410,9 +400,6 @@ public:
     int m_surfaceWidth = 0;
     int m_surfaceHeight = 0;
     gui::TWidgetsInitInfo m_widgetsInitInfo;
-
-    bool m_hasMyPositionState = false;
-    location::EMyPositionMode m_initialMyPositionState = location::PendingPosition;
 
     bool m_isChoosePositionMode = false;
     df::Hints m_hints;
@@ -449,6 +436,14 @@ public:
   void ConnectToGpsTracker();
   void DisconnectFromGpsTracker();
 
+  using TrackRecordingUpdateHandler = platform::SafeCallback<void(GpsTrackInfo const & trackInfo)>;
+  void StartTrackRecording();
+  void SetTrackRecordingUpdateHandler(TrackRecordingUpdateHandler && trackRecordingDidUpdate);
+  void StopTrackRecording();
+  void SaveTrackRecordingWithName(std::string const & name);
+  bool IsTrackRecordingEmpty() const;
+  bool IsTrackRecordingEnabled() const;
+
   void SetMapStyle(MapStyle mapStyle);
   void MarkMapStyle(MapStyle mapStyle);
   MapStyle GetMapStyle() const;
@@ -470,16 +465,17 @@ private:
   storage::CountryId m_lastReportedCountry;
   TCurrentCountryChanged m_currentCountryChanged;
 
-  void OnUpdateGpsTrackPointsCallback(std::vector<std::pair<size_t, location::GpsTrackInfo>> && toAdd,
-                                      std::pair<size_t, size_t> const & toRemove);
+  void OnUpdateGpsTrackPointsCallback(std::vector<std::pair<size_t, location::GpsInfo>> && toAdd,
+                                      std::pair<size_t, size_t> const & toRemove,
+                                      GpsTrackInfo const & trackInfo);
+
+  TrackRecordingUpdateHandler m_trackRecordingUpdateHandler;
 
   CachingRankTableLoader m_popularityLoader;
 
   std::unique_ptr<descriptions::Loader> m_descriptionsLoader;
 
 public:
-  using SearchRequest = search::QuerySaver::SearchRequest;
-
   // Moves viewport to the search result and taps on it.
   void SelectSearchResult(search::Result const & res, bool animation);
 
@@ -489,21 +485,18 @@ public:
 
   size_t ShowSearchResults(search::Results const & results);
 
-  using SearchMarkPostProcessing = std::function<void(SearchMarkPoint & mark)>;
-
   void FillSearchResultsMarks(bool clear, search::Results const & results);
-  void FillSearchResultsMarks(search::Results::ConstIter begin, search::Results::ConstIter end,
-                                bool clear, SearchMarkPostProcessing fn = nullptr);
+  void FillSearchResultsMarks(SearchResultsIterT beg, SearchResultsIterT end, bool clear);
 
   /// Calculate distance and direction to POI for the given position.
   /// @param[in]  point             POI's position;
   /// @param[in]  lat, lon, north   Current position and heading from north;
-  /// @param[out] distance          Formatted distance string;
+  /// @param[out] distance          Distance to point from (lat, lon);
   /// @param[out] azimut            Azimut to point from (lat, lon);
   /// @return true  If the POI is near the current position (distance < 25 km);
   bool GetDistanceAndAzimut(m2::PointD const & point,
                             double lat, double lon, double north,
-                            std::string & distance, double & azimut);
+                            platform::Distance & distance, double & azimut);
 
   /// @name Manipulating with model view
   m2::PointD PtoG(m2::PointD const & p) const { return m_currentModelView.PtoG(p); }
@@ -514,11 +507,11 @@ public:
   /// Show all model by it's world rect.
   void ShowAll();
 
-  m2::PointD GetPixelCenter() const;
   m2::PointD GetVisiblePixelCenter() const;
 
   m2::PointD const & GetViewportCenter() const;
-  void SetViewportCenter(m2::PointD const & pt, int zoomLevel = -1, bool isAnim = true);
+  void SetViewportCenter(m2::PointD const & pt, int zoomLevel = -1, bool isAnim = true,
+                         bool trackVisibleViewport = false);
 
   m2::RectD GetCurrentViewport() const;
   void SetVisibleViewport(m2::RectD const & rect);
@@ -532,7 +525,7 @@ public:
 
   void SetViewportListener(TViewportChangedFn const & fn);
 
-#if defined(OMIM_OS_MAC) || defined(OMIM_OS_LINUX)
+#if defined(OMIM_OS_DESKTOP)
   using TGraphicsReadyFn = df::DrapeEngine::GraphicsReadyHandler;
   void NotifyGraphicsReady(TGraphicsReadyFn const & fn, bool needInvalidate);
 #endif
@@ -561,6 +554,8 @@ public:
   /// factorY = 1.5 moves the map one and a half size up.
   void Move(double factorX, double factorY, bool isAnim);
 
+  void Scroll(double distanceX, double distanceY);
+
   void Rotate(double azimuth, bool isAnim);
 
   void TouchEvent(df::TouchEvent const & touch);
@@ -570,8 +565,15 @@ public:
   void RunFirstLaunchAnimation();
 
   /// Set correct viewport, parse API, show balloon.
-  bool ShowMapForURL(std::string const & url);
-  url_scheme::ParsedMapApi::ParsingResult ParseAndSetApiURL(std::string const & url);
+  void ExecuteMapApiRequest()
+  {
+    m_parsedMapApi.ExecuteMapApiRequest(*this);
+  }
+
+  url_scheme::ParsedMapApi::UrlType ParseAndSetApiURL(std::string const & url)
+  {
+    return m_parsedMapApi.SetUrlAndParse(url);
+  }
 
   struct ParsedRoutingData
   {
@@ -585,6 +587,11 @@ public:
 
   ParsedRoutingData GetParsedRoutingData() const;
   url_scheme::SearchRequest GetParsedSearchRequest() const;
+  std::string GetParsedOAuth2Code() const;
+  std::string const & GetParsedAppName() const;
+  std::string const & GetParsedBackUrl() const;
+  ms::LatLon GetParsedCenterLatLon() const;
+  url_scheme::InAppFeatureHighlightRequest GetInAppFeatureHighlightRequest() const;
 
   using FeatureMatcher = std::function<bool(FeatureType & ft)>;
 
@@ -608,11 +615,15 @@ private:
   void FillPostcodeInfo(std::string const & postcode, m2::PointD const & mercator,
                         place_page::Info & info) const;
 
+  void FillUserMarkInfo(UserMark const * mark, place_page::Info & outInfo);
+
   void FillInfoFromFeatureType(FeatureType & ft, place_page::Info & info) const;
   void FillApiMarkInfo(ApiMarkPoint const & api, place_page::Info & info) const;
   void FillSearchResultInfo(SearchMarkPoint const & smp, place_page::Info & info) const;
   void FillMyPositionInfo(place_page::Info & info, place_page::BuildInfo const & buildInfo) const;
   void FillRouteMarkInfo(RouteMarkPoint const & rmp, place_page::Info & info) const;
+  void FillSpeedCameraMarkInfo(SpeedCameraMark const & speedCameraMark, place_page::Info & info) const;
+  void FillTransitMarkInfo(TransitMark const & transitMark, place_page::Info & info) const;
   void FillRoadTypeMarkInfo(RoadWarningMark const & roadTypeMark, place_page::Info & info) const;
   void FillPointInfoForBookmark(Bookmark const & bmk, place_page::Info & info) const;
   void FillBookmarkInfo(Bookmark const & bmk, place_page::Info & info) const;
@@ -667,8 +678,8 @@ private:
 
 public:
   /// @name Data versions
-  bool IsDataVersionUpdated();
-  void UpdateSavedDataVersion();
+  // bool IsDataVersionUpdated();
+  // void UpdateSavedDataVersion();
   int64_t GetCurrentDataVersion() const;
 
 public:
@@ -680,8 +691,13 @@ public:
   void Save3dMode(bool allow3d, bool allow3dBuildings);
   void Load3dMode(bool & allow3d, bool & allow3dBuildings);
 
+private:
+  void ApplyMapLanguageCode(std::string const & langCode);
+public:
+  static std::string GetMapLanguageCode();
+  void SetMapLanguageCode(std::string const & langCode);
+
   void SetLargeFontsSize(bool isLargeSize);
-  void SaveLargeFontsSize(bool isLargeSize);
   bool LoadLargeFontsSize();
 
   bool LoadAutoZoom();
@@ -707,6 +723,9 @@ public:
   bool LoadIsolinesEnabled();
   void SaveIsolinesEnabled(bool enabled);
 
+  bool LoadOutdoorsEnabled();
+  void SaveOutdoorsEnabled(bool enabled);
+
   dp::ApiVersion LoadPreferredGraphicsAPI();
   void SavePreferredGraphicsAPI(dp::ApiVersion apiVersion);
 
@@ -721,10 +740,8 @@ protected:
   void RegisterCountryFilesOnRoute(std::shared_ptr<routing::NumMwmIds> ptr) const override;
 
 public:
-  /// @name Editor interface.
-  /// Initializes feature for Create Object UI.
   /// @returns false in case when coordinate is in the ocean or mwm is not downloaded.
-  bool CanEditMap() const;
+  bool CanEditMapForPosition(m2::PointD const & position) const;
 
   bool CreateMapObject(m2::PointD const & mercator, uint32_t const featureType, osm::EditableMapObject & emo) const;
   /// @returns false if feature is invalid or can't be edited.
@@ -736,23 +753,33 @@ public:
   void CreateNote(osm::MapObject const & mapObject, osm::Editor::NoteProblemType const type,
                   std::string const & note);
 
-public:
-  storage::CountriesVec GetTopmostCountries(ms::LatLon const & latlon) const;
-
 private:
-  std::unique_ptr<search::CityFinder> m_cityFinder;
-  CachingAddressGetter m_addressGetter;
-
-  void InitCityFinder();
+  settings::UsageStats m_usageStats;
 
 public:
-  // TipsApi::Delegate override.
-  bool HaveTransit(m2::PointD const & pt) const;
-  double GetLastBackgroundTime() const;
-
   power_management::PowerManager & GetPowerManager() { return m_powerManager; }
 
   // PowerManager::Subscriber override.
   void OnPowerFacilityChanged(power_management::Facility const facility, bool enabled) override;
   void OnPowerSchemeChanged(power_management::Scheme const actualScheme) override;
+
+public:
+  std::optional<products::ProductsConfig> GetProductsConfiguration() const;
+
+  enum class ProductsPopupCloseReason
+  {
+    Close,
+    SelectProduct,
+    AlreadyDonated,
+    RemindLater
+  };
+
+  void DidCloseProductsPopup(ProductsPopupCloseReason reason) const;
+  void DidSelectProduct(products::ProductsConfig::Product const & product) const;
+
+private:
+  bool ShouldShowProducts() const;
+  uint32_t GetTimeoutForReason(ProductsPopupCloseReason reason) const;
+  std::string_view ToString(ProductsPopupCloseReason reason) const;
+  ProductsPopupCloseReason FromString(std::string const & str) const;
 };

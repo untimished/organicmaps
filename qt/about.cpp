@@ -14,14 +14,6 @@
 #include <QtWidgets/QTextBrowser>
 #include <QtWidgets/QVBoxLayout>
 
-#ifdef USE_DESIGNER_VERSION
-  #include "designer_version.h"
-#else
-  #define DESIGNER_APP_VERSION ""
-  #define DESIGNER_CODEBASE_SHA ""
-  #define DESIGNER_DATA_VERSION ""
-#endif // BUILD_DESIGNER
-
 AboutDialog::AboutDialog(QWidget * parent)
   : QDialog(parent, Qt::WindowTitleHint | Qt::WindowSystemMenuHint)
 {
@@ -32,29 +24,24 @@ AboutDialog::AboutDialog(QWidget * parent)
   QLabel * labelIcon = new QLabel();
   labelIcon->setPixmap(icon.pixmap(128));
 
-#ifndef BUILD_DESIGNER
-  // @todo insert version to bundle.
-  QLabel * labelVersion = new QLabel(qAppName());
+  Platform & platform = GetPlatform();
 
-  QHBoxLayout * hBox = new QHBoxLayout();
-  hBox->addWidget(labelIcon);
-  hBox->addWidget(labelVersion);
-#else // BUILD_DESIGNER
   QVBoxLayout * versionBox = new QVBoxLayout();
-  versionBox->addWidget(new QLabel(qAppName()));
-  versionBox->addWidget(new QLabel(QString("Version: ") + DESIGNER_APP_VERSION));
-  versionBox->addWidget(new QLabel(QString("Commit: ") + DESIGNER_CODEBASE_SHA));
-  versionBox->addWidget(new QLabel(QString("Data: ") + DESIGNER_DATA_VERSION));
+  versionBox->addWidget(new QLabel(QCoreApplication::applicationName()));
+  QLabel * versionLabel = new QLabel("Version: " + QString::fromStdString(platform.Version()));
+  versionLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+  versionBox->addWidget(versionLabel);
+  // TODO: insert maps data version.
+  //versionBox->addWidget(new QLabel(QString("Data: ") + DESIGNER_DATA_VERSION));
 
   QHBoxLayout * hBox = new QHBoxLayout();
   hBox->addWidget(labelIcon);
   hBox->addLayout(versionBox);
-#endif
 
   std::string aboutText;
   try
   {
-    ReaderPtr<Reader> reader = GetPlatform().GetReader("copyright.html");
+    ReaderPtr<Reader> reader = platform.GetReader("copyright.html");
     reader.ReadAsString(aboutText);
   }
   catch (RootException const & ex)

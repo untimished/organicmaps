@@ -22,7 +22,7 @@
 #include <utility>
 #include <vector>
 
-namespace
+namespace routing_builder
 {
 using namespace routing;
 
@@ -71,7 +71,7 @@ std::vector<RelationElement::Member> GetMembersByTag(RelationElement const & rel
   }
 
   return result;
-};
+}
 
 OsmElement::EntityType GetType(RelationElement const & relationElement, uint64_t osmId)
 {
@@ -88,17 +88,12 @@ OsmElement::EntityType GetType(RelationElement const & relationElement, uint64_t
   }
 
   UNREACHABLE();
-};
-}  // namespace
+}
 
-namespace routing
-{
 std::string const RestrictionWriter::kNodeString = "node";
 std::string const RestrictionWriter::kWayString = "way";
 
-RestrictionWriter::RestrictionWriter(
-    std::string const & filename,
-    std::shared_ptr<generator::cache::IntermediateDataReaderInterface> const & cache)
+RestrictionWriter::RestrictionWriter(std::string const & filename, IDRInterfacePtr const & cache)
   : generator::CollectorInterface(filename), m_cache(cache)
 {
   m_stream.exceptions(std::fstream::failbit | std::fstream::badbit);
@@ -106,9 +101,8 @@ RestrictionWriter::RestrictionWriter(
   m_stream << std::setprecision(20);
 }
 
-std::shared_ptr<generator::CollectorInterface> RestrictionWriter::Clone(
-    std::shared_ptr<generator::cache::IntermediateDataReaderInterface> const & cache) const
-{ 
+std::shared_ptr<generator::CollectorInterface> RestrictionWriter::Clone(IDRInterfacePtr const & cache) const
+{
   return std::make_shared<RestrictionWriter>(GetFilename(), cache ? cache : m_cache);
 }
 
@@ -180,7 +174,7 @@ void RestrictionWriter::CollectRelation(RelationElement const & relationElement)
       GetType(relationElement, via.back().first) == OsmElement::EntityType::Node ? ViaType::Node
                                                                                  : ViaType::Way;
 
-  auto const printHeader = [&]() { 
+  auto const printHeader = [&]() {
     m_stream << DebugPrint(type) << "," << DebugPrint(viaType) << ",";
   };
 
@@ -222,11 +216,6 @@ void RestrictionWriter::Save()
 
 void RestrictionWriter::OrderCollectedData() { generator::OrderTextFileByLine(GetFilename()); }
 
-void RestrictionWriter::Merge(generator::CollectorInterface const & collector)
-{
-  collector.MergeInto(*this);
-}
-
 void RestrictionWriter::MergeInto(RestrictionWriter & collector) const
 {
   CHECK(!m_stream.is_open() || !collector.m_stream.is_open(), ("Finish() has not been called."));
@@ -243,4 +232,4 @@ std::string DebugPrint(RestrictionWriter::ViaType const & type)
   }
   UNREACHABLE();
 }
-}  // namespace routing
+}  // namespace routing_builder

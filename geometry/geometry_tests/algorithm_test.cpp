@@ -1,11 +1,14 @@
 #include "testing/testing.hpp"
 
 #include "geometry/algorithm.hpp"
+#include "geometry/mercator.hpp"
 
 #include "base/assert.hpp"
 
 #include <vector>
 
+namespace algorithm_test
+{
 using namespace std;
 
 using m2::PointD;
@@ -14,8 +17,6 @@ using m2::CalculatePolyLineCenter;
 using m2::CalculatePointOnSurface;
 using m2::CalculateBoundingBox;
 
-namespace
-{
 PointD GetPolyLineCenter(vector<PointD> const & points)
 {
   return m2::ApplyCalculator(points, m2::CalculatePolyLineCenter());
@@ -35,9 +36,8 @@ PointD GetPointOnSurface(vector<PointD> const & points)
 
 bool PointsAlmostEqual(PointD const & p1, PointD const & p2)
 {
-  return p1.EqualDxDy(p2, 1e-7);
+  return p1.EqualDxDy(p2, mercator::kPointEqualityEps);
 }
-}  // namespace
 
 UNIT_TEST(CalculatePolyLineCenter)
 {
@@ -167,3 +167,4 @@ UNIT_TEST(CalculatePointOnSurface)
          ("result = ", result));
   }
 }
+}  // namespace algorithm_test

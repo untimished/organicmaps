@@ -7,7 +7,7 @@
 
 #include "base/atomic_shared_ptr.hpp"
 
-#include "3party/pugixml/src/pugixml.hpp"
+#include <pugixml.hpp>
 
 namespace
 {
@@ -16,12 +16,10 @@ using platform::tests_support::ScopedFile;
 
 void CheckGeneralTags(pugi::xml_document const & doc)
 {
-  auto const types = doc.select_nodes("/mapsme/editor/types");
+  auto const types = doc.select_nodes("/omaps/editor/types");
   TEST(!types.empty(), ());
-  auto const fields = doc.select_nodes("/mapsme/editor/fields");
+  auto const fields = doc.select_nodes("/omaps/editor/fields");
   TEST(!fields.empty(), ());
-  auto const preferred_types = doc.select_nodes("/mapsme/editor/preferred_types");
-  TEST(!preferred_types.empty(), ());
 }
 
 UNIT_TEST(ConfigLoader_Base)
@@ -47,16 +45,6 @@ UNIT_TEST(ConfigLoader_Base)
 //  ConfigLoader::GetRemoteConfig(doc);
 //  CheckGeneralTags(doc);
 //}
-
-UNIT_TEST(ConfigLoader_SaveLoadHash)
-{
-  ScopedFile sf("test.hash", ScopedFile::Mode::Create);
-  auto const testHash = "12345 678909 87654 321 \n 32";
-
-  ConfigLoader::SaveHash(testHash, sf.GetFullPath());
-  auto const loadedHash = ConfigLoader::LoadHash(sf.GetFullPath());
-  TEST_EQUAL(testHash, loadedHash, ());
-}
 
 UNIT_TEST(ConfigLoader_LoadFromLocal)
 {

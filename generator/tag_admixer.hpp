@@ -23,7 +23,7 @@ public:
   void ParseStream(std::istream & input)
   {
     std::string oneLine;
-    while (std::getline(input, oneLine, '\n'))
+    while (std::getline(input, oneLine))
     {
       // String format: <<id;tag>>.
       auto pos = oneLine.find(';');
@@ -48,20 +48,20 @@ public:
   void ParseStream(std::istream & input)
   {
     std::string oneLine;
-    while (std::getline(input, oneLine, '\n'))
+    while (std::getline(input, oneLine))
     {
       // String format: <<lat;lon;id;is_capital>>.
       // First ';'.
-      auto pos = oneLine.find(";");
+      auto pos = oneLine.find(';');
       if (pos != std::string::npos)
       {
         // Second ';'.
-        pos = oneLine.find(";", pos + 1);
+        pos = oneLine.find(';', pos + 1);
         if (pos != std::string::npos)
         {
           uint64_t nodeId;
           // Third ';'.
-          auto endPos = oneLine.find(";", pos + 1);
+          auto endPos = oneLine.find(';', pos + 1);
           if (endPos != std::string::npos)
           {
             if (strings::to_uint64(oneLine.substr(pos + 1, endPos - pos - 1), nodeId))
@@ -96,20 +96,6 @@ public:
     }
   }
 
-  TagAdmixer(TagAdmixer const & other)
-    : m_ways(other.m_ways), m_capitals(other.m_capitals) {}
-
-  TagAdmixer & operator=(TagAdmixer const & other)
-  {
-    if (this != &other)
-    {
-      m_ways = other.m_ways;
-      m_capitals = other.m_capitals;
-    }
-
-    return *this;
-  }
-
   void Process(OsmElement & element) const
   {
     if (element.m_type == OsmElement::EntityType::Way)
@@ -119,9 +105,10 @@ public:
         return;
 
       // Exclude ferry routes.
+      /// @todo This routine is not used but anyway: what about railway-rail-motor_vehicle or route-shuttle_train?
       static OsmElement::Tag const kFerryTag = {"route", "ferry"};
       auto const & tags = element.Tags();
-      if (std::find(tags.cbegin(), tags.cend(), kFerryTag) == tags.cend())
+      if (!base::IsExist(tags, kFerryTag))
         element.AddTag("highway", it->second);
     }
     else if (element.m_type == OsmElement::EntityType::Node &&
@@ -130,7 +117,7 @@ public:
       // Our goal here - to make some capitals visible in World map.
       // The simplest way is to upgrade population to 45000,
       // according to our visibility rules in mapcss files.
-      element.UpdateTag("population", [] (std::string & v)
+      element.UpdateTagFn("population", [] (std::string & v)
       {
         uint64_t n;
         if (!strings::to_uint64(v, n) || n < 45000)
@@ -147,7 +134,13 @@ private:
 class TagReplacer
 {
 public:
-  using Replacements = std::map<OsmElement::Tag, std::vector<OsmElement::Tag>>;
+  using Tag = OsmElement::Tag;
+  struct ReplaceValue
+  {
+    std::vector<Tag> m_tags;
+    bool m_update;
+  };
+  using Replacements = std::map<Tag, ReplaceValue>;
 
   TagReplacer() = default;
 
@@ -164,68 +157,76 @@ public:
       if (line.empty() || line[0] == '#')
         continue;
 
-      auto keyPos = line.find("=");
+      // find key
+      auto keyPos = line.find('=');
       CHECK(keyPos != std::string::npos, ("Cannot find source tag key in", line));
       auto key = line.substr(0, keyPos);
       strings::Trim(key);
 
-      // Skip '='.
-      ++keyPos;
-      auto valuePos = line.find(" : ", keyPos);
+      // find value
+      auto valuePos = line.find(':', ++keyPos);
       CHECK(valuePos != std::string::npos, ("Cannot find source tag value in", line));
       auto value = line.substr(keyPos, valuePos - keyPos);
       strings::Trim(value);
 
-      // Skip ' : '.
-      valuePos += 3;
-
-      auto rawReplacements = line.substr(valuePos);
-      strings::Trim(rawReplacements);
-      CHECK(!rawReplacements.empty(), ("Empty replacement in", line));
-
-      auto const replacements = strings::Tokenize(rawReplacements, ",");
-      for (auto const & replacement : replacements)
+      // find trailing flag
+      auto endPos = line.find('|', ++valuePos);
+      bool isUpdate = false;
+      if (endPos != std::string::npos)
       {
-        auto kv = strings::Tokenize(replacement, "=");
-        CHECK_EQUAL(kv.size(), 2,
-                    ("Cannot parse replacement tag:", replacement, "in line", lineNumber));
+        // Can check flag value, but no need now ..
+        isUpdate = true;
+      }
+      else
+        endPos = line.size();
+
+      // process replacement pairs
+      CHECK(valuePos != std::string::npos, ("Cannot find source tag value in", line));
+      auto res = m_replacements.emplace(Tag{key, value}, ReplaceValue{{}, isUpdate});
+      CHECK(res.second, ());
+
+      strings::Tokenize(line.substr(valuePos, endPos - valuePos), ",", [&](std::string_view token)
+      {
+        auto kv = strings::Tokenize<std::string>(token, "=");
+        CHECK_EQUAL(kv.size(), 2, ("Cannot parse replacement tag:", token, "in line", lineNumber));
         strings::Trim(kv[0]);
         strings::Trim(kv[1]);
-        m_replacements[{key, value}].emplace_back(kv[0], kv[1]);
-      }
+        res.first->second.m_tags.emplace_back(std::move(kv[0]), std::move(kv[1]));
+      });
     }
-  }
-
-  TagReplacer(TagReplacer const & other) : m_replacements(other.m_replacements) {}
-
-  TagReplacer & operator=(TagReplacer const & other)
-  {
-    if (this != &other)
-      m_replacements = other.m_replacements;
-
-    return *this;
   }
 
   void Process(OsmElement & element) const
   {
-    std::vector<OsmElement::Tag> add;
+    std::vector<ReplaceValue const *> replace;
     base::EraseIf(element.m_tags, [&](auto const & tag)
     {
       auto const it = m_replacements.find(tag);
       if (it != m_replacements.end())
       {
-        for (auto const & replacement : it->second)
-          add.push_back(replacement);
+        replace.push_back(&(it->second));
         return true;
       }
       return false;
     });
 
-    for (auto const & tag : add)
-      element.AddTag(tag);
+    for (auto const & r : replace)
+    {
+      for (auto const & tag : r->m_tags)
+      {
+        if (r->m_update)
+          element.UpdateTag(tag.m_key, tag.m_value);
+        else
+          element.AddTag(tag);
+      }
+    }
   }
 
-  Replacements const & GetReplacementsForTesting() const { return m_replacements; }
+  std::vector<Tag> const * GetTagsForTests(Tag const & key) const
+  {
+    auto const it = m_replacements.find(key);
+    return (it != m_replacements.end() ? &(it->second.m_tags) : nullptr);
+  }
 
 private:
   Replacements m_replacements;
@@ -284,7 +285,7 @@ public:
     if (elements != m_elements.end())
     {
       for (OsmElement::Tag const & tag : elements->second)
-        element.UpdateTag(tag.m_key, [&tag](std::string & v) { v = tag.m_value; });
+        element.UpdateTag(tag.m_key, tag.m_value);
     }
   }
 

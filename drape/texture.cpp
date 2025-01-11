@@ -1,11 +1,5 @@
 #include "drape/texture.hpp"
 
-#include "drape/gl_functions.hpp"
-#include "drape/glsl_func.hpp"
-#include "drape/utils/gpu_mem_tracker.hpp"
-
-#include "base/math.hpp"
-
 #include <glm/gtc/round.hpp>  // glm::isPowerOfTwo
 
 namespace dp
@@ -14,16 +8,13 @@ Texture::ResourceInfo::ResourceInfo(m2::RectF const & texRect) : m_texRect(texRe
 
 m2::RectF const & Texture::ResourceInfo::GetTexRect() const { return m_texRect; }
 
-Texture::~Texture() { Destroy(); }
-
 void Texture::Create(ref_ptr<dp::GraphicsContext> context, Params const & params)
 {
   if (AllocateTexture(context, params.m_allocator))
     m_hwTexture->Create(context, params);
 }
 
-void Texture::Create(ref_ptr<dp::GraphicsContext> context, Params const & params,
-                     ref_ptr<void> data)
+void Texture::Create(ref_ptr<dp::GraphicsContext> context, Params const & params, ref_ptr<void> data)
 {
   if (AllocateTexture(context, params.m_allocator))
     m_hwTexture->Create(context, params, data);
@@ -102,7 +93,7 @@ bool Texture::AllocateTexture(ref_ptr<dp::GraphicsContext> context,
   }
   return false;
 }
-  
+
 ref_ptr<HWTexture> Texture::GetHardwareTexture() const
 {
   return make_ref(m_hwTexture);

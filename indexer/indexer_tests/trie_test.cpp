@@ -19,10 +19,10 @@
 
 #include <boost/utility/binary.hpp>
 
+namespace trie_test
+{
 using namespace std;
 
-namespace
-{
 struct ChildNodeInfo
 {
   ChildNodeInfo(bool isLeaf, uint32_t size, char const * edge) : m_isLeaf(isLeaf), m_size(size)
@@ -33,12 +33,12 @@ struct ChildNodeInfo
 
   uint32_t Size() const { return m_size; }
   bool IsLeaf() const { return m_isLeaf; }
-  uint32_t const * GetEdge() const { return &m_edge[0]; }
+  trie::TrieChar const * GetEdge() const { return &m_edge[0]; }
   size_t GetEdgeSize() const { return m_edge.size(); }
 
   bool m_isLeaf;
   uint32_t m_size;
-  vector<uint32_t> m_edge;
+  vector<trie::TrieChar> m_edge;
 };
 
 // The SingleValueSerializer and ValueList classes are similar to
@@ -108,7 +108,6 @@ public:
 private:
   vector<Value> m_values;
 };
-}  //  namespace
 
 #define ZENC bits::ZigZagEncode
 #define MKSC(x) static_cast<signed char>(x)
@@ -158,16 +157,16 @@ UNIT_TEST(TrieBuilder_WriteNode_Smoke)
 
 UNIT_TEST(TrieBuilder_Build)
 {
-  int const kBase = 3;
+  uint32_t const kBase = 3;
   int const kMaxLen = 3;
 
   vector<string> possibleStrings(1, string{});
   for (int len = 1; len <= kMaxLen; ++len)
   {
-    for (int i = 0, p = static_cast<int>(pow(double{kBase}, len)); i < p; ++i)
+    for (uint32_t i = 0, p = base::PowUint(kBase, len); i < p; ++i)
     {
       string s(len, 'A');
-      int t = i;
+      uint32_t t = i;
       for (int l = len - 1; l >= 0; --l, t /= kBase)
         s[l] += (t % kBase);
       possibleStrings.push_back(s);
@@ -223,3 +222,5 @@ UNIT_TEST(TrieBuilder_Build)
     }
   }
 }
+
+} // namespace trie_test

@@ -94,6 +94,10 @@ public:
   bool GetRouteAltitudesAndDistancesM(std::vector<double> & routeSegDistanceM,
                                       geometry::Altitudes & routeAltitudesM) const;
 
+  /// \brief returns coordinates of route junctions.
+  /// \returns true if there is valid route information. If the route is not valid returns false.
+  bool GetRouteJunctionPoints(std::vector<m2::PointD> & routeJunctionPoints) const;
+
   SessionState OnLocationPositionChanged(location::GpsInfo const & info);
   void GetRouteFollowingInfo(FollowingInfo & info) const;
 
@@ -135,7 +139,7 @@ public:
   void SetSpeedCamClearCallback(SpeedCameraClearCallback && callback);
 
   // Sound notifications for turn instructions.
-  void GenerateNotifications(std::vector<std::string> & notifications);
+  void GenerateNotifications(std::vector<std::string> & notifications, bool announceStreets);
   void EnableTurnNotifications(bool enable);
   void SetTurnNotificationsUnits(measurement_utils::Units const units);
   void SetTurnNotificationsLocale(std::string const & locale);
@@ -161,11 +165,14 @@ public:
 
   void AssignRouteForTesting(std::shared_ptr<Route> route, RouterResultCode e) { AssignRoute(route, e); }
 
-  bool IsSpeedLimitExceeded() const { return m_speedCameraManager.IsSpeedLimitExceeded(); }
+  bool IsSpeedCamLimitExceeded() const { return m_speedCameraManager.IsSpeedLimitExceeded(); }
   SpeedCameraManager & GetSpeedCamManager() { return m_speedCameraManager; }
   SpeedCameraManager const & GetSpeedCamManager() const { return m_speedCameraManager; }
 
   std::shared_ptr<Route> GetRouteForTests() const { return m_route; }
+  void SetGuidesForTests(GuidesTracks guides) { m_router->SetGuidesTracks(std::move(guides)); }
+
+  double GetCompletionPercent() const;
 
 private:
   struct DoReadyCallback
@@ -177,15 +184,14 @@ private:
         : m_rs(rs), m_callback(cb)
     {}
 
-    void operator()(std::shared_ptr<Route> route, RouterResultCode e);
+    void operator()(std::shared_ptr<Route> const & route, RouterResultCode e);
   };
 
-  void AssignRoute(std::shared_ptr<Route> route, RouterResultCode e);
+  void AssignRoute(std::shared_ptr<Route> const & route, RouterResultCode e);
   /// RemoveRoute() removes m_route and resets route attributes (m_lastDistance, m_moveAwayCounter).
   void RemoveRoute();
   void RebuildRouteOnTrafficUpdate();
 
-  double GetCompletionPercent() const;
   void PassCheckpoints();
 
 private:

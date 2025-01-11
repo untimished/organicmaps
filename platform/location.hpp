@@ -1,6 +1,7 @@
 #pragma once
 
 #include "geometry/point2d.hpp"
+#include "geometry/latlon.hpp"
 
 #include "base/base.hpp"
 
@@ -17,7 +18,9 @@ namespace location
     ENoError = 0,
     ENotSupported,
     EDenied,
-    EGPSIsOff
+    EGPSIsOff,
+    ETimeout, // Only used on Qt https://doc.qt.io/qt-6/qgeopositioninfosource.html#Error-enum
+    EUnknown
   };
 
   enum TLocationSource
@@ -28,6 +31,7 @@ namespace location
     EAndroidNative,
     EGoogle,
     ETizen, // Deprecated but left here for backward compatibility.
+    EGeoClue2,
     EPredictor,
     EUser
   };
@@ -51,36 +55,13 @@ namespace location
     double m_altitude = 0.0;              //!< metres
     double m_verticalAccuracy = -1.0;     //!< metres
     double m_bearing = -1.0;              //!< positive degrees from the true North
-    double m_speedMpS = -1.0;             //!< metres per second
+    double m_speed = -1.0;                //!< metres per second
 
     bool IsValid() const { return m_source != EUndefined; }
     bool HasBearing() const { return m_bearing >= 0.0; }
-    bool HasSpeed() const { return m_speedMpS >= 0.0; }
+    bool HasSpeed() const { return m_speed >= 0.0; }
     bool HasVerticalAccuracy() const { return m_verticalAccuracy >= 0.0; }
-  };
-
-  /// GpsTrackInfo struct describes a point for GPS tracking
-  /// It is similar to the GpsInfo but contains only needed fields.
-  struct GpsTrackInfo
-  {
-    double m_timestamp; //!< seconds from 1st Jan 1970
-    double m_latitude;  //!< degrees
-    double m_longitude; //!< degrees
-    double m_speed;     //!< meters per second
-
-    GpsTrackInfo() = default;
-    GpsTrackInfo(GpsTrackInfo const &) = default;
-    GpsTrackInfo & operator=(GpsTrackInfo const &) = default;
-    GpsTrackInfo(GpsInfo const & info)
-      : m_timestamp(info.m_timestamp)
-      , m_latitude(info.m_latitude)
-      , m_longitude(info.m_longitude)
-      , m_speed(info.m_speedMpS)
-    {}
-    GpsTrackInfo & operator=(GpsInfo const & info)
-    {
-      return operator=(GpsTrackInfo(info));
-    }
+    ms::LatLon GetLatLon() const { return {m_latitude, m_longitude}; }
   };
 
   class CompassInfo

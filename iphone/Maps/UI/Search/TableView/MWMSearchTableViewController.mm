@@ -6,14 +6,11 @@
 
 #include "platform/localization.hpp"
 
+#include "search/result.hpp"
+
 namespace {
 NSString *GetLocalizedTypeName(search::Result const &result) {
-  if (result.GetResultType() != search::Result::Type::Feature)
-    return @"";
-
-  auto const readableType = classif().GetReadableObjectName(result.GetFeatureType());
-
-  return @(platform::GetLocalizedTypeName(readableType).c_str());
+  return @(result.GetLocalizedFeatureType().c_str());
 }
 }
 
@@ -81,28 +78,26 @@ NSString *GetLocalizedTypeName(search::Result const &result) {
     NSAssert(false, @"Invalid reload with outdated SearchIndex");
     return [tableView dequeueReusableCellWithCellClass:[MWMSearchCommonCell class] indexPath:indexPath];
   }
+
   auto const row = indexPath.row;
   auto const containerIndex = [MWMSearch containerIndexWithRow:row];
-  switch ([MWMSearch resultTypeWithRow:row]) {
-    case MWMSearchItemTypeRegular: {
-      auto cell =
-        static_cast<MWMSearchCommonCell *>([tableView dequeueReusableCellWithCellClass:[MWMSearchCommonCell class]
-                                                                             indexPath:indexPath]);
-      auto const &result = [MWMSearch resultWithContainerIndex:containerIndex];
-      auto const &productInfo = [MWMSearch productInfoWithContainerIndex:containerIndex];
-      auto const typeName = GetLocalizedTypeName(result);
-      [cell config:result productInfo:productInfo
-        localizedTypeName:typeName];
+  auto const & result = [MWMSearch resultWithContainerIndex:containerIndex];
+
+  switch ([MWMSearch resultTypeWithRow:row])
+  {
+    case MWMSearchItemTypeRegular:
+    {
+      auto cell = static_cast<MWMSearchCommonCell *>(
+        [tableView dequeueReusableCellWithCellClass:[MWMSearchCommonCell class] indexPath:indexPath]);
+      auto const & productInfo = [MWMSearch productInfoWithContainerIndex:containerIndex];
+      [cell config:result productInfo:productInfo localizedTypeName:GetLocalizedTypeName(result)];
       return cell;
     }
-    case MWMSearchItemTypeMopub:
-    case MWMSearchItemTypeFacebook: {
-    }
-    case MWMSearchItemTypeSuggestion: {
+    case MWMSearchItemTypeSuggestion:
+    {
       auto cell = static_cast<MWMSearchSuggestionCell *>(
         [tableView dequeueReusableCellWithCellClass:[MWMSearchSuggestionCell class] indexPath:indexPath]);
-      auto const &suggestion = [MWMSearch resultWithContainerIndex:containerIndex];
-      [cell config:suggestion localizedTypeName:@""];
+      [cell config:result localizedTypeName:@""];
       cell.isLastCell = row == [MWMSearch suggestionsCount] - 1;
       return cell;
     }
@@ -115,21 +110,22 @@ NSString *GetLocalizedTypeName(search::Result const &result) {
   id<MWMSearchTableViewProtocol> delegate = self.delegate;
   auto const row = indexPath.row;
   auto const containerIndex = [MWMSearch containerIndexWithRow:row];
-  switch ([MWMSearch resultTypeWithRow:row]) {
-    case MWMSearchItemTypeRegular: {
-      SearchTextField *textField = delegate.searchTextField;
+  auto const & result = [MWMSearch resultWithContainerIndex:containerIndex];
+
+  switch ([MWMSearch resultTypeWithRow:row])
+  {
+    case MWMSearchItemTypeRegular:
+    {
+      SearchTextField const * textField = delegate.searchTextField;
       [MWMSearch saveQuery:textField.text forInputLocale:textField.textInputMode.primaryLanguage];
-      auto const &result = [MWMSearch resultWithContainerIndex:containerIndex];
       [delegate processSearchWithResult:result];
       break;
     }
-    case MWMSearchItemTypeMopub:
-    case MWMSearchItemTypeFacebook:
+    case MWMSearchItemTypeSuggestion:
+    {
+      [delegate searchText:@(result.GetSuggestionString().c_str()) forInputLocale:nil
+              withCategory:result.GetResultType() == search::Result::Type::PureSuggest];
       break;
-    case MWMSearchItemTypeSuggestion: {
-      auto const &suggestion = [MWMSearch resultWithContainerIndex:containerIndex];
-      NSString *suggestionString = @(suggestion.GetSuggestionString().c_str());
-      [delegate searchText:suggestionString forInputLocale:nil];
     }
   }
 }

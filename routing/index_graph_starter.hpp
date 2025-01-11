@@ -2,36 +2,34 @@
 
 #include "routing/base/astar_graph.hpp"
 #include "routing/base/astar_vertex_data.hpp"
-#include "routing/base/routing_result.hpp"
 #include "routing/fake_ending.hpp"
 #include "routing/fake_feature_ids.hpp"
 #include "routing/fake_graph.hpp"
 #include "routing/fake_vertex.hpp"
 #include "routing/guides_graph.hpp"
 #include "routing/index_graph.hpp"
-#include "routing/joint.hpp"
 #include "routing/latlon_with_altitude.hpp"
-#include "routing/route_point.hpp"
 #include "routing/route_weight.hpp"
 #include "routing/segment.hpp"
 #include "routing/world_graph.hpp"
 
 #include "routing_common/num_mwm_id.hpp"
 
-#include <cstddef>
-#include <cstdint>
-#include <functional>
-#include <limits>
-#include <map>
 #include <memory>
 #include <set>
-#include <utility>
 #include <vector>
 
 namespace routing
 {
 class FakeEdgesContainer;
 class RegionsSparseGraph;
+
+// Group highway types on categories (classes) to use in leaps candidates filtering.
+enum class HighwayCategory : uint8_t
+{
+  // Do not change order!
+  Major, Primary, Usual, Minor, Transit, Unknown
+};
 
 // IndexGraphStarter adds fake start and finish vertices for AStarAlgorithm.
 class IndexGraphStarter : public AStarGraph<IndexGraph::Vertex, IndexGraph::Edge, IndexGraph::Weight>
@@ -46,11 +44,10 @@ public:
   friend class FakeEdgesContainer;
 
   static void CheckValidRoute(std::vector<Segment> const & segments);
-  static size_t GetRouteNumPoints(std::vector<Segment> const & route);
 
   static bool IsFakeSegment(Segment const & segment)
   {
-    return segment.GetFeatureId() == kFakeFeatureId;
+    return segment.IsFakeCreated();
   }
 
   static bool IsGuidesSegment(Segment const & segment)
@@ -91,15 +88,12 @@ public:
 
   uint32_t GetNumFakeSegments() const
   {
-    // Maximal number of fake segments in fake graph is numeric_limits<uint32_t>::max()
-    // because segment idx type is uint32_t.
-    CHECK_LESS_OR_EQUAL(m_fake.GetSize(), std::numeric_limits<uint32_t>::max(), ());
-    return static_cast<uint32_t>(m_fake.GetSize());
+    return base::checked_cast<uint32_t>(m_fake.GetSize());
   }
 
   std::set<NumMwmId> GetMwms() const;
-  std::set<NumMwmId> GetStartMwms() const;
-  std::set<NumMwmId> GetFinishMwms() const;
+  std::set<NumMwmId> const & GetStartMwms() const { return m_start.m_mwmIds; }
+  std::set<NumMwmId> const & GetFinishMwms() const { return m_finish.m_mwmIds; }
 
   // Checks whether |weight| meets non-pass-through crossing restrictions according to placement of
   // start and finish in pass-through/non-pass-through area and number of non-pass-through crosses.
@@ -146,7 +140,7 @@ public:
   bool AreWavesConnectible(Parents<Segment> & forwardParents, Vertex const & commonVertex,
                            Parents<Segment> & backwardParents) override
   {
-    return m_graph.AreWavesConnectible(forwardParents, commonVertex, backwardParents, nullptr);
+    return m_graph.AreWavesConnectible(forwardParents, commonVertex, backwardParents);
   }
 
   RouteWeight GetAStarWeightEpsilon() override;
@@ -168,8 +162,8 @@ public:
   double CalculateETA(Segment const & from, Segment const & to) const;
   double CalculateETAWithoutPenalty(Segment const & segment) const;
 
-  // For compatibility with IndexGraphStarterJoints
-  // @{
+  /// @name For compatibility with IndexGraphStarterJoints.
+  /// @{
   void SetAStarParents(bool forward, Parents<JointSegment> & parents)
   {
     m_graph.SetAStarParents(forward, parents);
@@ -177,10 +171,9 @@ public:
 
   bool AreWavesConnectible(Parents<JointSegment> & forwardParents, JointSegment const & commonVertex,
                            Parents<JointSegment> & backwardParents,
-                           std::function<uint32_t(JointSegment const &)> && fakeFeatureConverter)
+                           WorldGraph::FakeConverterT const & fakeFeatureConverter)
   {
-    return m_graph.AreWavesConnectible(forwardParents, commonVertex, backwardParents,
-                                       std::move(fakeFeatureConverter));
+    return m_graph.AreWavesConnectible(forwardParents, commonVertex, backwardParents, fakeFeatureConverter);
   }
 
   bool IsJoint(Segment const & segment, bool fromStart)
@@ -192,7 +185,12 @@ public:
   {
     return GetGraph().GetIndexGraph(segment.GetMwmId()).IsJointOrEnd(segment, fromStart);
   }
-  // @}
+
+  RouteWeight GetCrossBorderPenalty(NumMwmId mwmId1, NumMwmId mwmId2)
+  {
+    return GetGraph().GetCrossBorderPenalty(mwmId1, mwmId2);
+  }
+  /// @}
 
   // Start or finish ending information.
   struct Ending
@@ -206,9 +204,6 @@ public:
     std::set<NumMwmId> m_mwmIds;
   };
 
-  Ending const & GetStartEnding() const { return m_start; }
-  Ending const & GetFinishEnding() const { return m_finish; }
-
   uint32_t GetFakeNumerationStart() const { return m_fakeNumerationStart; }
 
   // Creates fake edges for guides fake ending and adds them to the fake graph.
@@ -218,7 +213,7 @@ public:
                                   LatLonWithAltitude realFrom, LatLonWithAltitude realTo,
                                   std::vector<std::pair<FakeVertex, Segment>> const & partsOfReal);
 
-  ~IndexGraphStarter() override = default;
+  HighwayCategory GetHighwayCategory(Segment seg) const;
 
 private:
   // Creates fake edges for fake ending and adds it to fake graph. |otherEnding| is used to
@@ -231,7 +226,7 @@ private:
     // We currently ignore |isForward| and use FakeGraph to get ingoing/outgoing.
     // But all fake segments are oneway and placement of segment head and tail
     // correspond forward direction.
-    return Segment(kFakeNumMwmId, kFakeFeatureId, segmentIdx, true /* isForward */);
+    return Segment(kFakeNumMwmId, FakeFeatureIds::kIndexGraphStarterId, segmentIdx, true /* isForward */);
   }
 
   Segment GetFakeSegmentAndIncr();
@@ -250,7 +245,6 @@ private:
   // Checks whether ending belongs to non-pass-through zone (service, living street, etc).
   bool HasNoPassThroughAllowed(Ending const & ending) const;
 
-  static uint32_t constexpr kFakeFeatureId = FakeFeatureIds::kIndexGraphStarterId;
   WorldGraph & m_graph;
   // Start segment id
   Ending m_start;

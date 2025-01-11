@@ -1,7 +1,7 @@
 #pragma once
+#include "edits.hpp"
 
 #include "search/result.hpp"
-#include "search/search_quality/assessment_tool/edits.hpp"
 #include "search/search_quality/sample.hpp"
 
 #include "geometry/point2d.hpp"
@@ -33,11 +33,11 @@ public:
   void OnSearchStarted();
   void OnSearchCompleted();
 
-  void AddFoundResults(search::Results::ConstIter begin, search::Results::ConstIter end);
+  void AddFoundResults(search::Results const & results);
   void ShowNonFoundResults(std::vector<search::Sample::Result> const & results,
                            std::vector<ResultsEdits::Entry> const & entries);
 
-  void ShowFoundResultsMarks(search::Results::ConstIter begin, search::Results::ConstIter end);
+  void ShowFoundResultsMarks(search::Results const & results);
   void ShowNonFoundResultsMarks(std::vector<search::Sample::Result> const & results,
                                 std::vector<ResultsEdits::Entry> const & entries);
   void ClearSearchResultMarks();

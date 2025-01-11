@@ -1,24 +1,9 @@
 #include "map/user_mark_layer.hpp"
-#include "map/search_mark.hpp"
 
-#include "drape_frontend/drape_engine.hpp"
-#include "drape_frontend/tile_key.hpp"
-
-#include "base/macros.hpp"
-#include "base/scope_guard.hpp"
-#include "base/stl_helpers.hpp"
-
-#include <algorithm>
-#include <utility>
 
 UserMarkLayer::UserMarkLayer(UserMark::Type type)
   : m_type(type)
 {
-}
-
-UserMarkLayer::~UserMarkLayer()
-{
-  Clear();
 }
 
 bool UserMarkLayer::IsVisible() const
@@ -52,7 +37,7 @@ void UserMarkLayer::SetIsVisible(bool isVisible)
 {
   if (m_isVisible != isVisible)
   {
-    SetDirty();
+    SetDirty(false /* updateModificationDate */);
     m_isVisible = isVisible;
   }
 }

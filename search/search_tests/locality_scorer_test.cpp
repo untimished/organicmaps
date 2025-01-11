@@ -6,12 +6,10 @@
 #include "search/geocoder_context.hpp"
 #include "search/ranking_utils.hpp"
 
-#include "indexer/search_delimiters.hpp"
 #include "indexer/search_string_utils.hpp"
 
 #include "coding/compressed_bit_vector.hpp"
 
-#include "base/assert.hpp"
 #include "base/mem_trie.hpp"
 #include "base/stl_helpers.hpp"
 #include "base/string_utils.hpp"
@@ -24,12 +22,12 @@
 #include <unordered_map>
 #include <vector>
 
+namespace locality_scorer_test
+{
 using namespace search;
 using namespace std;
 using namespace strings;
 
-namespace
-{
 class LocalityScorerTest : public LocalityScorer::Delegate
 {
 public:
@@ -52,28 +50,20 @@ public:
     m_scorer.SetPivotForTesting(pivot);
 
     vector<UniString> tokens;
-    Delimiters delims;
-    SplitUniString(NormalizeAndSimplifyString(query), base::MakeBackInsertFunctor(tokens), delims);
-    // We remove stop words from query in processor.
-    base::EraseIf(tokens, &IsStopWord);
+    search::ForEachNormalizedToken(query, [&tokens](strings::UniString && token)
+    {
+      if (!IsStopWord(token))
+        tokens.push_back(std::move(token));
+    });
 
-    if (lastTokenIsPrefix)
-    {
-      CHECK(!tokens.empty(), ());
-      m_params.InitWithPrefix(tokens.begin(), tokens.end() - 1, tokens.back());
-    }
-    else
-    {
-      m_params.InitNoPrefix(tokens.begin(), tokens.end());
-    }
+    m_params.Init(query, tokens, lastTokenIsPrefix);
   }
 
   void AddLocality(string const & name, uint32_t featureId, uint8_t rank = 0,
                    m2::PointD const & center = {}, bool belongsToMatchedRegion = false)
   {
     set<UniString> tokens;
-    Delimiters delims;
-    SplitUniString(NormalizeAndSimplifyString(name), base::MakeInsertFunctor(tokens), delims);
+    SplitUniString(NormalizeAndSimplifyString(name), base::MakeInsertFunctor(tokens), Delimiters());
 
     for (auto const & token : tokens)
       m_searchIndex.Add(token, featureId);
@@ -87,10 +77,10 @@ public:
   Ids GetTopLocalities(size_t limit)
   {
     BaseContext ctx;
-    ctx.m_tokens.assign(m_params.GetNumTokens(), BaseContext::TOKEN_TYPE_COUNT);
-    ctx.m_numTokens = m_params.GetNumTokens();
+    size_t const numTokens = m_params.GetNumTokens();
+    ctx.m_tokens.assign(numTokens, BaseContext::TOKEN_TYPE_COUNT);
 
-    for (size_t i = 0; i < m_params.GetNumTokens(); ++i)
+    for (size_t i = 0; i < numTokens; ++i)
     {
       auto const & token = m_params.GetToken(i);
       bool const isPrefixToken = m_params.IsPrefixToken(i);
@@ -124,7 +114,7 @@ public:
 
     Ids ids;
     for (auto const & locality : localities)
-      ids.push_back(locality.m_featureId);
+      ids.push_back(locality.GetFeatureIndex());
     return ids;
   }
 
@@ -164,7 +154,6 @@ protected:
 
   base::MemTrie<UniString, base::VectorValues<uint32_t>> m_searchIndex;
 };
-}  // namespace
 
 UNIT_CLASS_TEST(LocalityScorerTest, Smoke)
 {
@@ -344,3 +333,4 @@ UNIT_CLASS_TEST(LocalityScorerTest, MatchedRegion)
   TEST_EQUAL(GetTopLocalities(3 /* limit */),
              Ids({ID_SPRINGFIELD_MATCHED_REGION, ID_SPRINGFIELD_CLOSE, ID_SPRINGFIELD_RANK1}), ());
 }
+}  // namespace locality_scorer_test

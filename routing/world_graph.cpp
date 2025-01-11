@@ -1,6 +1,5 @@
 #include "routing/world_graph.hpp"
 
-#include <map>
 
 namespace routing
 {
@@ -38,7 +37,17 @@ bool WorldGraph::IsRoutingOptionsGood(Segment const & /* segment */)
   return true;
 }
 
-std::vector<RouteSegment::SpeedCamera> WorldGraph::GetSpeedCamInfo(Segment const & segment)
+std::unique_ptr<TransitInfo> WorldGraph::GetTransitInfo(Segment const &)
+{
+  return nullptr;
+}
+
+std::vector<RouteSegment::SpeedCamera> WorldGraph::GetSpeedCamInfo(Segment const &)
+{
+  return {};
+}
+
+SpeedInUnits WorldGraph::GetSpeedLimit(Segment const &)
 {
   return {};
 }
@@ -48,30 +57,32 @@ void WorldGraph::SetAStarParents(bool forward, Parents<JointSegment> & parents) 
 void WorldGraph::DropAStarParents() {}
 
 bool WorldGraph::AreWavesConnectible(Parents<Segment> & forwardParents, Segment const & commonVertex,
-                                     Parents<Segment> & backwardParents,
-                                     std::function<uint32_t(Segment const &)> && fakeFeatureConverter)
+                                     Parents<Segment> & backwardParents)
 {
   return true;
 }
 
 bool WorldGraph::AreWavesConnectible(Parents<JointSegment> & forwardParents, JointSegment const & commonVertex,
                                      Parents<JointSegment> & backwardParents,
-                                     std::function<uint32_t(JointSegment const &)> && fakeFeatureConverter)
+                                     FakeConverterT const & fakeFeatureConverter)
 {
   return true;
 }
 
 void WorldGraph::SetRoutingOptions(RoutingOptions /* routingOption */) {}
 
-std::vector<Segment> const & WorldGraph::GetTransitions(NumMwmId numMwmId, bool isEnter)
+void WorldGraph::ForEachTransition(NumMwmId numMwmId, bool isEnter, TransitionFnT const & fn)
 {
-  static std::vector<Segment> const kEmpty;
-  return kEmpty;
 }
 
 CrossMwmGraph & WorldGraph::GetCrossMwmGraph()
 {
   UNREACHABLE();
+}
+
+RouteWeight WorldGraph::GetCrossBorderPenalty(NumMwmId mwmId1, NumMwmId mwmId2)
+{
+  return RouteWeight(0);
 }
 
 std::string DebugPrint(WorldGraphMode mode)

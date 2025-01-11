@@ -1,9 +1,9 @@
 #include "parse_opening_hours.hpp"
 #include "opening_hours_parsers.hpp"
 
-#include <boost/spirit/include/phoenix_bind.hpp>
-#include <boost/spirit/include/phoenix_operator.hpp>  // operator,
-#include <boost/spirit/include/phoenix_stl.hpp>
+#include <boost/phoenix/bind.hpp>
+#include <boost/phoenix/operator.hpp>  // operator,
+#include <boost/phoenix/stl.hpp>
 
 namespace osmoh
 {
@@ -90,8 +90,8 @@ namespace parsing
          [bind(&RuleSequence::SetModifier, _r1, Modifier::Unknown)] >>
          -(comment [bind(&RuleSequence::SetModifierComment, _r1, _1)]))
 
-      | comment    [bind(&RuleSequence::SetModifier, _r1, Modifier::Comment),
-                    bind(&RuleSequence::SetModifierComment, _r1, _1)]
+      | comment    [(bind(&RuleSequence::SetModifier, _r1, Modifier::Comment),
+                     bind(&RuleSequence::SetModifierComment, _r1, _1))]
       ;
 
       rule_sequence =

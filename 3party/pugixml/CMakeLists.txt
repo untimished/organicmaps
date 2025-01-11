@@ -1,13 +1,11 @@
 project(pugixml)
 
-include_directories(src)
-
-set(
-  SRC
-  src/pugiconfig.hpp
-  src/pugixml.cpp
-  src/pugixml.hpp
-  src/utils.hpp
+set(SRC
+  pugixml/src/pugiconfig.hpp
+  pugixml/src/pugixml.cpp
+  pugixml/src/pugixml.hpp
 )
 
 add_library(${PROJECT_NAME} ${SRC})
+
+target_include_directories(${PROJECT_NAME} PUBLIC pugixml/src)

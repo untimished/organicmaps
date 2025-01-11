@@ -1,8 +1,8 @@
 #include "parse_opening_hours.hpp"
 #include "opening_hours_parsers.hpp"
 
-#include <boost/spirit/include/phoenix_bind.hpp>
-#include <boost/spirit/include/phoenix_operator.hpp>  // operator,
+#include <boost/phoenix/bind.hpp>
+#include <boost/phoenix/operator.hpp>  // operator,
 
 namespace osmoh
 {
@@ -18,11 +18,11 @@ namespace osmoh
       using qi::_val;
       using osmoh::WeekRange;
 
-      week = (weeknum >> dash >> weeknum >> '/' >> uint_) [bind(&WeekRange::SetStart, _val, _1),
-                                                           bind(&WeekRange::SetEnd, _val, _2),
-                                                           bind(&WeekRange::SetPeriod, _val, _3)]
-      | (weeknum >> dash >> weeknum) [bind(&WeekRange::SetStart, _val, _1),
-                                      bind(&WeekRange::SetEnd, _val, _2)]
+      week = (weeknum >> dash >> weeknum >> '/' >> uint_) [(bind(&WeekRange::SetStart, _val, _1),
+                                                            bind(&WeekRange::SetEnd, _val, _2),
+                                                            bind(&WeekRange::SetPeriod, _val, _3))]
+      | (weeknum >> dash >> weeknum) [(bind(&WeekRange::SetStart, _val, _1),
+                                       bind(&WeekRange::SetEnd, _val, _2))]
       | weeknum                      [bind(&WeekRange::SetStart, _val, _1)]
       ;
 

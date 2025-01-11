@@ -3,6 +3,8 @@
 #import "MWMCircularProgress.h"
 #import "SwiftBridge.h"
 
+static NSString * const kUDDidHighlightRouteToButton = @"kUDDidHighlightPoint2PointButton";
+
 NSString *titleForButton(MWMActionBarButtonType type, BOOL isSelected) {
   switch (type) {
     case MWMActionBarButtonTypeDownload:
@@ -15,13 +17,12 @@ NSString *titleForButton(MWMActionBarButtonType type, BOOL isSelected) {
     case MWMActionBarButtonTypeCall:
       return L(@"placepage_call_button");
     case MWMActionBarButtonTypeBookmark:
+    case MWMActionBarButtonTypeTrack:
       return L(isSelected ? @"delete" : @"save");
     case MWMActionBarButtonTypeRouteFrom:
       return L(@"p2p_from_here");
     case MWMActionBarButtonTypeRouteTo:
       return L(@"p2p_to_here");
-    case MWMActionBarButtonTypeShare:
-      return L(@"share");
     case MWMActionBarButtonTypeMore:
       return L(@"placepage_more_button");
     case MWMActionBarButtonTypeRouteAddStop:
@@ -29,11 +30,11 @@ NSString *titleForButton(MWMActionBarButtonType type, BOOL isSelected) {
     case MWMActionBarButtonTypeRouteRemoveStop:
       return L(@"placepage_remove_stop");
     case MWMActionBarButtonTypeAvoidToll:
-      return L(@"avoid_toll_roads_placepage");
+      return L(@"avoid_tolls");
     case MWMActionBarButtonTypeAvoidDirty:
-      return L(@"avoid_unpaved_roads_placepage");
+      return L(@"avoid_unpaved");
     case MWMActionBarButtonTypeAvoidFerry:
-      return L(@"avoid_ferry_crossing_placepage");
+      return L(@"avoid_ferry");
   }
 }
 
@@ -53,6 +54,8 @@ NSString *titleForButton(MWMActionBarButtonType type, BOOL isSelected) {
 - (void)configButton:(BOOL)isSelected enabled:(BOOL)isEnabled {
   self.label.text = titleForButton(self.type, isSelected);
   self.extraBackground.hidden = YES;
+  self.button.coloring = MWMButtonColoringBlack;
+  
   switch (self.type) {
     case MWMActionBarButtonTypeDownload: {
       if (self.mapDownloadProgress)
@@ -101,14 +104,17 @@ NSString *titleForButton(MWMActionBarButtonType type, BOOL isSelected) {
     case MWMActionBarButtonTypeBookmark:
       [self setupBookmarkButton:isSelected];
       break;
+    case MWMActionBarButtonTypeTrack:
+      [self.button setImage:[[UIImage imageNamed:@"ic_route_manager_trash"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] forState:UIControlStateNormal];
+      self.button.coloring = MWMButtonColoringRed;
+      break;
     case MWMActionBarButtonTypeRouteFrom:
       [self.button setImage:[UIImage imageNamed:@"ic_route_from"] forState:UIControlStateNormal];
       break;
     case MWMActionBarButtonTypeRouteTo:
       [self.button setImage:[UIImage imageNamed:@"ic_route_to"] forState:UIControlStateNormal];
-      break;
-    case MWMActionBarButtonTypeShare:
-      [self.button setImage:[UIImage imageNamed:@"ic_menu_share"] forState:UIControlStateNormal];
+      if ([self needsToHighlightRouteToButton])
+        self.button.coloring = MWMButtonColoringBlue;
       break;
     case MWMActionBarButtonTypeMore:
       [self.button setImage:[UIImage imageNamed:@"ic_placepage_more"] forState:UIControlStateNormal];
@@ -129,6 +135,7 @@ NSString *titleForButton(MWMActionBarButtonType type, BOOL isSelected) {
       [self.button setImage:[UIImage imageNamed:@"ic_avoid_ferry"] forState:UIControlStateNormal];
       break;
   }
+  
   self.button.enabled = isEnabled;
 }
 
@@ -148,18 +155,29 @@ NSString *titleForButton(MWMActionBarButtonType type, BOOL isSelected) {
 }
 
 - (IBAction)tap {
-  if (self.type == MWMActionBarButtonTypeBookmark)
-    [self setBookmarkSelected:!self.button.isSelected];
-
+  if (self.type == MWMActionBarButtonTypeRouteTo)
+    [self disableRouteToButtonHighlight];
+  
   [self.delegate tapOnButtonWithType:self.type];
 }
 
-- (void)setBookmarkSelected:(BOOL)isSelected {
-  if (isSelected)
-    [self.button.imageView startAnimating];
-
-  self.button.selected = isSelected;
-  self.label.text = L(isSelected ? @"delete" : @"save");
+- (void)setBookmarkButtonState:(MWMBookmarksButtonState)state {
+  switch (state) {
+    case MWMBookmarksButtonStateSave:
+      self.label.text = L(@"save");
+      self.button.selected = false;
+      break;
+    case MWMBookmarksButtonStateDelete:
+      self.label.text = L(@"delete");
+      if (!self.button.selected)
+        [self.button.imageView startAnimating];
+      self.button.selected = true;
+      break;
+    case MWMBookmarksButtonStateRecover:
+      self.label.text = L(@"restore");
+      self.button.selected = false;
+      break;
+  }
 }
 
 - (void)setupBookmarkButton:(BOOL)isSelected {
@@ -169,7 +187,7 @@ NSString *titleForButton(MWMActionBarButtonType type, BOOL isSelected) {
   [btn setImage:[UIImage imageNamed:@"ic_bookmarks_on"] forState:UIControlStateHighlighted];
   [btn setImage:[UIImage imageNamed:@"ic_bookmarks_on"] forState:UIControlStateDisabled];
 
-  [self setBookmarkSelected:isSelected];
+  [btn setSelected:isSelected];
 
   NSUInteger const animationImagesCount = 11;
   NSMutableArray *animationImages = [NSMutableArray arrayWithCapacity:animationImagesCount];
@@ -180,6 +198,27 @@ NSString *titleForButton(MWMActionBarButtonType type, BOOL isSelected) {
   UIImageView *animationIV = btn.imageView;
   animationIV.animationImages = animationImages;
   animationIV.animationRepeatCount = 1;
+}
+
+- (BOOL)needsToHighlightRouteToButton {
+  return ![NSUserDefaults.standardUserDefaults boolForKey:kUDDidHighlightRouteToButton];
+}
+
+- (void)disableRouteToButtonHighlight {
+  [NSUserDefaults.standardUserDefaults setBool:true forKey:kUDDidHighlightRouteToButton];
+}
+
+- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
+  [super traitCollectionDidChange:previousTraitCollection];
+  if (@available(iOS 13.0, *)) {
+    if ([self.traitCollection hasDifferentColorAppearanceComparedToTraitCollection:previousTraitCollection])
+      // Update button for the current selection state.
+      [self.button setSelected:self.button.isSelected];
+  }
+}
+
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+  return [self pointInside:point withEvent:event] ? self.button : nil;
 }
 
 @end

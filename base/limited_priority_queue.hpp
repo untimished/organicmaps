@@ -1,6 +1,5 @@
 #pragma once
 
-#include "base/base.hpp"
 #include "base/assert.hpp"
 
 #include <algorithm>
@@ -22,18 +21,18 @@ public:
   {
   }
 
-  void push(T const & t)
+  void push(T t)
   {
     if (m_queue.size() < m_maxSize)
     {
-      m_queue.push_back(t);
+      m_queue.push_back(std::move(t));
       push_heap(m_queue.begin(), m_queue.end(), m_compare);
     }
     else if (m_compare(t, top()))
     {
       // This can be optimized by writing decrease_head_heap().
       pop_heap(m_queue.begin(), m_queue.end(), m_compare);
-      m_queue.back() = t;
+      m_queue.back() = std::move(t);
       push_heap(m_queue.begin(), m_queue.end(), m_compare);
     }
   }
@@ -67,7 +66,7 @@ public:
 
   void clear() { m_queue.clear(); }
 
-  void swap(limited_priority_queue<T, CompareT> & queue)
+  void swap(limited_priority_queue & queue) noexcept
   {
     m_queue.swap(queue.m_queue);
     using std::swap;
@@ -77,6 +76,8 @@ public:
 
   void reserve(size_t n) { m_queue.reserve(n); }
 
+  std::vector<T> move() { return std::move(m_queue); }
+
 private:
   std::vector<T> m_queue;
   size_t m_maxSize;
@@ -84,7 +85,7 @@ private:
 };
 
 template <typename T, typename CompareT>
-void swap(limited_priority_queue<T, CompareT> & q1, limited_priority_queue<T, CompareT> & q2)
+void swap(limited_priority_queue<T, CompareT> & q1, limited_priority_queue<T, CompareT> & q2) noexcept
 {
   q1.swap(q2);
 }

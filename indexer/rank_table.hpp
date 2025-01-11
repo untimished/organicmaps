@@ -48,7 +48,8 @@ public:
 
   virtual ~RankTable() = default;
 
-  // Returns rank of the i-th feature.
+  static uint8_t constexpr kNoRank = 0;
+  /// @return rank of the i-th feature, or kNoRank if there is no rank.
   virtual uint8_t Get(uint64_t i) const = 0;
 
   // Returns total number of ranks (or features, as there is a 1-1 correspondence).
@@ -57,11 +58,8 @@ public:
   // Returns underlying data format version.
   virtual Version GetVersion() const = 0;
 
-  // Serializes rank table. When |preserveHostEndianness| is true,
-  // table is serialized in host endianness, otherwise, opposite
-  // endianness is used. Please, don't set this parameter to false
-  // unless you know what you do.
-  virtual void Serialize(Writer & writer, bool preserveHostEndianness) = 0;
+  // Serializes rank table.
+  virtual void Serialize(Writer & writer) = 0;
 
   // Copies whole section corresponding to a rank table and
   // deserializes it. Returns nullptr if there're no ranks section or
@@ -112,7 +110,6 @@ public:
   //
   // Return true if rank table was successfully generated and written
   // or already exists and has correct format.
-  static bool CreateIfNotExists(platform::LocalCountryFile const & localFile) noexcept;
   static bool CreateIfNotExists(std::string const & mapPath) noexcept;
 };
 }  // namespace search

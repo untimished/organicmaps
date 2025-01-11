@@ -14,7 +14,7 @@ namespace df
 struct TileKey
 {
   TileKey();
-  TileKey(int x, int y, int zoomLevel);
+  TileKey(int x, int y, uint8_t zoomLevel);
   TileKey(TileKey const & key, uint64_t generation, uint64_t userMarksGeneration);
 
   // Operators < and == do not consider parameter m_generation.
@@ -36,9 +36,11 @@ struct TileKey
 
   uint64_t GetHashValue(BatcherBucket bucket) const;
 
+  std::string Coord2String() const;
+
   int m_x;
   int m_y;
-  int m_zoomLevel;
+  uint8_t m_zoomLevel;
 
   uint64_t m_generation;
   uint64_t m_userMarksGeneration;

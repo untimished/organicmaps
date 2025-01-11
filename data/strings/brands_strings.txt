@@ -45,6 +45,7 @@
   [brand.burger_king]
     en = Burger King
     ar = برغر كينغ
+    hi = बर्गर किंग
     ja = バーガーキング
     ko = 버거킹
     ru = Бургер Кинг
@@ -84,6 +85,7 @@
 
   [brand.chilis]
     en = Chili's
+    
 
   [brand.chipotle]
     en = Chipotle
@@ -146,6 +148,7 @@
     en = Domino's Pizza
     ar = دومينوز بيتزا
     he = דומינוס פיצה
+    hi = डॉमिनोज पिज्जा
     ja = ドミノ・ピザ
     ko = 도미노피자
     ru = Домино'с Пицца
@@ -163,6 +166,7 @@
   [brand.dunkin_donuts]
     en = Dunkin Donuts
     ar = دنكن دونتس
+    hi = डुंकिन डोनट्स
     ru = Данкин Донатс
 
   [brand.espresso_house]
@@ -284,6 +288,7 @@
     en = KFC
     ar = دجاج كنتاكي
     fr = PFC
+    hi = केएफसी
     ja = ケンタッキーフライドチキン
     th = เค เอฟ ซ
     zh-Hans = 肯德基
@@ -357,6 +362,7 @@
     ar = ماكدونالدز
     bg = Макдоналдс
     he = מקדונלד'ס
+    hi = मैकडॉनल्ड
     ja = マクドナルド
     ka = მაკდონალდსი
     ko = 디몰 맥도날드
@@ -431,6 +437,7 @@
     en = Pizza Hut
     ar = بيتزا هت
     he = פיצה האט
+    hi = पिज़्ज़ा हट
     ja = ピザハット
     ru = Пицца Хат
     zh-Hans = 必胜客
@@ -498,6 +505,7 @@
   [brand.starbucks]
     en = Starbucks
     ar = ستاربكس
+    hi = स्टारबक्स
     ja = スターバックス
     ko = 스타벅스
     ru = Старбакс
@@ -545,6 +553,7 @@
 
   [brand.taco_bell]
     en = Taco Bell
+    hi = टाको बेल
 
   [brand.telepizza]
     en = Telepizza
@@ -566,6 +575,7 @@
 
   [brand.tim_hortons]
     en = Tim Hortons
+    hi = टिम होर्टन
 
   [brand.tonden]
     en = Tonden

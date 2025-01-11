@@ -9,6 +9,10 @@
 
 set -euo pipefail
 
+echo "!!! This script is outdated, please use a better quality DeepL translations script"
+echo "!!! tools/python/translate.py"
+echo ""
+
 DELIM=${DELIM:-:}
 
 case $# in
@@ -26,18 +30,19 @@ case $# in
 esac
 
 # Note: default Google engine doesn't properly support European Portuguese (pt-PT)
-# and always produces Brazilian translations. Need to use Deepl.
-LANGUAGES=( en ar be bg cs da de el es fa 'fi' fr he hu id it ja ko nb nl pl pt-PT pt-BR ro ru sk sv sw th tr uk vi zh-CN zh-TW )
+# and always produces Brazilian translations. Need to use Deepl, see tools/python/translate.py
+LANGUAGES=( en af ar be bg ca cs da de el es et eu fa 'fi' fr he hu id it ja ko lt mr nb nl pl pt pt-BR ro ru sk sv sw th tr uk vi zh-CN zh-TW )
 
 for lang in "${LANGUAGES[@]}"; do
-  TRANSLATION=$(trans -b "$SRC:$lang" "$WORD" | sed 's/   *//')
+  # -no-bidi fixes wrong characters order for RTL languages.
+  TRANSLATION=$(trans -b -no-bidi "$SRC:$lang" "$WORD" | sed 's/   *//')
   # Correct language codes to ours.
   case $lang in
     zh-CN) lang="zh-Hans" ;;
     zh-TW) lang="zh-Hant" ;;
     pt-PT) lang="pt"      ;;
   esac
-  echo "$lang:$(tr '[:lower:]' '[:upper:]' <<< "${TRANSLATION:0:1}")${TRANSLATION:1}"
+  echo "$lang${DELIM}$(tr '[:lower:]' '[:upper:]' <<< "${TRANSLATION:0:1}")${TRANSLATION:1}"
   # To avoid quota limits.
-  sleep 1
+  sleep 0.5
 done

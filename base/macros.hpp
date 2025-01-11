@@ -1,7 +1,6 @@
 #pragma once
 
 #include "base/assert.hpp"
-#include "base/base.hpp"
 
 namespace base
 {
@@ -40,7 +39,7 @@ namespace base
 namespace impl
 {
 template <typename T>
-inline void ForceUseValue(T const & t)
+void ForceUseValue(T const & t)
 {
   volatile T dummy = t;
   UNUSED_VALUE(dummy);
@@ -54,8 +53,8 @@ inline void ForceUseValue(T const & t)
 #ifdef __GNUC__
 // https://gcc.gnu.org/onlinedocs/gcc/Other-Builtins.html
 #define PREDICT(x, prediction) __builtin_expect(static_cast<long>(x), static_cast<long>(prediction))
-#define PREDICT_TRUE(x) __builtin_expect((x) != 0, 1)
-#define PREDICT_FALSE(x) __builtin_expect((x) != 0, 0)
+#define PREDICT_TRUE(x) __builtin_expect(x, 1)
+#define PREDICT_FALSE(x) __builtin_expect(x, 0)
 #else
 #define PREDICT(x, prediction) (x)
 #define PREDICT_TRUE(x) (x)
@@ -78,10 +77,4 @@ inline void ForceUseValue(T const & t)
 #define UINT64_LO(x) (static_cast<uint32_t>(x & 0xFFFFFFFF))
 #define UINT64_HI(x) (static_cast<uint32_t>(x >> 32))
 
-#define NOTIMPLEMENTED() ASSERT(false, ("Function", __func__, "is not implemented!"));
-
-#if defined(__GNUC__)
-#define WARN_UNUSED_RESULT __attribute__((warn_unused_result))
-#else
-#define WARN_UNUSED_RESULT
-#endif  // defined(__GNUC__)
+#define NOTIMPLEMENTED() ASSERT(false, ("Function", __func__, "is not implemented!"))

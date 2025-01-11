@@ -2,8 +2,6 @@
 #include "testing/testregister.hpp"
 
 #include "base/logging.hpp"
-#include "base/scope_guard.hpp"
-#include "base/string_utils.hpp"
 #include "base/timer.hpp"
 #include "base/waiter.hpp"
 
@@ -19,10 +17,11 @@
 #include <vector>
 
 #ifdef WITH_GL_MOCK
+# include "base/scope_guard.hpp"
 # include "drape/drape_tests/gl_mock_functions.hpp"
 #endif
 
-#ifdef TARGET_OS_IPHONE
+#ifdef OMIM_OS_IPHONE
 # include <CoreFoundation/CoreFoundation.h>
 #endif
 
@@ -31,8 +30,6 @@
 #endif
 
 #if defined(OMIM_UNIT_TEST_WITH_QT_EVENT_LOOP) && !defined(OMIM_OS_IPHONE)
-  #pragma GCC diagnostic push
-  #pragma GCC diagnostic ignored "-Wshorten-64-to-32"
   #include <QtCore/Qt>
   #ifdef OMIM_OS_MAC // on Mac OS X native run loop works only for QApplication :(
     #include <QtWidgets/QApplication>
@@ -41,18 +38,13 @@
     #include <QtCore/QCoreApplication>
     #define QAPP QCoreApplication
   #endif
-  #pragma GCC diagnostic pop
 #endif
-
-using namespace std;
-
-namespace
-{
-base::Waiter g_waiter;
-}  // namespace
 
 namespace testing
 {
+using namespace std;
+
+base::Waiter g_waiter;
 
 void RunEventLoop()
 {
@@ -82,10 +74,7 @@ void Notify()
 {
   g_waiter.Notify();
 }
-}  // namespace testing
 
-namespace
-{
 bool g_lastTestOK = true;
 CommandLineOptions g_testingOptions;
 
@@ -106,20 +95,19 @@ enum Status
 
 void DisplayOption(ostream & os, char const * option, char const * description)
 {
-  os << "  " << setw(kOptionFieldWidth) << left << option << " " << description << endl;
+  os << "  " << setw(kOptionFieldWidth) << left << option << " " << description << '\n';
 }
 
 void DisplayOption(ostream & os, char const * option, char const * value, char const * description)
 {
-  os << "  " << setw(kOptionFieldWidth) << left << (string(option) + string(value)) << " "
-     << description << endl;
+  os << "  " << setw(kOptionFieldWidth) << left << (string(option) + value) << " "
+     << description << '\n';
 }
 
 void Usage(char const * name)
 {
-  cerr << "USAGE: " << name << " [options]" << endl;
-  cerr << endl;
-  cerr << "OPTIONS:" << endl;
+  cerr << "USAGE: " << name << " [options]\n\n";
+  cerr << "OPTIONS:\n";
   DisplayOption(cerr, kFilterOption, "<ECMA Regexp>",
                 "Run tests with names corresponding to regexp.");
   DisplayOption(cerr, kSuppressOption, "<ECMA Regexp>",
@@ -134,22 +122,32 @@ void ParseOptions(int argc, char * argv[], CommandLineOptions & options)
 {
   for (int i = 1; i < argc; ++i)
   {
-    char const * const arg = argv[i];
-    if (strings::StartsWith(arg, kFilterOption))
-      options.m_filterRegExp = arg + sizeof(kFilterOption) - 1;
-    if (strings::StartsWith(arg, kSuppressOption))
-      options.m_suppressRegExp = arg + sizeof(kSuppressOption) - 1;
-    if (strings::StartsWith(arg, kDataPathOptions))
-      options.m_dataPath = arg + sizeof(kDataPathOptions) - 1;
-    if (strings::StartsWith(arg, kResourcePathOptions))
-      options.m_resourcePath = arg + sizeof(kResourcePathOptions) - 1;
-    if (strcmp(arg, kHelpOption) == 0)
+    std::string_view const arg = argv[i];
+    if (arg.starts_with(kFilterOption))
+      options.m_filterRegExp = argv[i] + sizeof(kFilterOption) - 1;
+    if (arg.starts_with(kSuppressOption))
+      options.m_suppressRegExp = argv[i] + sizeof(kSuppressOption) - 1;
+    if (arg.starts_with(kDataPathOptions))
+      options.m_dataPath = argv[i] + sizeof(kDataPathOptions) - 1;
+    if (arg.starts_with(kResourcePathOptions))
+      options.m_resourcePath = argv[i] + sizeof(kResourcePathOptions) - 1;
+    if (arg == kHelpOption)
       options.m_help = true;
-    if (strcmp(arg, kListAllTestsOption) == 0)
+    if (arg == kListAllTestsOption)
       options.m_listTests = true;
   }
+#ifndef OMIM_UNIT_TEST_DISABLE_PLATFORM_INIT
+  // Setting stored paths from testingmain.cpp
+  Platform & pl = GetPlatform();
+  if (options.m_dataPath)
+    pl.SetWritableDirForTests(options.m_dataPath);
+  if (options.m_resourcePath)
+  {
+    pl.SetResourceDir(options.m_resourcePath);
+    pl.SetSettingsDir(options.m_resourcePath);
+  }
+#endif
 }
-}  // namespace
 
 CommandLineOptions const & GetTestingOptions()
 {
@@ -167,13 +165,13 @@ int main(int argc, char * argv[])
 #endif
 
   base::ScopedLogLevelChanger const infoLogLevel(LINFO);
-#if defined(OMIM_OS_MAC) || defined(OMIM_OS_LINUX) || defined(OMIM_OS_IPHONE)
+#if defined(OMIM_OS_DESKTOP) || defined(OMIM_OS_IPHONE)
   base::SetLogMessageFn(base::LogMessageTests);
 #endif
 
 #ifdef WITH_GL_MOCK
   emul::GLMockFunctions::Init(&argc, argv);
-  SCOPE_GUARD(GLMockScope, std::bind(&emul::GLMockFunctions::Teardown));
+  SCOPE_GUARD(GLMockScope, bind(&emul::GLMockFunctions::Teardown));
 #endif
 
   vector<string> testnames;
@@ -195,19 +193,6 @@ int main(int argc, char * argv[])
   if (g_testingOptions.m_suppressRegExp)
     suppressRegExp.assign(g_testingOptions.m_suppressRegExp);
 
-#ifndef OMIM_UNIT_TEST_DISABLE_PLATFORM_INIT
-  // Setting stored paths from testingmain.cpp
-  Platform & pl = GetPlatform();
-  CommandLineOptions const & options = GetTestingOptions();
-  if (options.m_dataPath)
-    pl.SetWritableDirForTests(options.m_dataPath);
-  if (options.m_resourcePath)
-  {
-    pl.SetResourceDir(options.m_resourcePath);
-    pl.SetSettingsDir(options.m_resourcePath);
-  }
-#endif
-
   for (TestRegister * test = TestRegister::FirstRegister(); test; test = test->m_next)
   {
     string filename(test->m_filename);
@@ -225,7 +210,7 @@ int main(int argc, char * argv[])
   if (GetTestingOptions().m_listTests)
   {
     for (auto const & name : testnames)
-      cout << name << endl;
+      cout << name << '\n';
     return 0;
   }
 
@@ -277,7 +262,7 @@ int main(int argc, char * argv[])
       testResults[testIndex] = false;
       ++numFailedTests;
     }
-    catch (std::exception const & ex)
+    catch (exception const & ex)
     {
       LOG(LERROR, ("FAILED", "<<<Exception thrown [", ex.what(), "].>>>"));
       testResults[testIndex] = false;
@@ -291,7 +276,7 @@ int main(int argc, char * argv[])
     }
     g_lastTestOK = true;
 
-    uint64_t const elapsed = timer.ElapsedNano();
+    uint64_t const elapsed = timer.ElapsedNanoseconds();
     LOG(LINFO, ("Test took", elapsed / 1000000, "ms\n"));
   }
 
@@ -310,3 +295,6 @@ int main(int argc, char * argv[])
   LOG(LINFO, ("All tests passed."));
   return STATUS_SUCCESS;
 }
+}  // namespace testing
+
+int main(int argc, char * argv[]) { return ::testing::main(argc, argv); }

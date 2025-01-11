@@ -21,12 +21,12 @@
 #include <set>
 #include <string>
 
-using namespace platform;
-using namespace storage;
-using namespace std;
-
 UNIT_TEST(CountriesNamesTest)
 {
+  using namespace platform;
+  using namespace storage;
+  using namespace std;
+
   Framework f(FrameworkParams(false /* m_enableDiffs */));
   auto & storage = f.GetStorage();
   auto const & synonyms = storage.GetCountryNameSynonyms();
@@ -38,7 +38,7 @@ UNIT_TEST(CountriesNamesTest)
 
   auto & value = *handle.GetValue();
   TEST(value.HasSearchIndex(), ());
-  search::MwmContext const mwmContext(move(handle));
+  search::MwmContext const mwmContext(std::move(handle));
   base::Cancellable const cancellable;
   search::CategoriesCache cache(ftypes::IsLocalityChecker::Instance(), cancellable);
 
@@ -46,11 +46,12 @@ UNIT_TEST(CountriesNamesTest)
                                  StringUtf8Multilang::kDefaultCode,
                                  StringUtf8Multilang::kInternationalCode };
 
-  set<string> const kIgnoreList = {"Turkish Republic Of Northern Cyprus",
+  set<string> const kIgnoreList = {"Northern Cyprus",
                                    "Transnistria",
                                    "Nagorno-Karabakh Republic",
                                    "Republic of Artsakh",
-                                   "Republic of Pandora", /// @todo https://www.openstreetmap.org/way/495525351
+                                   "Saint Helena, Ascension and Tristan da Cunha",
+                                   "Somaliland",
                                    };
 
   auto const features = cache.Get(mwmContext);
@@ -66,8 +67,8 @@ UNIT_TEST(CountriesNamesTest)
     bool found = false;
     for (auto const lang : langIndices)
     {
-      string name;
-      if (ft->GetName(lang, name))
+      std::string const name(ft->GetName(lang));
+      if (!name.empty())
       {
         auto const it = synonyms.find(name);
         if (it == synonyms.end())
@@ -81,6 +82,6 @@ UNIT_TEST(CountriesNamesTest)
     }
 
     // If this test fails, most likely somebody added fake place=country object into OSM.
-    TEST(found, ("Cannot find countries.txt record for country feature:", ft->DebugString(FeatureType::BEST_GEOMETRY)));
+    TEST(found, ("Cannot find countries.txt record for country feature:", ft->DebugString()));
   });
 }

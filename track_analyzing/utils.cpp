@@ -48,8 +48,7 @@ double CalcTrackLength(MatchedTrack const & track, Geometry & geometry)
 double CalcSpeedKMpH(double meters, uint64_t secondsElapsed)
 {
   CHECK_GREATER(secondsElapsed, 0, ());
-  double constexpr kMPS2KMPH = 60.0 * 60.0 / 1000.0;
-  return kMPS2KMPH * meters / static_cast<double>(secondsElapsed);
+  return measurement_utils::MpsToKmph(meters / static_cast<double>(secondsElapsed));
 }
 
 void ReadTracks(shared_ptr<NumMwmIds> numMwmIds, string const & filename,
@@ -94,8 +93,7 @@ MatchedTrack const & GetMatchedTrack(MwmToMatchedTracks const & mwmToMatchedTrac
 
 std::string GetCurrentVersionMwmFile(storage::Storage const & storage, std::string const & mwmName)
 {
-  return base::JoinPath(GetPlatform().WritableDir(), to_string(storage.GetCurrentDataVersion()),
-                      mwmName + DATA_FILE_EXTENSION);
+  return storage.GetFilePath(mwmName, MapFileType::Map);
 }
 
 void ForEachTrackFile(
@@ -103,7 +101,7 @@ void ForEachTrackFile(
     shared_ptr<routing::NumMwmIds> numMwmIds,
     std::function<void(std::string const & filename, MwmToMatchedTracks const &)> && toDo)
 {
-  Platform::EFileType fileType = Platform::FILE_TYPE_UNKNOWN;
+  Platform::EFileType fileType = Platform::EFileType::Unknown;
   Platform::EError const result = Platform::GetFileType(filepath, fileType);
 
   if (result == Platform::ERR_FILE_DOES_NOT_EXIST)
@@ -112,7 +110,7 @@ void ForEachTrackFile(
   if (result != Platform::ERR_OK)
     MYTHROW(MessageException, ("Can't get file type for", filepath, "result:", result));
 
-  if (fileType == Platform::FILE_TYPE_REGULAR)
+  if (fileType == Platform::EFileType::Regular)
   {
     MwmToMatchedTracks mwmToMatchedTracks;
     ReadTracks(numMwmIds, filepath, mwmToMatchedTracks);
@@ -120,7 +118,7 @@ void ForEachTrackFile(
     return;
   }
 
-  if (fileType == Platform::FILE_TYPE_DIRECTORY)
+  if (fileType == Platform::EFileType::Directory)
   {
     Platform::FilesList filesList;
     Platform::GetFilesRecursively(filepath, filesList);

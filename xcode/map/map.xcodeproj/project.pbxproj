@@ -17,8 +17,6 @@
 		34921F661BFA0A6900737D6E /* api_mark_point.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 34921F611BFA0A6900737D6E /* api_mark_point.hpp */; };
 		39E3C60323312BA800FB0C37 /* features_fetcher.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 39E3C60123312BA800FB0C37 /* features_fetcher.hpp */; };
 		39E3C60423312BA800FB0C37 /* features_fetcher.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 39E3C60223312BA800FB0C37 /* features_fetcher.cpp */; };
-		3D47B2C71F20EF06000828D2 /* displayed_categories_modifiers.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 3D47B2C51F20EF06000828D2 /* displayed_categories_modifiers.cpp */; };
-		3D47B2C81F20EF06000828D2 /* displayed_categories_modifiers.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 3D47B2C61F20EF06000828D2 /* displayed_categories_modifiers.hpp */; };
 		3D4E99821FB462B60025B48C /* everywhere_search_params.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 3D4E99801FB462B60025B48C /* everywhere_search_params.hpp */; };
 		3D4E99831FB462B60025B48C /* viewport_search_params.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 3D4E99811FB462B60025B48C /* viewport_search_params.hpp */; };
 		3D62CBCC20F4DFD600E7BB6E /* search_product_info.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 3D62CBCB20F4DFD600E7BB6E /* search_product_info.hpp */; };
@@ -93,6 +91,7 @@
 		BBD9E2C71EE9D01900DF189A /* routing_mark.hpp in Headers */ = {isa = PBXBuildFile; fileRef = BBD9E2C51EE9D01900DF189A /* routing_mark.hpp */; };
 		BBFC7E3A202D29C000531BE7 /* user_mark_layer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BBFC7E38202D29BF00531BE7 /* user_mark_layer.cpp */; };
 		BBFC7E3B202D29C000531BE7 /* user_mark_layer.hpp in Headers */ = {isa = PBXBuildFile; fileRef = BBFC7E39202D29BF00531BE7 /* user_mark_layer.hpp */; };
+		ED49D74C2CEF3D69004AF27E /* elevation_info_tests.cpp in Sources */ = {isa = PBXBuildFile; fileRef = ED49D74B2CEF3CE3004AF27E /* elevation_info_tests.cpp */; };
 		F6B283031C1B03320081957A /* gps_track_collection.cpp in Sources */ = {isa = PBXBuildFile; fileRef = F6B282FB1C1B03320081957A /* gps_track_collection.cpp */; };
 		F6B283041C1B03320081957A /* gps_track_collection.hpp in Headers */ = {isa = PBXBuildFile; fileRef = F6B282FC1C1B03320081957A /* gps_track_collection.hpp */; };
 		F6B283051C1B03320081957A /* gps_track_filter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = F6B282FD1C1B03320081957A /* gps_track_filter.cpp */; };
@@ -113,9 +112,8 @@
 		FAA8387E26BB3C92002E54C6 /* libindexer.a in Frameworks */ = {isa = PBXBuildFile; fileRef = FAA8387D26BB3C92002E54C6 /* libindexer.a */; };
 		FAA8388026BB3C92002E54C6 /* libplatform.a in Frameworks */ = {isa = PBXBuildFile; fileRef = FAA8387F26BB3C92002E54C6 /* libplatform.a */; };
 		FAA8388226BB3C92002E54C6 /* libprotobuf.a in Frameworks */ = {isa = PBXBuildFile; fileRef = FAA8388126BB3C92002E54C6 /* libprotobuf.a */; };
-		FAA8388426BB3CBE002E54C6 /* libjansson.a in Frameworks */ = {isa = PBXBuildFile; fileRef = FAA8388326BB3CBE002E54C6 /* libjansson.a */; };
+		FAA8388426BB3CBE002E54C6 /* libcppjansson.a in Frameworks */ = {isa = PBXBuildFile; fileRef = FAA8388326BB3CBE002E54C6 /* libcppjansson.a */; };
 		FAA8388626BB3CC3002E54C6 /* libexpat.a in Frameworks */ = {isa = PBXBuildFile; fileRef = FAA8388526BB3CC3002E54C6 /* libexpat.a */; };
-		FAA8388826BB3CDB002E54C6 /* liboauthcpp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = FAA8388726BB3CDB002E54C6 /* liboauthcpp.a */; };
 		FAA8388A26BB3CE4002E54C6 /* libdrape.a in Frameworks */ = {isa = PBXBuildFile; fileRef = FAA8388926BB3CE4002E54C6 /* libdrape.a */; };
 /* End PBXBuildFile section */
 
@@ -163,8 +161,6 @@
 		34AF87EA1DBE5AD000E5E7DC /* common-release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = "common-release.xcconfig"; path = "../common-release.xcconfig"; sourceTree = "<group>"; };
 		39E3C60123312BA800FB0C37 /* features_fetcher.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = features_fetcher.hpp; sourceTree = "<group>"; };
 		39E3C60223312BA800FB0C37 /* features_fetcher.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = features_fetcher.cpp; sourceTree = "<group>"; };
-		3D47B2C51F20EF06000828D2 /* displayed_categories_modifiers.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = displayed_categories_modifiers.cpp; sourceTree = "<group>"; };
-		3D47B2C61F20EF06000828D2 /* displayed_categories_modifiers.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = displayed_categories_modifiers.hpp; sourceTree = "<group>"; };
 		3D4E99801FB462B60025B48C /* everywhere_search_params.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = everywhere_search_params.hpp; sourceTree = "<group>"; };
 		3D4E99811FB462B60025B48C /* viewport_search_params.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = viewport_search_params.hpp; sourceTree = "<group>"; };
 		3D62CBCB20F4DFD600E7BB6E /* search_product_info.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = search_product_info.hpp; sourceTree = "<group>"; };
@@ -243,6 +239,7 @@
 		BBD9E2C51EE9D01900DF189A /* routing_mark.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = routing_mark.hpp; sourceTree = "<group>"; };
 		BBFC7E38202D29BF00531BE7 /* user_mark_layer.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = user_mark_layer.cpp; sourceTree = "<group>"; };
 		BBFC7E39202D29BF00531BE7 /* user_mark_layer.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = user_mark_layer.hpp; sourceTree = "<group>"; };
+		ED49D74B2CEF3CE3004AF27E /* elevation_info_tests.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = elevation_info_tests.cpp; sourceTree = "<group>"; };
 		F6B282FB1C1B03320081957A /* gps_track_collection.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = gps_track_collection.cpp; sourceTree = "<group>"; };
 		F6B282FC1C1B03320081957A /* gps_track_collection.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = gps_track_collection.hpp; sourceTree = "<group>"; };
 		F6B282FD1C1B03320081957A /* gps_track_filter.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = gps_track_filter.cpp; sourceTree = "<group>"; };
@@ -259,9 +256,8 @@
 		FAA8387D26BB3C92002E54C6 /* libindexer.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; path = libindexer.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		FAA8387F26BB3C92002E54C6 /* libplatform.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; path = libplatform.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		FAA8388126BB3C92002E54C6 /* libprotobuf.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; path = libprotobuf.a; sourceTree = BUILT_PRODUCTS_DIR; };
-		FAA8388326BB3CBE002E54C6 /* libjansson.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; path = libjansson.a; sourceTree = BUILT_PRODUCTS_DIR; };
+		FAA8388326BB3CBE002E54C6 /* libcppjansson.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; path = libcppjansson.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		FAA8388526BB3CC3002E54C6 /* libexpat.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; path = libexpat.a; sourceTree = BUILT_PRODUCTS_DIR; };
-		FAA8388726BB3CDB002E54C6 /* liboauthcpp.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; path = liboauthcpp.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		FAA8388926BB3CE4002E54C6 /* libdrape.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; path = libdrape.a; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -279,9 +275,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				FAA8388A26BB3CE4002E54C6 /* libdrape.a in Frameworks */,
-				FAA8388826BB3CDB002E54C6 /* liboauthcpp.a in Frameworks */,
 				FAA8388626BB3CC3002E54C6 /* libexpat.a in Frameworks */,
-				FAA8388426BB3CBE002E54C6 /* libjansson.a in Frameworks */,
+				FAA8388426BB3CBE002E54C6 /* libcppjansson.a in Frameworks */,
 				FAA8387826BB3C92002E54C6 /* libbase.a in Frameworks */,
 				FAA8387A26BB3C92002E54C6 /* libcoding.a in Frameworks */,
 				FAA8387C26BB3C92002E54C6 /* libgeometry.a in Frameworks */,
@@ -306,9 +301,8 @@
 			isa = PBXGroup;
 			children = (
 				FAA8388926BB3CE4002E54C6 /* libdrape.a */,
-				FAA8388726BB3CDB002E54C6 /* liboauthcpp.a */,
 				FAA8388526BB3CC3002E54C6 /* libexpat.a */,
-				FAA8388326BB3CBE002E54C6 /* libjansson.a */,
+				FAA8388326BB3CBE002E54C6 /* libcppjansson.a */,
 				FAA8387726BB3C92002E54C6 /* libbase.a */,
 				FAA8387926BB3C92002E54C6 /* libcoding.a */,
 				FAA8387B26BB3C92002E54C6 /* libgeometry.a */,
@@ -360,6 +354,7 @@
 				674A29EE1B26FD5F001A525C /* testingmain.cpp */,
 				BB421D6A1E8C0026005BFA4D /* transliteration_test.cpp */,
 				674A2A351B27011A001A525C /* working_time_tests.cpp */,
+				ED49D74B2CEF3CE3004AF27E /* elevation_info_tests.cpp */,
 			);
 			name = map_tests;
 			path = ../../map/map_tests;
@@ -405,8 +400,6 @@
 				3DD692B2220AD240001C3C62 /* caching_address_getter.hpp */,
 				348AB57A1D7EE0C6009F8301 /* chart_generator.cpp */,
 				348AB57B1D7EE0C6009F8301 /* chart_generator.hpp */,
-				3D47B2C51F20EF06000828D2 /* displayed_categories_modifiers.cpp */,
-				3D47B2C61F20EF06000828D2 /* displayed_categories_modifiers.hpp */,
 				3DBD7B90240D523300ED9FE8 /* elevation_info.cpp */,
 				3DBD7B91240D523300ED9FE8 /* elevation_info.hpp */,
 				3DA5722E20C195EC007BDE27 /* everywhere_search_callback.cpp */,
@@ -503,7 +496,6 @@
 				3D4E99821FB462B60025B48C /* everywhere_search_params.hpp in Headers */,
 				675346751A4054E800A0A8C3 /* mwm_url.hpp in Headers */,
 				6753464B1A4054E800A0A8C3 /* bookmark.hpp in Headers */,
-				3D47B2C81F20EF06000828D2 /* displayed_categories_modifiers.hpp in Headers */,
 				BB4E5F271FCC664A00A77250 /* transit_reader.hpp in Headers */,
 				348AB57D1D7EE0C6009F8301 /* chart_generator.hpp in Headers */,
 				3DF528D8237DC82E000ED0D5 /* position_provider.hpp in Headers */,
@@ -594,7 +586,9 @@
 		675345B31A4054AD00A0A8C3 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
-				LastUpgradeCheck = 1310;
+				BuildIndependentTargetsInParallel = YES;
+				DefaultBuildSystemTypeForWorkspace = Latest;
+				LastUpgradeCheck = 1510;
 				TargetAttributes = {
 					3DA571D720C1921D007BDE27 = {
 						CreatedOnToolsVersion = 9.3.1;
@@ -652,6 +646,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				671ED38E20D403B300D4317E /* chart_generator_tests.cpp in Sources */,
+				ED49D74C2CEF3D69004AF27E /* elevation_info_tests.cpp in Sources */,
 				67F183761BD5045700AB1840 /* bookmarks_test.cpp in Sources */,
 				FAA8387626BB3C17002E54C6 /* extrapolator_tests.cpp in Sources */,
 				BB421D6C1E8C0031005BFA4D /* transliteration_test.cpp in Sources */,
@@ -699,7 +694,6 @@
 				56C116602090E5670068BBC0 /* extrapolator.cpp in Sources */,
 				39E3C60423312BA800FB0C37 /* features_fetcher.cpp in Sources */,
 				348AB57C1D7EE0C6009F8301 /* chart_generator.cpp in Sources */,
-				3D47B2C71F20EF06000828D2 /* displayed_categories_modifiers.cpp in Sources */,
 				45201E931CE4AC90008A4842 /* api_mark_point.cpp in Sources */,
 				BBA014AD2073C784007402E4 /* bookmark_helpers.cpp in Sources */,
 				F6D2CE7E1EDEB7F500636DFD /* routing_manager.cpp in Sources */,
@@ -770,8 +764,8 @@
 					"$(QT_PATH)/include",
 					"$(OMIM_ROOT)/3party/expat/lib",
 					"$(OMIM_ROOT)/3party/glm",
-					"$(OMIM_ROOT)/3party/jansson/src",
 					"$(OMIM_ROOT)/3party/protobuf/protobuf/src",
+					"$(OMIM_ROOT)/3party/pugixml/pugixml/src",
 				);
 			};
 			name = Debug;
@@ -785,8 +779,8 @@
 					"$(QT_PATH)/include",
 					"$(OMIM_ROOT)/3party/expat/lib",
 					"$(OMIM_ROOT)/3party/glm",
-					"$(OMIM_ROOT)/3party/jansson/src",
 					"$(OMIM_ROOT)/3party/protobuf/protobuf/src",
+					"$(OMIM_ROOT)/3party/pugixml/pugixml/src",
 				);
 			};
 			name = Release;
@@ -795,7 +789,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				EXECUTABLE_PREFIX = lib;
-				GCC_PREFIX_HEADER = "$(OMIM_ROOT)/precompiled_headers.hpp";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				WARNING_CFLAGS = "-Wno-deprecated-register ";
 			};
@@ -805,7 +798,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				EXECUTABLE_PREFIX = lib;
-				GCC_PREFIX_HEADER = "$(OMIM_ROOT)/precompiled_headers.hpp";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				WARNING_CFLAGS = "-Wno-deprecated-register ";
 			};

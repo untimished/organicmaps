@@ -4,15 +4,46 @@
 #import "MWMTypes.h"
 
 @class MWMMapSearchResult;
+@class TrackInfo;
 
 typedef NS_ENUM(NSUInteger, MWMZoomMode) { MWMZoomModeIn = 0, MWMZoomModeOut };
+
+typedef NS_ENUM(NSInteger, ProductsPopupCloseReason) {
+  ProductsPopupCloseReasonClose,
+  ProductsPopupCloseReasonSelectProduct,
+  ProductsPopupCloseReasonAlreadyDonated,
+  ProductsPopupCloseReasonRemindLater
+};
 
 NS_ASSUME_NONNULL_BEGIN
 
 typedef void (^SearchInDownloaderCompletions)(NSArray<MWMMapSearchResult *> *results, BOOL finished);
+typedef void (^TrackRecordingUpdatedHandler)(TrackInfo * _Nonnull trackInfo);
+
+@protocol TrackRecorder <NSObject>
+
++ (void)startTrackRecording;
++ (void)setTrackRecordingUpdateHandler:(TrackRecordingUpdatedHandler _Nullable)trackRecordingDidUpdate;
++ (void)stopTrackRecording;
++ (void)saveTrackRecordingWithName:(nullable NSString *)name;
++ (BOOL)isTrackRecordingEnabled;
++ (BOOL)isTrackRecordingEmpty;
+
+@end
+
+@class ProductsConfiguration;
+@class Product;
+
+@protocol ProductsManager <NSObject>
+
++ (nullable ProductsConfiguration *)getProductsConfiguration;
++ (void)didCloseProductsPopupWithReason:(ProductsPopupCloseReason)reason;
++ (void)didSelectProduct:(Product *)product;
+
+@end
 
 NS_SWIFT_NAME(FrameworkHelper)
-@interface MWMFrameworkHelper : NSObject
+@interface MWMFrameworkHelper : NSObject<TrackRecorder, ProductsManager>
 
 + (void)processFirstLaunch:(BOOL)hasLocation;
 + (void)setVisibleViewport:(CGRect)rect scaleFactor:(CGFloat)scale;
@@ -23,7 +54,8 @@ NS_SWIFT_NAME(FrameworkHelper)
 + (MWMMarkGroupID)invalidCategoryId;
 + (void)zoomMap:(MWMZoomMode)mode;
 + (void)moveMap:(UIOffset)offset;
-+ (void)deactivateMapSelection:(BOOL)notifyUI NS_SWIFT_NAME(deactivateMapSelection(notifyUI:));
++ (void)scrollMap:(double)distanceX :(double) distanceY;
++ (void)deactivateMapSelection;
 + (void)switchMyPositionMode;
 + (void)stopLocationFollow;
 + (NSArray<NSString *> *)obtainLastSearchQueries;
@@ -33,11 +65,13 @@ NS_SWIFT_NAME(FrameworkHelper)
 + (void)searchInDownloader:(NSString *)query
                inputLocale:(NSString *)locale
                 completion:(SearchInDownloaderCompletions)completion;
-+ (BOOL)canEditMap;
++ (BOOL)canEditMapAtViewportCenter;
 + (void)showOnMap:(MWMMarkGroupID)categoryId;
 + (void)showBookmark:(MWMMarkID)bookmarkId;
 + (void)showTrack:(MWMTrackID)trackId;
 + (void)updatePlacePageData;
++ (void)updateAfterDeleteBookmark;
++ (int)currentZoomLevel;
 
 @end
 

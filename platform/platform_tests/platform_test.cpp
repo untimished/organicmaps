@@ -10,6 +10,7 @@
 #include "base/file_name_utils.hpp"
 #include "base/logging.hpp"
 #include "base/scope_guard.hpp"
+#include "base/stl_helpers.hpp"
 
 #include <functional>
 #include <initializer_list>
@@ -44,7 +45,7 @@ UNIT_TEST(WritableDir)
 
   try
   {
-    base::FileData f(path, base::FileData::OP_WRITE_TRUNCATE);
+    base::FileData f(path, base::FileData::Op::WRITE_TRUNCATE);
   }
   catch (Writer::OpenException const &)
   {
@@ -58,7 +59,7 @@ UNIT_TEST(WritableDir)
 UNIT_TEST(WritablePathForFile)
 {
   Platform & pl = GetPlatform();
-  std::string const p1 = pl.WritableDir() + TEST_FILE_NAME;
+  std::string const p1 = base::JoinPath(pl.WritableDir(), TEST_FILE_NAME);
   std::string const p2 = pl.WritablePathForFile(TEST_FILE_NAME);
   TEST_EQUAL(p1, p2, ());
 }
@@ -67,7 +68,7 @@ UNIT_TEST(GetReader)
 {
   char const * NON_EXISTING_FILE = "mgbwuerhsnmbui45efhdbn34.tmp";
   char const * arr[] = {
-    "resources-mdpi_clear/symbols.sdf",
+    "resources-mdpi_light/symbols.sdf",
     "classificator.txt",
     "minsk-pass.mwm"
   };
@@ -100,6 +101,8 @@ UNIT_TEST(GetFilesInDir_Smoke)
 
   pl.GetFilesByExt(dir, DATA_FILE_EXTENSION, files1);
   TEST_GREATER(files1.size(), 0, (dir, "folder should contain some data files"));
+
+  TEST(base::IsExist(files1, "minsk-pass.mwm"), ());
 
   pl.GetFilesByRegExp(dir, ".*\\" DATA_FILE_EXTENSION "$", files2);
   TEST_EQUAL(files1, files2, ());
@@ -151,21 +154,21 @@ UNIT_TEST(GetFilesByType)
   TEST(Platform::IsFileExistsByFullPath(testFile), ());
   SCOPE_GUARD(removeTestFile, bind(FileWriter::DeleteFileX, testFile));
 
-  CheckFilesPresence(baseDir, Platform::FILE_TYPE_DIRECTORY,
+  CheckFilesPresence(baseDir, Platform::EFileType::Directory,
   {{
      kTestDirBaseName, 1 /* present */
    },
    {
      kTestFileBaseName, 0 /* not present */
    }});
-  CheckFilesPresence(baseDir, Platform::FILE_TYPE_REGULAR,
+  CheckFilesPresence(baseDir, Platform::EFileType::Regular,
   {{
      kTestDirBaseName, 0 /* not present */
    },
    {
      kTestFileBaseName, 1 /* present */
    }});
-  CheckFilesPresence(baseDir, Platform::FILE_TYPE_DIRECTORY | Platform::FILE_TYPE_REGULAR,
+  CheckFilesPresence(baseDir, Platform::EFileType::Directory | Platform::EFileType::Regular,
   {{
      kTestDirBaseName, 1 /* present */
    },
@@ -181,26 +184,29 @@ UNIT_TEST(GetFileSize)
   TEST(!pl.GetFileSizeByName("adsmngfuwrbfyfwe", size), ());
   TEST(!pl.IsFileExistsByFullPath("adsmngfuwrbfyfwe"), ());
 
+  char const kContent[] = "HOHOHO";
+  size_t const kSize = ARRAY_SIZE(kContent);
   std::string const fileName = pl.WritablePathForFile(TEST_FILE_NAME);
   {
     FileWriter testFile(fileName);
-    testFile.Write("HOHOHO", 6);
+    testFile.Write(kContent, kSize);
   }
   size = 0;
   TEST(Platform::GetFileSizeByFullPath(fileName, size), ());
-  TEST_EQUAL(size, 6, ());
+  TEST_EQUAL(size, kSize, ());
 
   FileWriter::DeleteFileX(fileName);
+  TEST(!pl.IsFileExistsByFullPath(fileName), ());
 
   {
-    FileWriter testFile(pl.WritablePathForFile(TEST_FILE_NAME));
-    testFile.Write("HOHOHO", 6);
+    FileWriter testFile(fileName);
+    testFile.Write(kContent, kSize);
   }
   size = 0;
   TEST(pl.GetFileSizeByName(TEST_FILE_NAME, size), ());
-  TEST_EQUAL(size, 6, ());
+  TEST_EQUAL(size, kSize, ());
 
-  FileWriter::DeleteFileX(pl.WritablePathForFile(TEST_FILE_NAME));
+  FileWriter::DeleteFileX(fileName);
 }
 
 UNIT_TEST(CpuCores)
@@ -270,8 +276,10 @@ UNIT_TEST(MkDirRecursively)
 
   CHECK(resetDir(workPath), ());
   auto const filePath = base::JoinPath(workPath, "test1");
-  FileWriter testFile(filePath);
   SCOPE_GUARD(removeTestFile, bind(&base::DeleteFileX, filePath));
+  {
+    FileWriter testFile(filePath);
+  }
 
   TEST(!Platform::MkDirRecursively(path), ());
   TEST(!Platform::IsFileExistsByFullPath(path), ());
@@ -300,4 +308,28 @@ UNIT_TEST(Platform_ThreadRunner)
     TEST(false, ("The task must not be posted when thread runner is dead. "
                  "But app must not be crashed. It is normal behaviour during destruction"));
   });
+}
+
+UNIT_TEST(GetFileCreationTime_GetFileModificationTime)
+{
+  auto const now = std::time(nullptr);
+
+  std::string_view constexpr kContent{"HOHOHO"};
+  std::string const fileName = GetPlatform().WritablePathForFile(TEST_FILE_NAME);
+  {
+    FileWriter testFile(fileName);
+    testFile.Write(kContent.data(), kContent.size());
+  }
+  SCOPE_GUARD(removeTestFile, bind(&base::DeleteFileX, fileName));
+
+  auto const creationTime = Platform::GetFileCreationTime(fileName);
+  TEST_GREATER_OR_EQUAL(creationTime, now, ());
+
+  {
+    FileWriter testFile(fileName);
+    testFile.Write(kContent.data(), kContent.size());
+  }
+
+  auto const modificationTime = Platform::GetFileModificationTime(fileName);
+  TEST_GREATER_OR_EQUAL(modificationTime, creationTime, ());
 }

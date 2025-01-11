@@ -19,12 +19,12 @@
 #include <string>
 #include <vector>
 
+namespace async_router_test
+{
 using namespace routing;
 using namespace std::placeholders;
 using namespace std;
 
-namespace
-{
 class DummyRouter : public IRouter
 {
   RouterResultCode m_result;
@@ -32,7 +32,7 @@ class DummyRouter : public IRouter
 
 public:
   DummyRouter(RouterResultCode code, set<string> const & absent) : m_result(code), m_absent(absent) {}
-  
+
   // IRouter overrides:
   string GetName() const override { return "Dummy"; }
   void SetGuides(GuidesTracks && /* guides */) override {}
@@ -111,7 +111,7 @@ struct DummyRoutingCallbacks
 //  unique_ptr<IRouter> router(new DummyRouter(RouterResultCode::NoError, {}));
 //  DummyRoutingCallbacks resultCallback(2 /* expectedCalls */);
 //  AsyncRouter async(DummyStatisticsCallback, nullptr /* pointCheckCallback */);
-//  async.SetRouter(move(router), move(fetcher));
+//  async.SetRouter(std::move(router), std::move(fetcher));
 //  async.CalculateRoute(Checkpoints({1, 2} /* start */, {5, 6} /* finish */), {3, 4}, false,
 //                       bind(ref(resultCallback), _1, _2) /* readyCallback */,
 //                       bind(ref(resultCallback), _1, _2) /* needMoreMapsCallback */,
@@ -134,7 +134,7 @@ struct DummyRoutingCallbacks
 //  unique_ptr<IRouter> router(new DummyRouter(RouterResultCode::NoError, {}));
 //  DummyRoutingCallbacks resultCallback(1 /* expectedCalls */);
 //  AsyncRouter async(DummyStatisticsCallback, nullptr /* pointCheckCallback */);
-//  async.SetRouter(move(router), move(fetcher));
+//  async.SetRouter(std::move(router), std::move(fetcher));
 //  async.CalculateRoute(Checkpoints({1, 2} /* start */, {5, 6} /* finish */), {3, 4}, false,
 //                       bind(ref(resultCallback), _1, _2), nullptr /* needMoreMapsCallback */,
 //                       nullptr /* progressCallback */, nullptr /* removeRouteCallback */);
@@ -146,4 +146,4 @@ struct DummyRoutingCallbacks
 //  TEST_EQUAL(resultCallback.m_absent.size(), 1, ());
 //  TEST(resultCallback.m_absent[0].empty(), ());
 //}
-}  //  namespace
+}  //  namespace async_router_test

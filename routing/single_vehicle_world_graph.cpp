@@ -1,11 +1,8 @@
 #include "routing/single_vehicle_world_graph.hpp"
 
-#include "routing/base/astar_algorithm.hpp"
+#include "base/assert.hpp"
 
 #include <algorithm>
-#include <utility>
-
-#include "base/assert.hpp"
 
 namespace routing
 {
@@ -23,9 +20,9 @@ SingleVehicleWorldGraph::SingleVehicleWorldGraph(unique_ptr<CrossMwmGraph> cross
                                                  unique_ptr<IndexGraphLoader> loader,
                                                  shared_ptr<EdgeEstimator> estimator,
                                                  MwmHierarchyHandler && hierarchyHandler)
-  : m_crossMwmGraph(move(crossMwmGraph))
-  , m_loader(move(loader))
-  , m_estimator(move(estimator))
+  : m_crossMwmGraph(std::move(crossMwmGraph))
+  , m_loader(std::move(loader))
+  , m_estimator(std::move(estimator))
   , m_hierarchyHandler(std::move(hierarchyHandler))
 {
   CHECK(m_loader, ());
@@ -37,7 +34,6 @@ void SingleVehicleWorldGraph::CheckAndProcessTransitFeatures(Segment const & par
                                                              WeightListT & parentWeights,
                                                              bool isOutgoing)
 {
-  bool opposite = !isOutgoing;
   JointEdgeListT newCrossMwmEdges;
 
   NumMwmId const mwmId = parent.GetMwmId();
@@ -46,22 +42,19 @@ void SingleVehicleWorldGraph::CheckAndProcessTransitFeatures(Segment const & par
   {
     JointSegment const & target = jointEdges[i].GetTarget();
 
-    NumMwmId const edgeMwmId = target.GetMwmId();
-
-    if (!m_crossMwmGraph->IsFeatureTransit(edgeMwmId, target.GetFeatureId()))
-      continue;
-
-    auto & currentIndexGraph = GetIndexGraph(mwmId);
-
     vector<Segment> twins;
     m_crossMwmGraph->GetTwinFeature(target.GetSegment(true /* start */), isOutgoing, twins);
+    if (twins.empty())
+    {
+      ASSERT_EQUAL(mwmId, target.GetMwmId(), ());
+      continue;
+    }
+
+    auto & currentIndexGraph = GetIndexGraph(mwmId);
     for (auto const & twin : twins)
     {
       NumMwmId const twinMwmId = twin.GetMwmId();
-
-      uint32_t const twinFeatureId = twin.GetFeatureId();
-
-      Segment const start(twinMwmId, twinFeatureId, target.GetSegmentId(!opposite), target.IsForward());
+      Segment const start(twinMwmId, twin.GetFeatureId(), target.GetSegmentId(isOutgoing), target.IsForward());
 
       auto & twinIndexGraph = GetIndexGraph(twinMwmId);
 
@@ -70,16 +63,13 @@ void SingleVehicleWorldGraph::CheckAndProcessTransitFeatures(Segment const & par
       ASSERT_EQUAL(lastPoints.size(), 1, ());
 
       if (auto edge = currentIndexGraph.GetJointEdgeByLastPoint(parent,
-                                                                target.GetSegment(!opposite),
+                                                                target.GetSegment(isOutgoing),
                                                                 isOutgoing, lastPoints.back()))
       {
         newCrossMwmEdges.emplace_back(*edge);
-        newCrossMwmEdges.back().GetTarget().SetFeatureId(twinFeatureId);
-        newCrossMwmEdges.back().GetTarget().SetMwmId(twinMwmId);
-        newCrossMwmEdges.back().GetWeight() +=
-            m_hierarchyHandler.GetCrossBorderPenalty(mwmId, twinMwmId);
+        newCrossMwmEdges.back().GetTarget().AssignID(twin);
 
-        parentWeights.emplace_back(parentWeights[i]);
+        parentWeights.push_back(parentWeights[i]);
       }
     }
   }
@@ -116,13 +106,15 @@ void SingleVehicleWorldGraph::GetEdgeList(
 
   ASSERT(m_parentsForJoints.forward && m_parentsForJoints.backward,
          ("m_parentsForJoints was not initialized in SingleVehicleWorldGraph."));
-  auto & parents = isOutgoing ? *m_parentsForJoints.forward : *m_parentsForJoints.backward;
+  auto const & parents = isOutgoing ? *m_parentsForJoints.forward : *m_parentsForJoints.backward;
   auto & indexGraph = GetIndexGraph(parent.GetMwmId());
   indexGraph.GetEdgeList(parentVertexData, parent, isOutgoing, jointEdges, parentWeights, parents);
 
   // Comment this call to debug routing on single generated mwm.
   if (m_mode != WorldGraphMode::JointSingleMwm)
     CheckAndProcessTransitFeatures(parent, jointEdges, parentWeights, isOutgoing);
+
+  ASSERT_EQUAL(jointEdges.size(), parentWeights.size(), ());
 }
 
 LatLonWithAltitude const & SingleVehicleWorldGraph::GetJunction(Segment const & segment,
@@ -177,6 +169,7 @@ RouteWeight SingleVehicleWorldGraph::CalcOffroadWeight(ms::LatLon const & from,
 
 double SingleVehicleWorldGraph::CalculateETA(Segment const & from, Segment const & to)
 {
+  /// @todo Crutch, for example we can loose ferry penalty here (no twin segments), @see Russia_CrossMwm_Ferry.
   if (from.GetMwmId() != to.GetMwmId())
     return CalculateETAWithoutPenalty(to);
 
@@ -191,17 +184,21 @@ double SingleVehicleWorldGraph::CalculateETAWithoutPenalty(Segment const & segme
                                         EdgeEstimator::Purpose::ETA);
 }
 
-vector<Segment> const & SingleVehicleWorldGraph::GetTransitions(NumMwmId numMwmId, bool isEnter)
+void SingleVehicleWorldGraph::ForEachTransition(NumMwmId numMwmId, bool isEnter, TransitionFnT const & fn)
 {
-  return m_crossMwmGraph->GetTransitions(numMwmId, isEnter);
+  return m_crossMwmGraph->ForEachTransition(numMwmId, isEnter, fn);
 }
-
-unique_ptr<TransitInfo> SingleVehicleWorldGraph::GetTransitInfo(Segment const &) { return {}; }
 
 vector<RouteSegment::SpeedCamera> SingleVehicleWorldGraph::GetSpeedCamInfo(Segment const & segment)
 {
   ASSERT(segment.IsRealSegment(), ());
   return m_loader->GetSpeedCameraInfo(segment);
+}
+
+SpeedInUnits SingleVehicleWorldGraph::GetSpeedLimit(Segment const & segment)
+{
+  ASSERT(segment.IsRealSegment(), ());
+  return GetIndexGraph(segment.GetMwmId()).GetGeometry().GetSavedMaxspeed(segment.GetFeatureId(), segment.IsForward());
 }
 
 RoadGeometry const & SingleVehicleWorldGraph::GetRoadGeometry(NumMwmId mwmId, uint32_t featureId)
@@ -213,6 +210,11 @@ void SingleVehicleWorldGraph::GetTwinsInner(Segment const & segment, bool isOutg
                                             vector<Segment> & twins)
 {
   m_crossMwmGraph->GetTwins(segment, isOutgoing, twins);
+}
+
+RouteWeight SingleVehicleWorldGraph::GetCrossBorderPenalty(NumMwmId mwmId1, NumMwmId mwmId2)
+{
+  return m_hierarchyHandler.GetCrossBorderPenalty(mwmId1, mwmId2);
 }
 
 bool SingleVehicleWorldGraph::IsRoutingOptionsGood(Segment const & segment)
@@ -272,12 +274,11 @@ NumMwmId GetCommonMwmInChain(vector<VertexType> const & chain)
   return mwmId;
 }
 
-template <typename VertexType>
-bool
+template <typename VertexType, class ConverterT> bool
 SingleVehicleWorldGraph::AreWavesConnectibleImpl(Parents<VertexType> const & forwardParents,
                                                  VertexType const & commonVertex,
                                                  Parents<VertexType> const & backwardParents,
-                                                 function<uint32_t(VertexType const &)> && fakeFeatureConverter)
+                                                 ConverterT const & fakeConverter)
 {
   if (IsRegionsGraphMode())
     return true;
@@ -321,14 +322,7 @@ SingleVehicleWorldGraph::AreWavesConnectibleImpl(Parents<VertexType> const & for
 
   fillParents(commonVertex, backwardParents);
 
-  if (fakeFeatureConverter)
-  {
-    for (size_t i = 0; i < chain.size(); ++i)
-    {
-      if (!chain[i].IsRealSegment())
-        chain[i].SetFeatureId(fakeFeatureConverter(chain[i]));
-    }
-  }
+  fakeConverter(chain);
 
   NumMwmId const mwmId = GetCommonMwmInChain(chain);
   if (mwmId == kFakeNumMwmId)
@@ -358,17 +352,22 @@ SingleVehicleWorldGraph::AreWavesConnectibleImpl(Parents<VertexType> const & for
 
 bool SingleVehicleWorldGraph::AreWavesConnectible(Parents<Segment> & forwardParents,
                                                   Segment const & commonVertex,
-                                                  Parents<Segment> & backwardParents,
-                                                  function<uint32_t(Segment const &)> && fakeFeatureConverter)
+                                                  Parents<Segment> & backwardParents)
 {
-  return AreWavesConnectibleImpl(forwardParents, commonVertex, backwardParents, move(fakeFeatureConverter));
+  return AreWavesConnectibleImpl(forwardParents, commonVertex, backwardParents,
+                                 [](vector<Segment> &) {});
 }
 
 bool SingleVehicleWorldGraph::AreWavesConnectible(Parents<JointSegment> & forwardParents,
                                                   JointSegment const & commonVertex,
                                                   Parents<JointSegment> & backwardParents,
-                                                  function<uint32_t(JointSegment const &)> && fakeFeatureConverter)
+                                                  FakeConverterT const & fakeFeatureConverter)
 {
-  return AreWavesConnectibleImpl(forwardParents, commonVertex, backwardParents, move(fakeFeatureConverter));
+  return AreWavesConnectibleImpl(forwardParents, commonVertex, backwardParents,
+                                 [&fakeFeatureConverter](vector<JointSegment> & chain)
+  {
+    for (auto & vertex : chain)
+      fakeFeatureConverter(vertex);
+  });
 }
 }  // namespace routing

@@ -4,7 +4,7 @@
 
 #include "routing/index_graph_loader.hpp"
 
-#include "routing_common/car_model.cpp"
+#include "routing_common/car_model.hpp"
 #include "routing_common/vehicle_model.hpp"
 
 #include "platform/country_file.hpp"
@@ -26,20 +26,17 @@
 #include <utility>
 #include <vector>
 
-namespace routing
+namespace routing_builder
 {
+using namespace routing;
 
-std::unique_ptr<IndexGraph>
-CreateIndexGraph(std::string const & targetPath,
-                 std::string const & mwmPath,
-                 std::string const & country,
-                 CountryParentNameGetterFn const & countryParentNameGetterFn)
+std::unique_ptr<IndexGraph> CreateIndexGraph(std::string const & mwmPath, std::string const & country,
+                                             CountryParentNameGetterFn const & countryParentNameGetterFn)
 {
   std::shared_ptr<VehicleModelInterface> vehicleModel =
       CarModelFactory(countryParentNameGetterFn).GetVehicleModelForCountry(country);
 
-  MwmValue mwmValue(
-      platform::LocalCountryFile(targetPath, platform::CountryFile(country), 0 /* version */));
+  MwmValue mwmValue(platform::LocalCountryFile::MakeTemporary(mwmPath));
 
   auto graph = std::make_unique<IndexGraph>(
       std::make_shared<Geometry>(GeometryLoader::CreateFromFile(mwmPath, vehicleModel)),
@@ -47,7 +44,6 @@ CreateIndexGraph(std::string const & targetPath,
         nullptr /* dataSource */, nullptr /* numMvmIds */));
 
   DeserializeIndexGraph(mwmValue, VehicleType::Car, *graph);
-
   return graph;
 }
 
@@ -98,7 +94,7 @@ bool BuildRoadRestrictions(IndexGraph & graph,
                            std::string const & restrictionPath,
                            std::string const & osmIdsToFeatureIdsPath)
 {
-  LOG(LINFO, ("BuildRoadRestrictions(", restrictionPath, ", ", osmIdsToFeatureIdsPath, ");"));
+  LOG(LINFO, ("Generating restrictions for", restrictionPath));
 
   auto collector = std::make_unique<RestrictionCollector>(osmIdsToFeatureIdsPath, graph);
   if (!collector->Process(restrictionPath))
@@ -114,4 +110,4 @@ bool BuildRoadRestrictions(IndexGraph & graph,
   return true;
 }
 
-}  // namespace routing
+}  // namespace routing_builder

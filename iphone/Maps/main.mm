@@ -1,17 +1,17 @@
 #import "MapsAppDelegate.h"
+#import "MWMSettings.h"
 
-#include "platform/file_logging.hpp"
 #include "platform/platform.hpp"
-#include "platform/settings.hpp"
-
 
 int main(int argc, char * argv[])
 {
-#ifdef MWM_LOG_TO_FILE
-  base::SetLogMessageFn(LogMessageFile);
-#endif
+  [MWMSettings initializeLogging];
+
+  NSBundle * mainBundle = [NSBundle mainBundle];
+  NSString * appName = [mainBundle objectForInfoDictionaryKey:@"CFBundleName"];
+  NSString * bundleId = mainBundle.bundleIdentifier;
   auto & p = GetPlatform();
-  LOG(LINFO, ("Organic Maps started, detected CPU cores:", p.CpuCores()));
+  LOG(LINFO, (appName.UTF8String, bundleId.UTF8String, p.Version(), "started, detected CPU cores:", p.CpuCores()));
 
   int retVal;
   @autoreleasepool

@@ -1,7 +1,6 @@
 project(routing_tests)
 
-set(
-  SRC
+set(SRC
   applying_traffic_test.cpp
   astar_algorithm_test.cpp
   astar_progress_test.cpp
@@ -37,6 +36,7 @@ set(
   routing_options_tests.cpp
   routing_session_test.cpp
   speed_cameras_tests.cpp
+  tools.cpp
   tools.hpp
   turns_generator_test.cpp
   turns_sound_test.cpp
@@ -47,36 +47,9 @@ set(
 
 omim_add_test(${PROJECT_NAME} ${SRC})
 
-omim_link_libraries(
-  ${PROJECT_NAME}
-  map
-  ge0
+target_link_libraries(${PROJECT_NAME}
+  platform_tests_support
+  generator_tests_support
   routing
   storage
-  mwm_diff
-  platform_tests_support
-  traffic
-  routing_common
-  transit
-  kml
-  descriptions
-  indexer
-  platform
-  geometry
-  coding
-  base
-  agg
-  jansson
-  oauthcpp
-  opening_hours
-  protobuf
-  pugixml
-  bsdiff
-  succinct
-  icu
-  generator_tests_support
-
-  ${LIBZ}
 )
-
-link_qt5_core(${PROJECT_NAME})

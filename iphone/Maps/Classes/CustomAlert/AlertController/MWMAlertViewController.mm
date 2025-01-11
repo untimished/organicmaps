@@ -2,7 +2,6 @@
 #import "MWMController.h"
 #import "MWMDownloadTransitMapAlert.h"
 #import "MWMLocationAlert.h"
-#import "MWMLocationNotFoundAlert.h"
 #import "MapViewController.h"
 #import "MapsAppDelegate.h"
 #import "SwiftBridge.h"
@@ -46,14 +45,6 @@ static NSString *const kAlertControllerNibIdentifier = @"MWMAlertViewController"
 
 #pragma mark - Actions
 
-- (void)presentRateAlert {
-  [self displayAlert:[MWMAlert rateAlert]];
-}
-
-- (void)presentAuthErrorAlertWithRetryBlock:(nonnull MWMVoidBlock)retryBlock {
-  [self displayAlert:[MWMAlert authErrorAlertWithRetryBlock:retryBlock]];
-}
-
 - (void)presentLocationAlertWithCancelBlock:(MWMVoidBlock)cancelBlock {
   [self displayAlert:[MWMAlert locationAlertWithCancelBlock:cancelBlock]];
 }
@@ -64,17 +55,10 @@ static NSString *const kAlertControllerNibIdentifier = @"MWMAlertViewController"
 - (void)presentLocationServiceNotSupportedAlert {
   [self displayAlert:[MWMAlert locationServiceNotSupportedAlert]];
 }
-
-- (void)presentLocationNotFoundAlertWithOkBlock:(nonnull MWMVoidBlock)okBlock {
-  [self displayAlert:[MWMLocationNotFoundAlert alertWithOkBlock:okBlock]];
-}
-
 - (void)presentNoConnectionAlert {
   [self displayAlert:[MWMAlert noConnectionAlert]];
 }
-- (void)presentSearchQuickFilterNoConnectionAlert {
-  [self displayAlert:[MWMAlert searchQuickFilterNoConnectionAlert]];
-}
+
 - (void)presentDeleteMapProhibitedAlert {
   [self displayAlert:[MWMAlert deleteMapProhibitedAlert]];
 }
@@ -90,9 +74,6 @@ static NSString *const kAlertControllerNibIdentifier = @"MWMAlertViewController"
   [self displayAlert:[MWMAlert incorrectFeaturePositionAlert]];
 }
 
-- (void)presentInternalErrorAlert {
-  [self displayAlert:[MWMAlert internalErrorAlert]];
-}
 - (void)presentNotEnoughSpaceAlert {
   [self displayAlert:[MWMAlert notEnoughSpaceAlert]];
 }
@@ -119,12 +100,13 @@ static NSString *const kAlertControllerNibIdentifier = @"MWMAlertViewController"
 - (void)presentDisabledLocationAlert {
   [self displayAlert:[MWMAlert disabledLocationAlert]];
 }
-- (void)presentAlert:(routing::RouterResultCode)type {
-  [self displayAlert:[MWMAlert alert:type]];
+
+- (void)presentLocationServicesDisabledAlert; {
+  [self displayAlert:[MWMAlert locationServicesDisabledAlert]];
 }
 
-- (void)presentDisableAutoDownloadAlertWithOkBlock:(nonnull MWMVoidBlock)okBlock {
-  [self displayAlert:[MWMAlert disableAutoDownloadAlertWithOkBlock:okBlock]];
+- (void)presentAlert:(routing::RouterResultCode)type {
+  [self displayAlert:[MWMAlert alert:type]];
 }
 
 - (void)presentDownloaderNoConnectionAlertWithOkBlock:(nonnull MWMVoidBlock)okBlock
@@ -139,10 +121,6 @@ static NSString *const kAlertControllerNibIdentifier = @"MWMAlertViewController"
 - (void)presentDownloaderInternalErrorAlertWithOkBlock:(nonnull MWMVoidBlock)okBlock
                                            cancelBlock:(nonnull MWMVoidBlock)cancelBlock {
   [self displayAlert:[MWMAlert downloaderInternalErrorAlertWithOkBlock:okBlock cancelBlock:cancelBlock]];
-}
-
-- (void)presentDownloaderNeedUpdateAlertWithOkBlock:(nonnull MWMVoidBlock)okBlock {
-  [self displayAlert:[MWMAlert downloaderNeedUpdateAlertWithOkBlock:okBlock]];
 }
 
 - (void)presentPlaceDoesntExistAlertWithBlock:(MWMStringBlock)block {
@@ -184,6 +162,10 @@ static NSString *const kAlertControllerNibIdentifier = @"MWMAlertViewController"
   [self displayAlert:[MWMAlert osmAuthAlert]];
 }
 
+- (void)presentOsmReauthAlert {
+  [self displayAlert:[MWMAlert osmReauthAlert]];
+}
+
 - (void)presentCreateBookmarkCategoryAlertWithMaxCharacterNum:(NSUInteger)max
                                               minCharacterNum:(NSUInteger)min
                                                      callback:(nonnull MWMCheckStringBlock)callback {
@@ -197,11 +179,6 @@ static NSString *const kAlertControllerNibIdentifier = @"MWMAlertViewController"
   });
 }
 
-- (void)presentConvertBookmarksAlertWithCount:(NSUInteger)count block:(nonnull MWMVoidBlock)block {
-  auto alert = [MWMAlert convertBookmarksAlertWithCount:count block:block];
-  [self displayAlert:alert];
-}
-
 - (void)presentSpinnerAlertWithTitle:(nonnull NSString *)title cancel:(nullable MWMVoidBlock)cancel {
   [self displayAlert:[MWMAlert spinnerAlertWithTitle:title cancel:cancel]];
 }
@@ -210,17 +187,13 @@ static NSString *const kAlertControllerNibIdentifier = @"MWMAlertViewController"
   [self displayAlert:[MWMAlert bookmarkConversionErrorAlert]];
 }
 
-- (void)presentRestoreBookmarkAlertWithMessage:(nonnull NSString *)message
-                             rightButtonAction:(nonnull MWMVoidBlock)rightButton
-                              leftButtonAction:(nonnull MWMVoidBlock)leftButton {
-  [self displayAlert:[MWMAlert restoreBookmarkAlertWithMessage:message
-                                             rightButtonAction:rightButton
-                                              leftButtonAction:leftButton]];
-}
-
 - (void)presentTagsLoadingErrorAlertWithOkBlock:(nonnull MWMVoidBlock)okBlock
                                     cancelBlock:(nonnull MWMVoidBlock)cancelBlock {
   [self displayAlert:[MWMAlert tagsLoadingErrorAlertWithOkBlock:okBlock cancelBlock:cancelBlock]];
+}
+
+- (void)presentBugReportAlertWithTitle:(nonnull NSString *)title {
+  [self displayAlert:[MWMAlert bugReportAlertWithTitle:title]];
 }
 
 - (void)presentDefaultAlertWithTitle:(nonnull NSString *)title

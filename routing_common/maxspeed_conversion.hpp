@@ -177,10 +177,23 @@ public:
   measurement_utils::Units GetUnits() const { return m_units; }
 
   bool operator==(SpeedInUnits const & rhs) const;
-  bool operator<(SpeedInUnits const & rhs) const;
+
+  /// @note Used as map keys compare. Doesn't make real speed comparison.
+  struct Less
+  {
+    bool operator()(SpeedInUnits const & l, SpeedInUnits const & r) const
+    {
+      if (l.m_units == r.m_units)
+        return l.m_speed < r.m_speed;
+      return l.m_units < r.m_units;
+    }
+  };
 
   bool IsNumeric() const;
   bool IsValid() const { return m_speed != kInvalidSpeed; }
+
+  /// @pre IsNumeric() == true.
+  MaxspeedType GetSpeedKmPH() const;
 
 private:
   // Speed in km per hour or mile per hour depends on m_units value.
@@ -241,7 +254,22 @@ public:
                   MaxspeedType backward = kInvalidSpeed) noexcept;
 
   bool operator==(FeatureMaxspeed const & rhs) const;
-  bool IsFeatureIdLess(FeatureMaxspeed const & rhs) const { return m_featureId < rhs.m_featureId; }
+
+  struct Less
+  {
+    bool operator() (FeatureMaxspeed const & l, FeatureMaxspeed const & r) const
+    {
+      return l.m_featureId < r.m_featureId;
+    }
+    bool operator() (uint32_t l, FeatureMaxspeed const & r) const
+    {
+      return l < r.m_featureId;
+    }
+    bool operator() (FeatureMaxspeed const & l, uint32_t r) const
+    {
+      return l.m_featureId < r;
+    }
+  };
 
   bool IsValid() const { return m_maxspeed.IsValid(); }
   bool IsBidirectional() const { return m_maxspeed.IsBidirectional(); }
@@ -257,16 +285,16 @@ private:
   Maxspeed m_maxspeed;
 };
 
+/// \brief Generator converts real speed (SpeedInUnits) into 1-byte values for serialization (SpeedMacro),
+/// based on most used speeds (see MaxspeedConverter ctor).
+/// If you make any manipulation with speeds and want to save it, consider using ClosestValidMacro.
 class MaxspeedConverter
 {
 public:
   SpeedInUnits MacroToSpeed(SpeedMacro macro) const;
   SpeedMacro SpeedToMacro(SpeedInUnits const & speed) const;
 
-  /// \returns true if |macro| can be cast to a valid value of SpeedMacro emum class.
-  /// \note SpeedMacro::Undefined value and all values from 1 to 256 which are not present
-  /// in SpeedMacro enum class are considered as an invalid.
-  bool IsValidMacro(uint8_t macro) const;
+  SpeedInUnits ClosestValidMacro(SpeedInUnits const & speed) const;
 
   static MaxspeedConverter const & Instance();
 
@@ -274,15 +302,15 @@ private:
   MaxspeedConverter();
 
   std::array<SpeedInUnits, std::numeric_limits<uint8_t>::max()> m_macroToSpeed;
-  std::map<SpeedInUnits, SpeedMacro> m_speedToMacro;
+  std::map<SpeedInUnits, SpeedMacro, SpeedInUnits::Less> m_speedToMacro;
 };
 
 MaxspeedConverter const & GetMaxspeedConverter();
 bool HaveSameUnits(SpeedInUnits const & lhs, SpeedInUnits const & rhs);
 bool IsFeatureIdLess(FeatureMaxspeed const & lhs, FeatureMaxspeed const & rhs);
 
-/// \returns false if |speed| is equal to |kInvalidSpeed|, |kNoneMaxSpeed| or
-/// |kWalkMaxSpeed|.
+/// \returns false if \a speed is equal to predefined values
+/// {kInvalidSpeed, kNoneMaxSpeed, kWalkMaxSpeed, kCommonMaxSpeedValue}
 /// \param speed in km per hour or mile per hour.
 bool IsNumeric(MaxspeedType speed);
 

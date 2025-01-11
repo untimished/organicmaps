@@ -7,12 +7,14 @@
 #include "base/assert.hpp"
 #include "base/checked_cast.hpp"
 
-#include <type_traits>
+#include "defines.hpp"
 
-using namespace std;
+#include <type_traits>
 
 namespace indexer
 {
+using namespace std;
+
 void MetadataDeserializer::Header::Read(Reader & reader)
 {
   static_assert(is_same<underlying_type_t<Version>, uint8_t>::value, "");
@@ -28,7 +30,7 @@ void MetadataDeserializer::Header::Read(Reader & reader)
 bool MetadataDeserializer::Get(uint32_t featureId, feature::MetadataBase & meta)
 {
   MetaIds metaIds;
-  if (!m_map->GetThreadsafe(featureId, metaIds))
+  if (!GetIds(featureId, metaIds))
     return false;
 
   lock_guard<mutex> guard(m_stringsMutex);
@@ -73,23 +75,21 @@ unique_ptr<MetadataDeserializer> MetadataDeserializer::Load(Reader & reader)
 
   // Decodes block encoded by writeBlockCallback from MetadataBuilder::Freeze.
   auto const readBlockCallback = [&](NonOwningReaderSource & source, uint32_t blockSize,
-                                     vector<MetaIds> & values) {
-    // We may have some unused values it the tail of the last block but it's ok because
-    // default block size is 64.
+                                     vector<MetaIds> & values)
+  {
     values.resize(blockSize);
     for (size_t i = 0; i < blockSize && source.Size() > 0; ++i)
     {
       auto const size = ReadVarUint<uint32_t>(source);
       values[i].resize(size);
       CHECK_GREATER(size, 0, ());
+
       for (auto & value : values[i])
         value.first = ReadPrimitiveFromSource<uint8_t>(source);
+
       values[i][0].second = ReadVarUint<uint32_t>(source);
       for (size_t j = 1; j < values[i].size(); ++j)
-      {
-        int32_t delta = ReadVarInt<int32_t>(source);
-        values[i][j].second = values[i][j - 1].second + delta;
-      }
+        values[i][j].second = values[i][j - 1].second + ReadVarInt<int32_t>(source);
     }
   };
 
@@ -100,14 +100,19 @@ unique_ptr<MetadataDeserializer> MetadataDeserializer::Load(Reader & reader)
   return deserializer;
 }
 
+// static
+std::unique_ptr<MetadataDeserializer> MetadataDeserializer::Load(FilesContainerR const & cont)
+{
+  return Load(*cont.GetReader(METADATA_FILE_TAG).GetPtr());
+}
+
 // MetadataBuilder -----------------------------------------------------------------------------
-void MetadataBuilder::Put(uint32_t featureId, feature::MetadataBase const & meta)
+void MetadataBuilder::Put(uint32_t featureId, feature::Metadata const & meta)
 {
   MetadataDeserializer::MetaIds metaIds;
-  for (auto const & type : meta.GetPresentTypes())
+  meta.ForEach([&](feature::Metadata::EType type, std::string const & value)
   {
     uint32_t id = 0;
-    auto const value = meta.Get(type);
     auto const it = m_stringToId.find(value);
     if (it != m_stringToId.end())
     {
@@ -123,7 +128,8 @@ void MetadataBuilder::Put(uint32_t featureId, feature::MetadataBase const & meta
       CHECK_EQUAL(m_idToString.size(), m_stringToId.size(), ());
     }
     metaIds.emplace_back(type, id);
-  }
+  });
+
   m_builder.Put(featureId, metaIds);
 }
 

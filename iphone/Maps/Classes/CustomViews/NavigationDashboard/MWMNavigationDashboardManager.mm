@@ -11,9 +11,6 @@ namespace {
 NSString *const kRoutePreviewIPhoneXibName = @"MWMiPhoneRoutePreview";
 NSString *const kNavigationInfoViewXibName = @"MWMNavigationInfoView";
 NSString *const kNavigationControlViewXibName = @"NavigationControlView";
-
-using Observer = id<MWMNavigationDashboardObserver>;
-using Observers = NSHashTable<Observer>;
 }  // namespace
 
 @interface MWMMapViewControlsManager ()
@@ -35,7 +32,6 @@ using Observers = NSHashTable<Observer>;
 @property(nonatomic) IBOutletCollection(MWMRouteStartButton) NSArray *goButtons;
 @property(nonatomic) MWMNavigationDashboardEntity *entity;
 @property(nonatomic) MWMRouteManagerTransitioningManager *routeManagerTransitioningManager;
-@property(nonatomic) Observers *observers;
 @property(weak, nonatomic) IBOutlet UIButton *showRouteManagerButton;
 @property(weak, nonatomic) IBOutlet UIView *goButtonsContainer;
 @property(weak, nonatomic) UIView *ownerView;
@@ -52,7 +48,6 @@ using Observers = NSHashTable<Observer>;
   self = [super init];
   if (self) {
     _ownerView = view;
-    _observers = [Observers weakObjectsHashTable];
   }
   return self;
 }
@@ -87,8 +82,10 @@ using Observers = NSHashTable<Observer>;
   if (!entity.isValid)
     return;
   [_navigationInfoView onNavigationInfoUpdated:entity];
-  if ([MWMRouter type] == MWMRouterTypePublicTransport)
-    [_transportRoutePreviewStatus onNavigationInfoUpdated:entity];
+  bool const isPublicTransport = [MWMRouter type] == MWMRouterTypePublicTransport;
+  bool const isRuler = [MWMRouter type] == MWMRouterTypeRuler;
+  if (isPublicTransport || isRuler)
+    [_transportRoutePreviewStatus onNavigationInfoUpdated:entity prependDistance:isRuler];
   else
     [_baseRoutePreviewStatus onNavigationInfoUpdated:entity];
   [_navigationControlView onNavigationInfoUpdated:entity];
@@ -176,17 +173,25 @@ using Observers = NSHashTable<Observer>;
 }
 
 - (void)stateReady {
-  NSAssert(_state == MWMNavigationDashboardStatePlanning, @"Invalid state change (ready)");
+  // TODO: Here assert sometimes fires with _state = MWMNavigationDashboardStateReady, if app was stopped while navigating and then restarted.
+  // Also in ruler mode when new point is added by single tap on the map state MWMNavigationDashboardStatePlanning is skipped and we get _state = MWMNavigationDashboardStateReady.
+  NSAssert(_state == MWMNavigationDashboardStatePlanning || _state == MWMNavigationDashboardStateReady, @"Invalid state change (ready)");
   [self setRouteBuilderProgress:100.];
   [self updateGoButtonTitle];
-  auto const isTransport = ([MWMRouter type] == MWMRouterTypePublicTransport);
-  if (isTransport)
+  bool const isTransport = ([MWMRouter type] == MWMRouterTypePublicTransport);
+  bool const isRuler = ([MWMRouter type] == MWMRouterTypeRuler);
+  if (isTransport || isRuler)
     [self.transportRoutePreviewStatus showReady];
   else
     [self.baseRoutePreviewStatus showReady];
-  self.goButtonsContainer.hidden = isTransport;
+  self.goButtonsContainer.hidden = isTransport || isRuler;
   for (MWMRouteStartButton *button in self.goButtons)
-    [button stateReady];
+  {
+    if (isRuler)
+      [button stateHidden];
+    else
+      [button stateReady];
+  }
 }
 
 - (void)onRouteStart {
@@ -227,29 +232,12 @@ using Observers = NSHashTable<Observer>;
 }
 
 - (IBAction)settingsButtonAction {
-  [[MapViewController sharedController] performSegueWithIdentifier:@"Map2Settings" sender:nil];
+  [[MapViewController sharedController] openSettings];
 }
 
 - (IBAction)stopRoutingButtonAction {
   [MWMSearch clear];
   [MWMRouter stopRouting];
-}
-
-#pragma mark - Add/Remove Observers
-
-+ (void)addObserver:(id<MWMNavigationDashboardObserver>)observer {
-  [[self sharedManager].observers addObject:observer];
-}
-
-+ (void)removeObserver:(id<MWMNavigationDashboardObserver>)observer {
-  [[self sharedManager].observers removeObject:observer];
-}
-
-#pragma mark - MWMNavigationDashboardObserver
-
-- (void)onNavigationDashboardStateChanged {
-  for (Observer observer in self.observers)
-    [observer onNavigationDashboardStateChanged];
 }
 
 #pragma mark - MWMSearchManagerObserver
@@ -270,22 +258,6 @@ using Observers = NSHashTable<Observer>;
   _navigationInfoView.availableArea = frame;
 }
 #pragma mark - Properties
-
-- (NSDictionary *)etaAttributes {
-  if (!_etaAttributes) {
-    _etaAttributes =
-      @{NSForegroundColorAttributeName: [UIColor blackPrimaryText], NSFontAttributeName: [UIFont medium17]};
-  }
-  return _etaAttributes;
-}
-
-- (NSDictionary *)etaSecondaryAttributes {
-  if (!_etaSecondaryAttributes) {
-    _etaSecondaryAttributes =
-      @{NSForegroundColorAttributeName: [UIColor blackSecondaryText], NSFontAttributeName: [UIFont medium17]};
-  }
-  return _etaSecondaryAttributes;
-}
 
 - (void)setState:(MWMNavigationDashboardState)state {
   if (state == MWMNavigationDashboardStateHidden)
@@ -314,7 +286,9 @@ using Observers = NSHashTable<Observer>;
   }
   _state = state;
   [[MapViewController sharedController] updateStatusBarStyle];
-  [self onNavigationDashboardStateChanged];
+  // Restore bottom buttons only if they were not already hidden by tapping anywhere on an empty map.
+  if (!MWMMapViewControlsManager.manager.hidden)
+    BottomTabBarViewController.controller.isHidden = state != MWMNavigationDashboardStateHidden;
 }
 
 @synthesize routePreview = _routePreview;

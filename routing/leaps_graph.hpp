@@ -29,16 +29,19 @@ public:
   RouteWeight GetAStarWeightEpsilon() override;
   // @}
 
-  Segment const & GetStartSegment() const;
-  Segment const & GetFinishSegment() const;
+  Segment const & GetStartSegment() const { return m_startSegment; }
+  Segment const & GetFinishSegment() const { return m_finishSegment; }
   ms::LatLon const & GetPoint(Segment const & segment, bool front) const;
+
+  RouteWeight CalcMiddleCrossMwmWeight(std::vector<Segment> const & path);
 
 private:
   void GetEdgesList(Segment const & segment, bool isOutgoing, EdgeListT & edges);
 
-  void GetEdgesListFromStart(Segment const & segment, EdgeListT & edges);
-  void GetEdgesListToFinish(Segment const & segment, EdgeListT & edges);
+  void GetEdgesListFromStart(EdgeListT & edges) const;
+  void GetEdgesListToFinish(EdgeListT & edges) const;
 
+private:
   ms::LatLon m_startPoint;
   ms::LatLon m_finishPoint;
 

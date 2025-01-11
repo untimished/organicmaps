@@ -12,21 +12,22 @@
 UNIT_TEST(CheckTrafficArrowTextures)
 {
   static std::vector<std::string> skinPaths = {"6plus", "mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi"};
-  static std::vector<MapStyle> styles = {MapStyle::MapStyleClear, MapStyle::MapStyleDark,
-                                         MapStyle::MapStyleVehicleClear,
+  static std::vector<MapStyle> styles = {MapStyle::MapStyleDefaultLight,
+                                         MapStyle::MapStyleDefaultDark,
+                                         MapStyle::MapStyleVehicleLight,
                                          MapStyle::MapStyleVehicleDark};
 
   TestingGraphicsContext context;
   for (auto const & style : styles)
   {
     GetStyleReader().SetCurrentStyle(style);
-    for (size_t i = 0; i < skinPaths.size(); ++i)
+    for (auto const & skinPath : skinPaths)
     {
-      dp::StaticTexture texture(make_ref(&context), "traffic-arrow", skinPaths[i],
+      dp::StaticTexture texture(make_ref(&context), "traffic-arrow.png", skinPath,
                                 dp::TextureFormat::RGBA8, nullptr);
       TEST(texture.IsLoadingCorrect(), ());
 
-      dp::StaticTexture texture2(make_ref(&context), "area-hatching", skinPaths[i],
+      dp::StaticTexture texture2(make_ref(&context), "area-hatching.png", skinPath,
                                  dp::TextureFormat::RGBA8, nullptr);
       TEST(texture2.IsLoadingCorrect(), ());
     }

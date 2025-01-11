@@ -1,11 +1,12 @@
 project(generator_tests_support)
 
-set(
-  SRC
+set(SRC
   routing_helpers.cpp
   routing_helpers.hpp
   test_feature.cpp
   test_feature.hpp
+  test_generator.cpp
+  test_generator.hpp
   test_mwm_builder.cpp
   test_mwm_builder.hpp
   test_with_classificator.cpp
@@ -15,3 +16,5 @@ set(
 )
 
 omim_add_library(${PROJECT_NAME} ${SRC})
+
+target_link_libraries(${PROJECT_NAME} generator)

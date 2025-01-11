@@ -43,10 +43,12 @@
   var bold34: UIFont { get }
   var bold36: UIFont { get }
   var bold48: UIFont { get }
+  var header: UIFont { get }
   var heavy17: UIFont { get }
   var heavy20: UIFont { get }
   var heavy32: UIFont { get }
   var heavy38: UIFont { get }
+  var italic12: UIFont { get }
   var italic16: UIFont { get }
   var semibold12: UIFont { get }
   var semibold14: UIFont { get }

@@ -10,13 +10,6 @@
 #include "platform/platform.hpp"
 #include "private.h"
 
-typedef NS_OPTIONS(NSUInteger, MWMFieldCorrect) {
-  MWMFieldCorrectNO = 0,
-  MWMFieldCorrectLogin = 1 << 0,
-  MWMFieldCorrectPassword = 1 << 1,
-  MWMFieldCorrectAll = MWMFieldCorrectLogin | MWMFieldCorrectPassword
-};
-
 using namespace osm;
 
 @interface MWMAuthorizationOSMLoginViewController ()<UITextFieldDelegate>
@@ -27,8 +20,6 @@ using namespace osm;
 @property(weak, nonatomic) IBOutlet UIButton * forgotButton;
 @property(weak, nonatomic) IBOutlet UIView * spinnerView;
 
-@property(nonatomic) MWMFieldCorrect isCorrect;
-
 @property(nonatomic) MWMCircularProgress * spinner;
 
 @end
@@ -38,8 +29,7 @@ using namespace osm;
 - (void)viewDidLoad
 {
   [super viewDidLoad];
-  self.title = L(@"osm_account").capitalizedString;
-  self.isCorrect = MWMFieldCorrectNO;
+  self.title = L(@"osm_account");
   [self checkConnection];
   [self stopSpinner];
 }
@@ -53,33 +43,8 @@ using namespace osm;
 
 - (BOOL)shouldAutorotate { return NO; }
 - (void)checkConnection { self.forgotButton.enabled = Platform::IsConnected(); }
+
 #pragma mark - UITextFieldDelegate
-
-- (BOOL)textField:(UITextField *)textField
-    shouldChangeCharactersInRange:(NSRange)range
-                replacementString:(NSString *)string
-{
-  NSString * newString =
-      [textField.text stringByReplacingCharactersInRange:range withString:string];
-  BOOL const isValid = [textField.validator validateString:newString];
-
-  if ([textField isEqual:self.loginTextField])
-  {
-    if (isValid)
-      self.isCorrect |= MWMFieldCorrectLogin;
-    else
-      self.isCorrect &= ~MWMFieldCorrectLogin;
-  }
-  else if ([textField isEqual:self.passwordTextField])
-  {
-    if (isValid)
-      self.isCorrect |= MWMFieldCorrectPassword;
-    else
-      self.isCorrect &= ~MWMFieldCorrectPassword;
-  }
-
-  return YES;
-}
 
 - (BOOL)textFieldShouldReturn:(UITextField *)textField
 {
@@ -125,24 +90,27 @@ using namespace osm;
     return;
   if (Platform::IsConnected())
   {
+    NSString * username = self.loginTextField.text;
+    NSString * password = self.passwordTextField.text;
+
     [self startSpinner];
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
-      std::string const username = self.loginTextField.text.UTF8String;
-      std::string const password = self.passwordTextField.text.UTF8String;
       OsmOAuth auth = OsmOAuth::ServerAuth();
       try
       {
-        auth.AuthorizePassword(username, password);
+        auth.AuthorizePassword(username.UTF8String, password.UTF8String);
       }
       catch (std::exception const & ex)
       {
         LOG(LWARNING, ("Error login", ex.what()));
       }
+
       dispatch_async(dispatch_get_main_queue(), ^{
         [self stopSpinner];
+
         if (auth.IsAuthorized())
         {
-          osm_auth_ios::AuthorizationStoreCredentials(auth.GetKeySecret());
+          osm_auth_ios::AuthorizationStoreCredentials(auth.GetAuthToken());
           UIViewController * svc = nil;
           for (UIViewController * vc in self.navigationController.viewControllers)
           {
@@ -173,15 +141,7 @@ using namespace osm;
 - (IBAction)cancel { [self.navigationController popViewControllerAnimated:YES]; }
 - (IBAction)forgotPassword
 {
-  [self openUrl:[NSURL URLWithString:@(OsmOAuth::ServerAuth().GetResetPasswordURL().c_str())]];
-}
-
-#pragma mark - Properties
-
-- (void)setIsCorrect:(MWMFieldCorrect)isCorrect
-{
-  _isCorrect = isCorrect;
-  self.loginButton.enabled = isCorrect == MWMFieldCorrectAll;
+  [self openUrl:@(OsmOAuth::ServerAuth().GetResetPasswordURL().c_str())];
 }
 
 @end

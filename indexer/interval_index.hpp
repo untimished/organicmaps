@@ -78,7 +78,7 @@ private:
       uint64_t keyBase /* discarded part of object key value in the parent nodes*/) const
   {
     buffer_vector<uint8_t, 1024> data;
-    data.resize_no_init(size);
+    data.resize(size);
 
     m_Reader.Read(offset, &data[0], size);
     ArrayByteSource src(&data[0]);
@@ -103,6 +103,7 @@ private:
       uint32_t offset, uint32_t size,
       uint64_t keyBase /* discarded part of object key value in the parent nodes */) const
   {
+    ASSERT(size > 0, ());
     offset += m_LevelOffsets[level];
 
     if (level == 0)
@@ -120,7 +121,7 @@ private:
     ASSERT_LESS(end0, (1U << m_Header.m_BitsPerLevel), (beg, end, skipBits));
 
     buffer_vector<uint8_t, 576> data;
-    data.resize_no_init(size);
+    data.resize(size);
 
     m_Reader.Read(offset, &data[0], size);
     ArrayByteSource src(&data[0]);
@@ -147,8 +148,8 @@ private:
         }
       }
       ASSERT(end0 != (static_cast<uint32_t>(1) << m_Header.m_BitsPerLevel) - 1 ||
-             static_cast<uint8_t const *>(src.Ptr()) - &data[0] == size,
-             (beg, end, beg0, end0, offset, size, src.Ptr(), &data[0]));
+             src.Ptr() == data.data() + size,
+             (beg, end, beg0, end0, offset, size, src.Ptr(), data.data()));
     }
     else
     {

@@ -25,44 +25,16 @@
 #include <sstream>
 #include <string>
 
+namespace cities_ids_tests
+{
 using namespace generator;
 using namespace generator::tests_support;
 
-namespace
-{
 class CitiesIdsTest : public TestWithCustomMwms
 {
 public:
   DataSource const & GetDataSource() const { return m_dataSource; }
 };
-
-// A feature that is big enough for World.mwm but is not a locality.
-class TestSea : public TestFeature
-{
-public:
-  TestSea(m2::PointD const & center, std::string const & name, std::string const & lang)
-    : TestFeature(center, name, lang), m_name(name)
-  {
-  }
-
-  // TestFeature overrides:
-  void Serialize(feature::FeatureBuilder & fb) const
-  {
-    TestFeature::Serialize(fb);
-    fb.AddType(classif().GetTypeByPath({"place", "sea"}));
-  }
-
-  std::string ToDebugString() const
-  {
-    std::ostringstream oss;
-    oss << "TestSea [" << m_name << "]";
-    return oss.str();
-  }
-
-private:
-  std::string m_name;
-};
-}  // namespace
 
 UNIT_CLASS_TEST(CitiesIdsTest, BuildCitiesIds)
 {
@@ -117,3 +89,5 @@ UNIT_CLASS_TEST(CitiesIdsTest, BuildCitiesIds)
     TEST_EQUAL(numLocalities, 2, ());
   }
 }
+
+} // namespace cities_ids_tests

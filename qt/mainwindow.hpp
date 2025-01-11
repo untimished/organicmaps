@@ -1,4 +1,7 @@
 #pragma once
+#include "qt/selection.hpp"
+
+#include "map/routing_mark.hpp"
 
 #include "storage/storage_defines.hpp"
 
@@ -16,13 +19,13 @@ class Framework;
 class QDockWidget;
 class QLabel;
 class QPushButton;
-class QToolButton;
 
 namespace search { class Result; }
 
 namespace qt
 {
 class DrawWidget;
+class PopupMenuHolder;
 struct ScreenshotParams;
 
 class MainWindow : public QMainWindow, location::LocationObserver
@@ -42,25 +45,21 @@ class MainWindow : public QMainWindow, location::LocationObserver
 
   QAction * m_pMyPositionAction = nullptr;
   QAction * m_pCreateFeatureAction = nullptr;
-  QAction * m_selectionMode = nullptr;
-  QAction * m_clearSelection = nullptr;
   QAction * m_pSearchAction = nullptr;
-
-  QAction * m_bookmarksAction = nullptr;
   QAction * m_rulerAction = nullptr;
 
-  QToolButton * m_selectLayerButton = nullptr;
-  QAction * m_selectLayerTrafficAction = nullptr;
-  QAction * m_selectLayerTransitAction = nullptr;
-  QAction * m_selectLayerIsolinesAction = nullptr;
+  enum LayerType : uint8_t
+  {
+    /// @todo Uncomment when we will integrate a traffic provider.
+    // TRAFFIC = 0,
+    TRANSIT = 0,      // Metro scheme
+    ISOLINES,
+    OUTDOORS,
+  };
+  PopupMenuHolder * m_layers = nullptr;
+  PopupMenuHolder * m_routing = nullptr;
+  PopupMenuHolder * m_selection = nullptr;
 
-  QAction * m_selectionCityBoundariesMode = nullptr;
-  QAction * m_selectionCityRoadsMode = nullptr;
-  QAction * m_selectionMwmsBordersMode = nullptr;
-  QToolButton * m_routePointsToolButton = nullptr;
-  QAction * m_selectStartRoutePoint = nullptr;
-  QAction * m_selectFinishRoutePoint = nullptr;
-  QAction * m_selectIntermediateRoutePoint = nullptr;
 #ifdef BUILD_DESIGNER
   QString const m_mapcssFilePath = nullptr;
   QAction * m_pBuildStyleAction = nullptr;
@@ -74,10 +73,12 @@ class MainWindow : public QMainWindow, location::LocationObserver
   Q_OBJECT
 
 public:
-  MainWindow(Framework & framework, bool apiOpenGLES3, std::unique_ptr<ScreenshotParams> && screenshotParams,
-             QString const & mapcssFilePath = QString());
-
-  static void SetDefaultSurfaceFormat(bool apiOpenGLES3);
+  MainWindow(Framework & framework, std::unique_ptr<ScreenshotParams> && screenshotParams,
+             QRect const & screenGeometry
+#ifdef BUILD_DESIGNER
+             , QString const & mapcssFilePath = QString()
+#endif
+            );
 
 protected:
   Framework & GetFramework() const;
@@ -92,9 +93,11 @@ protected:
   void CreateSearchBarAndPanel();
   void CreateCountryStatusControls();
 
-#if defined(Q_WS_WIN)
+  void SetLayerEnabled(LayerType type, bool enable);
+
+#if defined(OMIM_OS_WINDOWS)
   /// to handle menu messages
-  bool winEvent(MSG * msg, long * result) override;
+  bool nativeEvent(QByteArray const & eventType, void * message, qintptr * result) override;
 #endif
 
   void closeEvent(QCloseEvent * e) override;
@@ -117,24 +120,15 @@ protected Q_SLOTS:
   void OnDownloadClicked();
   void OnRetryDownloadClicked();
 
-  void OnSwitchSelectionMode();
-  void OnSwitchCityBoundariesSelectionMode();
-  void OnSwitchCityRoadsSelectionMode();
+  void OnSwitchSelectionMode(SelectionMode mode);
   void OnSwitchMwmsBordersSelectionMode();
   void OnClearSelection();
 
-  void OnTrafficEnabled();
-  void OnTransitEnabled();
-  void OnIsolinesEnabled();
-
-  void SetEnabledTraffic(bool enable);
-  void SetEnabledTransit(bool enable);
-  void SetEnabledIsolines(bool enable);
+  void OnLayerEnabled(LayerType layer);
 
   void OnRulerEnabled();
-  void OnStartPointSelected();
-  void OnFinishPointSelected();
-  void OnIntermediatePointSelected();
+
+  void OnRoutePointSelected(RouteMarkType type);
   void OnFollowRoute();
   void OnClearRoute();
   void OnRoutingSettings();

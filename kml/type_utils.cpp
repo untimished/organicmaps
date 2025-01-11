@@ -11,33 +11,14 @@
 
 namespace kml
 {
-bool IsEqual(std::vector<m2::PointD> const & v1, std::vector<m2::PointD> const & v2)
+bool IsEqual(m2::PointD const & lhs, m2::PointD const & rhs)
 {
-  if (v1.size() != v2.size())
-    return false;
-
-  for (size_t i = 0; i < v1.size(); ++i)
-  {
-    if (!v1[i].EqualDxDy(v2[i], kMwmPointAccuracy))
-      return false;
-  }
-
-  return true;
+  return lhs.EqualDxDy(rhs, kMwmPointAccuracy);
 }
 
-bool IsEqual(std::vector<geometry::PointWithAltitude> const & v1,
-             std::vector<geometry::PointWithAltitude> const & v2)
+bool IsEqual(geometry::PointWithAltitude const & lhs, geometry::PointWithAltitude const & rhs)
 {
-  if (v1.size() != v2.size())
-    return false;
-
-  for (size_t i = 0; i < v1.size(); ++i)
-  {
-    if (!AlmostEqualAbs(v1[i], v2[i], kMwmPointAccuracy))
-      return false;
-  }
-
-  return true;
+  return AlmostEqualAbs(lhs, rhs, kMwmPointAccuracy);
 }
 
 std::string GetPreferredBookmarkStr(LocalizableString const & name, std::string const & languageNorm)
@@ -45,15 +26,16 @@ std::string GetPreferredBookmarkStr(LocalizableString const & name, std::string 
   if (name.size() == 1)
     return name.begin()->second;
 
+  /// @todo Complicated logic here when transforming LocalizableString -> StringUtf8Multilang to call GetPreferredName.
   StringUtf8Multilang nameMultilang;
   for (auto const & pair : name)
     nameMultilang.AddString(pair.first, pair.second);
 
   auto const deviceLang = StringUtf8Multilang::GetLangIndex(languageNorm);
 
-  std::string preferredName;
+  std::string_view preferredName;
   if (feature::GetPreferredName(nameMultilang, deviceLang, preferredName))
-    return preferredName;
+    return std::string(preferredName);
 
   return {};
 }
@@ -64,15 +46,14 @@ std::string GetPreferredBookmarkStr(LocalizableString const & name, feature::Reg
   if (name.size() == 1)
     return name.begin()->second;
 
+  /// @todo Complicated logic here when transforming LocalizableString -> StringUtf8Multilang to call GetPreferredName.
   StringUtf8Multilang nameMultilang;
   for (auto const & pair : name)
     nameMultilang.AddString(pair.first, pair.second);
 
-  auto const deviceLang = StringUtf8Multilang::GetLangIndex(languageNorm);
-
-  std::string preferredName;
-  feature::GetReadableName(regionData, nameMultilang, deviceLang, false /* allowTranslit */, preferredName);
-  return preferredName;
+  feature::NameParamsOut out;
+  feature::GetReadableName({ nameMultilang, regionData, languageNorm, false /* allowTranslit */ }, out);
+  return std::string(out.primary);
 }
 
 std::string GetLocalizedFeatureType(std::vector<uint32_t> const & types)
@@ -86,7 +67,7 @@ std::string GetLocalizedFeatureType(std::vector<uint32_t> const & types)
   return platform::GetLocalizedTypeName(c.GetReadableObjectName(type));
 }
 
-std::string GetPreferredBookmarkName(BookmarkData const & bmData, std::string const & languageOrig)
+std::string GetPreferredBookmarkName(BookmarkData const & bmData, std::string_view languageOrig)
 {
   auto const languageNorm = languages::Normalize(languageOrig);
   std::string name = GetPreferredBookmarkStr(bmData.m_customName, languageNorm);

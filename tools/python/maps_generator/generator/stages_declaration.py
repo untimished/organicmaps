@@ -79,7 +79,7 @@ class StageCoastline(Stage):
             if not use_old_if_fail:
                 raise e
 
-            logger.info("Build costs failed. Try to download the costs...")
+            logger.warning("Build coasts failed. Try to download the coasts...")
             download_files(
                 {
                     settings.PLANET_COASTS_GEOM_URL: os.path.join(
@@ -132,6 +132,7 @@ class StageFeatures(Stage):
             extra.update({"emit_coasts": True})
         if is_accepted(env, StageIsolinesInfo):
             extra.update({"isolines_path": PathProvider.isolines_path()})
+        extra.update({"addresses_path": PathProvider.addresses_path()})
 
         steps.step_features(env, **extra)
         if os.path.exists(env.paths.packed_polygons_path):
@@ -147,6 +148,7 @@ class StageDownloadDescriptions(Stage):
             env.gen_tool,
             out=env.get_subprocess_out(),
             err=env.get_subprocess_out(),
+            data_path=env.paths.data_path,
             intermediate_data_path=env.paths.intermediate_data_path,
             cache_path=env.paths.cache_path,
             user_resource_path=env.paths.user_resource_path,
@@ -169,19 +171,28 @@ class StageDownloadDescriptions(Stage):
 @mwm_stage
 class StageMwm(Stage):
     def apply(self, env: Env):
-        with ThreadPool(settings.THREADS_COUNT) as pool:
-            pool.map(
-                lambda c: StageMwm.make_mwm(c, env),
-                env.get_tmp_mwm_names(),
-                chunksize=1,
-            )
+        tmp_mwm_names = env.get_tmp_mwm_names()
+        if len(tmp_mwm_names):
+            logger.info(f'Number of feature data .mwm.tmp country files to process: {len(tmp_mwm_names)}')
+            with ThreadPool(settings.THREADS_COUNT) as pool:
+                pool.map(
+                    lambda c: StageMwm.make_mwm(c, env),
+                    tmp_mwm_names,
+                    chunksize=1,
+                )
+        else:
+            # TODO: list all countries that were not found?
+            logger.warning(f'There are no feature data .mwm.tmp country files to process in {env.paths.intermediate_tmp_path}!')
+            logger.warning('Countries requested for generation are not in the supplied planet file?')
 
     @staticmethod
     def make_mwm(country: AnyStr, env: Env):
+        logger.info(f'Starting mwm generation for {country}')
         world_stages = {
             WORLD_NAME: [
                 StageIndex,
                 StageCitiesIdsWorld,
+                StagePopularityWorld,
                 StagePrepareRoutingWorld,
                 StageRoutingWorld,
                 StageMwmStatistics,
@@ -192,10 +203,11 @@ class StageMwm(Stage):
         mwm_stages = [
             StageIndex,
             StageUgc,
-            StagePopularity,
             StageSrtm,
             StageIsolinesInfo,
             StageDescriptions,
+            # call after descriptions
+            StagePopularity,
             StageRouting,
             StageRoutingTransit,
             StageMwmDiffs,
@@ -203,16 +215,14 @@ class StageMwm(Stage):
         ]
 
         for stage in world_stages.get(country, mwm_stages):
+            logger.info(f'{country} mwm stage {stage.__name__}: start...')
             stage(country=country)(env)
 
         env.finish_mwm(country)
+        logger.info(f'Finished mwm generation for {country}')
 
 
 @country_stage
-@depends_from_internal(
-    D(settings.UK_POSTCODES_URL, PathProvider.uk_postcodes_path, "p"),
-    D(settings.US_POSTCODES_URL, PathProvider.us_postcodes_path, "p"),
-)
 class StageIndex(Stage):
     def apply(self, env: Env, country, **kwargs):
         if country == WORLD_NAME:
@@ -220,13 +230,12 @@ class StageIndex(Stage):
         elif country == WORLD_COASTS_NAME:
             steps.step_coastline_index(env, country, **kwargs)
         else:
-            if env.production:
-                kwargs.update(
-                    {
-                        "uk_postcodes_dataset": env.paths.uk_postcodes_path,
-                        "us_postcodes_dataset": env.paths.us_postcodes_path,
-                    }
-                )
+            kwargs.update(
+                {
+                    "uk_postcodes_dataset": settings.UK_POSTCODES_URL,
+                    "us_postcodes_dataset": settings.US_POSTCODES_URL,
+                }
+            )
             steps.step_index(env, country, **kwargs)
 
 
@@ -259,10 +268,14 @@ class StageUgc(Stage):
 
 
 @country_stage
-@production_only
 class StagePopularity(Stage):
     def apply(self, env: Env, country, **kwargs):
         steps.step_popularity(env, country, **kwargs)
+
+@country_stage
+class StagePopularityWorld(Stage):
+    def apply(self, env: Env, country, **kwargs):
+        steps.step_popularity_world(env, country, **kwargs)
 
 
 @country_stage
@@ -301,13 +314,13 @@ class StageRoutingTransit(Stage):
 
 
 @country_stage
-@production_only
 class StageMwmDiffs(Stage):
     def apply(self, env: Env, country, logger, **kwargs):
         data_dir = diffs.DataDir(
-            mwm_name=env.build_name,
-            new_version_dir=env.build_path,
-            old_version_root_dir=settings.DATA_ARCHIVE_DIR,
+            diff_tool = env.diff_tool,
+            mwm_name = f"{country}.mwm",
+            new_version_dir = env.paths.mwm_path,
+            old_version_root_dir = settings.DATA_ARCHIVE_DIR,
         )
         diffs.mwm_diff_calculation(data_dir, logger, depth=settings.DIFF_VERSION_DEPTH)
 
@@ -349,30 +362,7 @@ class StageCountriesTxt(Stage):
             )
 
         with open(env.paths.counties_txt_path, "w") as f:
-            json.dump(countries, f, ensure_ascii=True, indent=1)
-
-
-@outer_stage
-class StageExternalResources(Stage):
-    def apply(self, env: Env):
-        black_list = {}
-        resources = [
-            os.path.join(env.paths.user_resource_path, file)
-            for file in os.listdir(env.paths.user_resource_path)
-            if file.endswith(".ttf") and file not in black_list
-        ]
-        for ttf_file in resources:
-            shutil.copy2(ttf_file, env.paths.mwm_path)
-
-        for file in os.listdir(env.paths.mwm_path):
-            if file.startswith(WORLD_NAME) and file.endswith(".mwm"):
-                resources.append(os.path.join(env.paths.mwm_path, file))
-
-        resources.sort()
-        with open(env.paths.external_resources_path, "w") as f:
-            for resource in resources:
-                fd = os.open(resource, os.O_RDONLY)
-                f.write(f"{os.path.basename(resource)} {os.fstat(fd).st_size}\n")
+            json.dump(countries, f, ensure_ascii=False, indent=1)
 
 
 @outer_stage
@@ -388,9 +378,7 @@ class StageLocalAds(Stage):
         )
         with tarfile.open(f"{env.paths.localads_path}.tar.gz", "w:gz") as tar:
             for filename in os.listdir(env.paths.localads_path):
-                tar.add(
-                    os.path.join(env.paths.localads_path, filename), arcname=filename
-                )
+                tar.add(os.path.join(env.paths.localads_path, filename), arcname=filename)
 
 
 @outer_stage

@@ -1,10 +1,11 @@
 name: Android Release
 on:
-  workflow_dispatch: # Manual trigger
+  workflow_dispatch:  # Manual trigger
 
 env:
-  RELEASE_NOTES: android/src/google/play/release-notes/en-US/default.txt
-  FDROID_VERSION: android/src/fdroid/play/version.yaml
+  RELEASE_NOTES: android/app/src/google/play/release-notes/en-US/default.txt
+  FDROID_VERSION: android/app/src/fdroid/play/version.yaml
+  JAVA_HOME: /usr/lib/jvm/temurin-17-jdk-amd64  # Java 17 is required for Android Gradle 8 plugin
 
 jobs:
   tag:
@@ -13,9 +14,9 @@ jobs:
     environment: production
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 100 # enough to get all commits for the current day
+          fetch-depth: 100  # Enough to get all commits for the last day.
           ssh-key: ${{ secrets.RELEASE_SSH_KEY }}
 
       - name: Tag
@@ -23,16 +24,14 @@ jobs:
         shell: bash
         run: |
           set -x
-          timestamp=$(date +%s)
           git config user.name '${{ github.actor }}'
           git config user.email '${{ github.actor }}@users.noreply.github.com'
-          export GIT_COMMITTER_DATE=$timestamp
-          export GIT_AUTHOR_DATE=$timestamp
-          current_date=$(date -d @$timestamp '+%Y-%m-%d')
-          build=$(($(git rev-list --count --after="${current_date}T00:00:00Z" HEAD) + 1))
-          version=$(date -d @$timestamp '+%Y.%m.%d')
-          code=$(date -d @$timestamp '+%y%m%d')$(printf "%02d" ${build})
-          tag=${version}-${build}-android
+          version=$(tools/unix/version.sh ios_version)
+          # +1 because below a "Bump versions" commit is created.
+          # TODO: Find a way to refactor FDroid versioning without that additional commit.
+          build=$(($(tools/unix/version.sh ios_build) + 1))
+          code=$(($(tools/unix/version.sh android_code) + 1))
+          tag=$version-$build-android
           echo "::set-output name=version::$version"
           echo "::set-output name=build::$build"
           echo "::set-output name=tag::$tag"
@@ -76,13 +75,8 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y ninja-build
 
-      - name: Set up JDK 11
-        uses: actions/setup-java@v1
-        with:
-          java-version: 11
-
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           fetch-depth: 100 # enough to get all commits for the current day
           ref: 'refs/tags/${{ needs.tag.outputs.tag }}'
@@ -96,33 +90,40 @@ jobs:
 
       - name: Parallel submodules checkout
         shell: bash
-        run: git submodule update --init --recursive --jobs=$(($(nproc) * 2))
+        run: git submodule update --depth 1 --init --recursive --jobs=$(($(nproc) * 20))
 
       - name: Checkout screenshots
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           repository: ${{ secrets.SCREENSHOTS_REPO }}
           ssh-key: ${{ secrets.SCREENSHOTS_SSH_KEY }}
           ref: master
           path: screenshots
 
-      - name: Checkout private keys
-        uses: actions/checkout@v2
-        with:
-          repository: ${{ secrets.PRIVATE_REPO }}
-          ssh-key: ${{ secrets.PRIVATE_SSH_KEY }}
-          ref: master
-          path: private.git
-
-      - name: Configure repo with private keys
+      - name: Restore release keys
         shell: bash
         run: |
-          ./configure.sh ./private.git
-          rm -rf ./private.git
+          echo "$PRIVATE_H" | base64 -d > private.h
+          echo "$GOOGLE_PLAY_JSON" | base64 -d > android/app/google-play.json
+          echo "$HUAWEI_APPGALLERY_JSON" | base64 -d > android/app/huawei-appgallery.json
+          echo "$AGCONNECT_SERVICES_JSON" | base64 -d > android/app/agconnect-services.json
+          echo "$SECURE_PROPERTIES" | base64 -d > android/app/secure.properties
+          echo "$RELEASE_KEYSTORE" | base64 -d > android/app/release.keystore
+        env:
+          PRIVATE_H: ${{ secrets.PRIVATE_H }}
+          GOOGLE_PLAY_JSON: ${{ secrets.GOOGLE_PLAY_JSON }}
+          HUAWEI_APPGALLERY_JSON: ${{ secrets.HUAWEI_APPGALLERY_JSON }}
+          AGCONNECT_SERVICES_JSON: ${{ secrets.AGCONNECT_SERVICES_JSON }}
+          SECURE_PROPERTIES: ${{ secrets.SECURE_PROPERTIES }}
+          RELEASE_KEYSTORE: ${{ secrets.RELEASE_KEYSTORE }}
+
+      - name: Configure repository
+        shell: bash
+        run: ./configure.sh
 
       - name: Set up SDK
         shell: bash
-        run: (cd tools/android; ./set_up_android.py --sdk $ANDROID_SDK_ROOT)
+        run: echo "sdk.dir=$ANDROID_SDK_ROOT" > android/local.properties
 
       - name: Compile and upload to Google Play
         shell: bash
@@ -150,11 +151,16 @@ jobs:
         if: ${{ matrix.flavor == 'web' }}
         shell: bash
         run: |
+          (cd ./android/app/build/outputs/apk/web/release/ && sha256sum OrganicMaps-${{ needs.tag.outputs.code }}-web-release.apk > OrganicMaps-${{ needs.tag.outputs.code }}-web-release.apk.sha256sum)
           {
             cat ${{ env.RELEASE_NOTES }}
+            echo ""
+            echo "See [a detailed announce](https://organicmaps.app/news/) on our website when app updates are published in all stores."
+            echo "You can get automatic app updates from GitHub [using Obtainium](https://github.com/organicmaps/organicmaps/wiki/Installing-Organic-Maps-from-GitHub-using-Obtainium)."
+            echo ""
             echo "sha256sum:"
             echo -e '\n```'
-            (cd ./android/build/outputs/apk/web/release/ && sha256sum OrganicMaps-${{ needs.tag.outputs.code }}-web-release.apk) | tr -d '\n'
+            tr -d '\n' < ./android/app/build/outputs/apk/web/release/OrganicMaps-${{ needs.tag.outputs.code }}-web-release.apk.sha256sum
             echo -e '\n```'
           } > ${{ runner.temp }}/release-notes.txt
 
@@ -167,5 +173,8 @@ jobs:
           name: ${{ needs.tag.outputs.tag }}
           tag_name: ${{ needs.tag.outputs.tag }}
           discussion_category_name: 'Announcements'
-          files: ./android/build/outputs/apk/web/release/OrganicMaps-${{ needs.tag.outputs.code }}-web-release.apk
+          prerelease: true
+          files: |
+            ./android/app/build/outputs/apk/web/release/OrganicMaps-${{ needs.tag.outputs.code }}-web-release.apk
+            ./android/app/build/outputs/apk/web/release/OrganicMaps-${{ needs.tag.outputs.code }}-web-release.apk.sha256sum
           fail_on_unmatched_files: true

@@ -5,13 +5,11 @@
 #include "kml/types_v6.hpp"
 #include "kml/types_v7.hpp"
 #include "kml/types_v8.hpp"
+#include "kml/types_v8mm.hpp"
+#include "kml/types_v9mm.hpp"
 #include "kml/types.hpp"
 #include "kml/visitors.hpp"
 
-#include "platform/platform.hpp"
-
-#include "coding/read_write_utils.hpp"
-#include "coding/sha1.hpp"
 #include "coding/text_storage.hpp"
 
 #include <string>
@@ -122,7 +120,7 @@ public:
       writer.Append(str);
   }
 
-private:
+protected:
   FileData & m_data;
   std::vector<std::string> m_strings;
 };
@@ -184,6 +182,26 @@ public:
       m_data = dataV8.ConvertToLatestVersion();
       break;
     }
+    case Version::V8MM:
+    {
+      FileDataV8MM dataV8MM;
+      dataV8MM.m_deviceId = m_data.m_deviceId;
+      dataV8MM.m_serverId = m_data.m_serverId;
+      DeserializeFileData(subReader, dataV8MM);
+
+      m_data = dataV8MM.ConvertToLatestVersion();
+      break;
+    }
+    case Version::V9MM:
+    {
+      FileDataV9MM dataV9MM;
+      dataV9MM.m_deviceId = m_data.m_deviceId;
+      dataV9MM.m_serverId = m_data.m_serverId;
+      DeserializeFileData(subReader, dataV9MM);
+
+      m_data = dataV9MM.ConvertToLatestVersion();
+      break;
+    }
     case Version::V7:
     {
       FileDataV7 dataV7;
@@ -239,6 +257,24 @@ private:
 
     NonOwningReaderSource source(reader);
     m_header.Deserialize(source);
+
+    if (m_header.m_version == Version::V8 || m_header.m_version == Version::V9)
+    {
+      // Check if file has Opensource V8/V9 or MapsMe V8/V9 format.
+      // Actual V8/V9 format has 6 offsets (uint64_t) in header. While V8MM/V9MM has 5 offsets.
+      // It means that first section (usually categories) has offset 0x28 = 40 = 5 * 8.
+      if (m_header.m_categoryOffset == 0x28 || m_header.m_bookmarksOffset == 0x28 ||
+          m_header.m_tracksOffset == 0x28 || m_header.m_stringsOffset == 0x28 ||
+          m_header.m_compilationsOffset == 0x28)
+      {
+        m_header.m_version = (m_header.m_version == Version::V8 ? Version::V8MM : Version::V9MM);
+        LOG(LINFO, ("KMB file has version", m_header.m_version));
+
+        m_header.m_eosOffset = m_header.m_stringsOffset;
+        m_header.m_stringsOffset = m_header.m_compilationsOffset;
+      }
+    }
+
     m_initialized = true;
   }
 

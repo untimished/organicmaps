@@ -39,8 +39,7 @@ RouteWeight LeapsGraph::HeuristicCostEstimate(Segment const & from, Segment cons
   return m_starter.HeuristicCostEstimate(from, toPoint);
 }
 
-void LeapsGraph::GetEdgesList(Segment const & segment, bool isOutgoing,
-                              EdgeListT & edges)
+void LeapsGraph::GetEdgesList(Segment const & segment, bool isOutgoing, EdgeListT & edges)
 {
   edges.clear();
 
@@ -48,14 +47,14 @@ void LeapsGraph::GetEdgesList(Segment const & segment, bool isOutgoing,
   {
     CHECK(isOutgoing, ("Only forward wave of A* should get edges from start. Backward wave should "
                        "stop when first time visit the |m_startSegment|."));
-    return GetEdgesListFromStart(segment, edges);
+    return GetEdgesListFromStart(edges);
   }
 
   if (segment == m_finishSegment)
   {
     CHECK(!isOutgoing, ("Only backward wave of A* should get edges to finish. Forward wave should "
                         "stop when first time visit the |m_finishSegment|."));
-    return GetEdgesListToFinish(segment, edges);
+    return GetEdgesListToFinish(edges);
   }
 
   if (!m_starter.IsRoutingOptionsGood(segment))
@@ -81,35 +80,33 @@ void LeapsGraph::GetEdgesList(Segment const & segment, bool isOutgoing,
     crossMwmGraph.GetIngoingEdgeList(segment, edges);
 }
 
-void LeapsGraph::GetEdgesListFromStart(Segment const & segment, EdgeListT & edges)
+void LeapsGraph::GetEdgesListFromStart(EdgeListT & edges) const
 {
-  for (auto const mwmId : m_starter.GetStartEnding().m_mwmIds)
+  for (auto const mwmId : m_starter.GetStartMwms())
   {
     // Connect start to all exits (|isEnter| == false).
-    auto const & exits = m_starter.GetGraph().GetTransitions(mwmId, false /* isEnter */);
-    for (auto const & exit : exits)
+    m_starter.GetGraph().ForEachTransition(mwmId, false /* isEnter */, [&](Segment const & exit)
     {
       auto const & exitFrontPoint = m_starter.GetPoint(exit, true /* front */);
       auto const weight = m_starter.GetGraph().CalcLeapWeight(m_startPoint, exitFrontPoint, mwmId);
 
       edges.emplace_back(exit, weight);
-    }
+    });
   }
 }
 
-void LeapsGraph::GetEdgesListToFinish(Segment const & segment, EdgeListT & edges)
+void LeapsGraph::GetEdgesListToFinish(EdgeListT & edges) const
 {
-  for (auto const mwmId : m_starter.GetFinishEnding().m_mwmIds)
+  for (auto const mwmId : m_starter.GetFinishMwms())
   {
     // Connect finish to all enters (|isEnter| == true).
-    auto const & enters = m_starter.GetGraph().GetTransitions(mwmId, true /* isEnter */);
-    for (auto const & enter : enters)
+    m_starter.GetGraph().ForEachTransition(mwmId, true /* isEnter */, [&](Segment const & enter)
     {
       auto const & enterFrontPoint = m_starter.GetPoint(enter, true /* front */);
       auto const weight = m_starter.GetGraph().CalcLeapWeight(enterFrontPoint, m_finishPoint, mwmId);
 
       edges.emplace_back(enter, weight);
-    }
+    });
   }
 }
 
@@ -118,18 +115,32 @@ ms::LatLon const & LeapsGraph::GetPoint(Segment const & segment, bool front) con
   return m_starter.GetPoint(segment, front);
 }
 
-Segment const & LeapsGraph::GetStartSegment() const
-{
-  return m_startSegment;
-}
-
-Segment const & LeapsGraph::GetFinishSegment() const
-{
-  return m_finishSegment;
-}
-
 RouteWeight LeapsGraph::GetAStarWeightEpsilon()
 {
   return m_starter.GetAStarWeightEpsilon();
 }
+
+RouteWeight LeapsGraph::CalcMiddleCrossMwmWeight(std::vector<Segment> const & path)
+{
+  ASSERT_GREATER(path.size(), 1, ());
+  auto & crossMwmGraph = m_starter.GetGraph().GetCrossMwmGraph();
+
+  RouteWeight res;
+  for (size_t i = 1; i < path.size() - 2; ++i)
+  {
+    auto const & from = path[i];
+    auto const & to = path[i + 1];
+    NumMwmId const fromMwm = from.GetMwmId();
+    NumMwmId const toMwm = to.GetMwmId();
+    ASSERT(fromMwm != kFakeNumMwmId && toMwm != kFakeNumMwmId, ());
+
+    if (fromMwm != toMwm)
+      res += m_hierarchyHandler.GetCrossBorderPenalty(fromMwm, toMwm);
+    else
+      res += crossMwmGraph.GetWeightSure(from, to);
+  }
+
+  return res;
+}
+
 }  // namespace routing

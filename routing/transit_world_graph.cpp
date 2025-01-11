@@ -14,9 +14,9 @@ TransitWorldGraph::TransitWorldGraph(unique_ptr<CrossMwmGraph> crossMwmGraph,
                                      unique_ptr<IndexGraphLoader> indexLoader,
                                      unique_ptr<TransitGraphLoader> transitLoader,
                                      shared_ptr<EdgeEstimator> estimator)
-  : m_crossMwmGraph(move(crossMwmGraph))
-  , m_indexLoader(move(indexLoader))
-  , m_transitLoader(move(transitLoader))
+  : m_crossMwmGraph(std::move(crossMwmGraph))
+  , m_indexLoader(std::move(indexLoader))
+  , m_transitLoader(std::move(transitLoader))
   , m_estimator(estimator)
 {
   CHECK(m_indexLoader, ());
@@ -217,7 +217,7 @@ void TransitWorldGraph::GetTwinsInner(Segment const & segment, bool isOutgoing,
 RoadGeometry const & TransitWorldGraph::GetRealRoadGeometry(NumMwmId mwmId, uint32_t featureId)
 {
   CHECK(!TransitGraph::IsTransitFeature(featureId), ("GetRealRoadGeometry not designed for transit."));
-  return m_indexLoader->GetGeometry(mwmId).GetRoad(featureId);
+  return m_indexLoader->GetIndexGraph(mwmId).GetRoadGeometry(featureId);
 }
 
 void TransitWorldGraph::AddRealEdges(astar::VertexData<Segment, RouteWeight> const & vertexData,

@@ -8,6 +8,8 @@
 #include "base/newtype.hpp"
 #include "base/visitor.hpp"
 
+#include "std/boost_container_hash.hpp"
+
 #include "defines.hpp"
 
 #include <cstdint>
@@ -17,8 +19,6 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-
-#include "3party/boost/boost/container_hash/hash.hpp"
 
 #include "3party/opening_hours/opening_hours.hpp"
 

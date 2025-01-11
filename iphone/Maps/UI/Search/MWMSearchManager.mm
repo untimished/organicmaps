@@ -20,6 +20,8 @@ using Observer = id<MWMSearchManagerObserver>;
 using Observers = NSHashTable<Observer>;
 }  // namespace
 
+const CGFloat kWidthForiPad = 320;
+
 @interface MWMMapViewControlsManager ()
 
 @property(nonatomic) MWMSearchManager *searchManager;
@@ -52,7 +54,6 @@ using Observers = NSHashTable<Observer>;
 @property(nonatomic) MWMNoMapsViewController *noMapsController;
 
 @property(nonatomic) Observers *observers;
-@property(nonatomic) NSDateFormatter *dateFormatter;
 
 @end
 
@@ -68,8 +69,6 @@ using Observers = NSHashTable<Observer>;
     self.state = MWMSearchManagerStateHidden;
     [MWMSearch addObserver:self];
     _observers = [Observers weakObjectsHashTable];
-    _dateFormatter = [[NSDateFormatter alloc] init];
-    _dateFormatter.dateFormat = @"yyyy-MM-dd";
   }
   return self;
 }
@@ -86,6 +85,11 @@ using Observers = NSHashTable<Observer>;
   [MWMSearch clear];
 }
 
+- (void)closeSearch {
+  [self.searchTextField endEditing:YES];
+  [self endSearch];
+}
+
 #pragma mark - Actions
 
 - (IBAction)textFieldDidEndEditing:(UITextField *)textField {
@@ -97,7 +101,7 @@ using Observers = NSHashTable<Observer>;
   NSString *text = textField.text;
   if (text.length > 0) {
     [self beginSearch];
-    [MWMSearch searchQuery:text forInputLocale:textField.textInputMode.primaryLanguage];
+    [MWMSearch searchQuery:text forInputLocale:textField.textInputMode.primaryLanguage withCategory:NO];
   } else {
     [self endSearch];
   }
@@ -135,11 +139,11 @@ using Observers = NSHashTable<Observer>;
 
 #pragma mark - MWMSearchTabbedViewProtocol
 
-- (void)searchText:(NSString *)text forInputLocale:(NSString *)locale {
+- (void)searchText:(NSString *)text forInputLocale:(NSString *)locale withCategory:(BOOL)isCategory {
   [self beginSearch];
   self.searchTextField.text = text;
   NSString *inputLocale = locale ?: self.searchTextField.textInputMode.primaryLanguage;
-  [MWMSearch searchQuery:text forInputLocale:inputLocale];
+  [MWMSearch searchQuery:text forInputLocale:inputLocale withCategory:isCategory];
 }
 
 - (void)dismissKeyboard {
@@ -176,7 +180,7 @@ using Observers = NSHashTable<Observer>;
   if (self.state == MWMSearchManagerStateTableSearch || self.state == MWMSearchManagerStateMapSearch) {
     NSString *text = self.searchTextField.text;
     if (text.length != 0)
-      [MWMSearch searchQuery:text forInputLocale:self.searchTextField.textInputMode.primaryLanguage];
+      [MWMSearch searchQuery:text forInputLocale:self.searchTextField.textInputMode.primaryLanguage withCategory:NO];
   }
 }
 
@@ -193,7 +197,7 @@ using Observers = NSHashTable<Observer>;
 
 - (void)changeToHiddenState {
   self.routingTooltipSearch = MWMSearchManagerRoutingTooltipSearchNone;
-  [self endSearch];
+  [self closeSearch];
 
   MWMMapViewControlsManager *controlsManager = self.controlsManager;
   auto const navigationManagerState = [MWMNavigationDashboardManager sharedManager].state;
@@ -209,7 +213,7 @@ using Observers = NSHashTable<Observer>;
   [self.navigationController popToRootViewControllerAnimated:NO];
 
   self.searchBarView.state = SearchBarStateReady;
-  GetFramework().DeactivateMapSelection(true);
+  GetFramework().DeactivateMapSelection();
   [self animateConstraints:^{
     self.contentViewTopHidden.priority = UILayoutPriorityDefaultLow;
     self.contentViewBottomHidden.priority = UILayoutPriorityDefaultLow;
@@ -230,7 +234,7 @@ using Observers = NSHashTable<Observer>;
   [self.navigationController popToRootViewControllerAnimated:NO];
 
   self.searchBarView.state = SearchBarStateReady;
-  GetFramework().DeactivateMapSelection(true);
+  GetFramework().DeactivateMapSelection();
   [self updateTableSearchActionBar];
   auto const navigationManagerState = [MWMNavigationDashboardManager sharedManager].state;
   if (navigationManagerState == MWMNavigationDashboardStateHidden) {
@@ -258,7 +262,7 @@ using Observers = NSHashTable<Observer>;
   auto const navigationManagerState = [MWMNavigationDashboardManager sharedManager].state;
   [self viewHidden:navigationManagerState != MWMNavigationDashboardStateHidden];
   self.controlsManager.menuState = MWMBottomMenuStateHidden;
-  GetFramework().DeactivateMapSelection(true);
+  GetFramework().DeactivateMapSelection();
   [MWMSearch setSearchOnMap:YES];
   [self.tableViewController reloadData];
 
@@ -413,8 +417,11 @@ using Observers = NSHashTable<Observer>;
   }
 }
 
-- (void)searchTabController:(MWMSearchTabViewController *)viewController didSearch:(NSString *)didSearch {
-  [self searchText:didSearch forInputLocale:[[AppInfo sharedInfo] languageId]];
+- (void)searchTabController:(MWMSearchTabViewController *)viewController
+                  didSearch:(NSString *)didSearch
+               withCategory:(BOOL)isCategory
+{
+  [self searchText:didSearch forInputLocale:[[AppInfo sharedInfo] languageId] withCategory:isCategory];
 }
 
 - (MWMSearchTableViewController *)tableViewController {
@@ -468,13 +475,23 @@ using Observers = NSHashTable<Observer>;
     [parentView addSubview:contentView];
     [parentView addSubview:actionBarView];
     [self layoutTopViews];
+    // Set Search controller default hidden state for iPad before it will be shown.
+    if (IPAD) {
+      self.searchViewContainerLeadingConstraint.constant = -kWidthForiPad;
+      [parentView.superview layoutIfNeeded];
+    }
   }
   [UIView animateWithDuration:kDefaultAnimationDuration
     animations:^{
-      CGFloat const alpha = hidden ? 0 : 1;
-      contentView.alpha = alpha;
-      actionBarView.alpha = alpha;
-      searchBarView.alpha = alpha;
+      if (IPAD) {
+        self.searchViewContainerLeadingConstraint.constant = hidden ? -kWidthForiPad : 0;
+        [parentView.superview layoutIfNeeded];
+      } else {
+        CGFloat const alpha = hidden ? 0 : 1;
+        contentView.alpha = alpha;
+        actionBarView.alpha = alpha;
+        searchBarView.alpha = alpha;
+      }
     }
     completion:^(BOOL finished) {
       if (!hidden)
@@ -482,6 +499,7 @@ using Observers = NSHashTable<Observer>;
       [contentView removeFromSuperview];
       [actionBarView removeFromSuperview];
       [searchBarView removeFromSuperview];
+      [self removeKeyboardObservers];
     }];
 }
 
@@ -504,6 +522,9 @@ using Observers = NSHashTable<Observer>;
 }
 - (UIView *)searchViewContainer {
   return [MapViewController sharedController].searchViewContainer;
+}
+- (NSLayoutConstraint *)searchViewContainerLeadingConstraint {
+  return [MapViewController sharedController].searchViewContainerLeadingConstraint;
 }
 - (UIView *)actionBarContainer {
   return [MapViewController sharedController].controlsView;

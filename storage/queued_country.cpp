@@ -5,8 +5,6 @@
 #include "platform/downloader_utils.hpp"
 #include "platform/local_country_file_utils.hpp"
 
-#include "coding/url.hpp"
-
 #include "base/assert.hpp"
 
 namespace storage
@@ -53,7 +51,7 @@ CountryId const & QueuedCountry::GetCountryId() const
 
 std::string QueuedCountry::GetRelativeUrl() const
 {
-  auto const fileName = platform::GetFileName(m_countryFile.GetName(), m_fileType);
+  auto const fileName = m_countryFile.GetFileName(m_fileType);
 
   uint64_t diffVersion = 0;
   if (m_fileType == MapFileType::Diff)

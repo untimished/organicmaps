@@ -13,11 +13,10 @@
 #include "drape/overlay_handle.hpp"
 #include "drape/render_bucket.hpp"
 
-#include "indexer/map_style_reader.hpp"
 
 namespace df
 {
-namespace
+namespace mp
 {
 df::ColorConstant const kMyPositionAccuracyColor = "MyPositionAccuracy";
 
@@ -52,7 +51,7 @@ dp::BindingInfo GetMarkerBindingInfo()
 
   return info;
 }
-}  // namespace
+}  // namespace mp
 
 MyPosition::MyPosition(ref_ptr<dp::GraphicsContext> context, ref_ptr<dp::TextureManager> mng)
   : m_position(m2::PointF::Zero())
@@ -60,17 +59,17 @@ MyPosition::MyPosition(ref_ptr<dp::GraphicsContext> context, ref_ptr<dp::Texture
   , m_accuracy(0.0f)
   , m_showAzimuth(false)
   , m_isRoutingMode(false)
-  , m_obsoletePosition(false)
 {
   m_parts.resize(4);
   CacheAccuracySector(context, mng);
   CachePointPosition(context, mng);
 }
 
-void MyPosition::InitArrow(ref_ptr<dp::GraphicsContext> context, ref_ptr<dp::TextureManager> mng)
+bool MyPosition::InitArrow(ref_ptr<dp::GraphicsContext> context, ref_ptr<dp::TextureManager> mng,
+                           Arrow3d::PreloadedData && preloadedData)
 {
-  m_arrow3d = make_unique_dp<Arrow3d>(context);
-  m_arrow3d->SetTexture(mng);
+  m_arrow3d = make_unique_dp<Arrow3d>(context, mng, std::move(preloadedData));
+  return m_arrow3d->IsValid();
 }
 
 void MyPosition::SetPosition(m2::PointF const & pt)
@@ -100,7 +99,6 @@ void MyPosition::SetRoutingMode(bool routingMode)
 
 void MyPosition::SetPositionObsolete(bool obsolete)
 {
-  m_obsoletePosition = obsolete;
   CHECK(m_arrow3d != nullptr, ());
   m_arrow3d->SetPositionObsolete(obsolete);
 }
@@ -159,10 +157,10 @@ void MyPosition::CacheAccuracySector(ref_ptr<dp::GraphicsContext> context,
   auto const etalonSector = static_cast<float>(2.0 * math::pi / kTriangleCount);
 
   dp::TextureManager::ColorRegion color;
-  mng->GetColorRegion(df::GetColorConstant(df::kMyPositionAccuracyColor), color);
+  mng->GetColorRegion(df::GetColorConstant(mp::kMyPositionAccuracyColor), color);
   glsl::vec2 colorCoord = glsl::ToVec2(color.GetTexRect().Center());
 
-  buffer_vector<MarkerVertex, kTriangleCount> buffer;
+  buffer_vector<mp::MarkerVertex, kTriangleCount> buffer;
   glsl::vec2 startNormal(0.0f, 1.0f);
 
   for (size_t i = 0; i < kTriangleCount + 1; ++i)
@@ -193,7 +191,7 @@ void MyPosition::CacheAccuracySector(ref_ptr<dp::GraphicsContext> context,
     });
 
     dp::AttributeProvider provider(1 /* stream count */, kVertexCount);
-    provider.InitStream(0 /* stream index */, GetMarkerBindingInfo(), make_ref(buffer.data()));
+    provider.InitStream(0 /* stream index */, mp::GetMarkerBindingInfo(), make_ref(buffer.data()));
 
     m_parts[MyPositionAccuracy].first = batcher.InsertTriangleList(context, state,
                                                                    make_ref(&provider), nullptr);
@@ -209,7 +207,7 @@ void MyPosition::CacheSymbol(ref_ptr<dp::GraphicsContext> context,
   m2::RectF const & texRect = symbol.GetTexRect();
   m2::PointF const halfSize = symbol.GetPixelSize() * 0.5f;
 
-  MarkerVertex data[4] =
+  mp::MarkerVertex data[4] =
   {
     { glsl::vec2(-halfSize.x,  halfSize.y), glsl::ToVec2(texRect.LeftTop()) },
     { glsl::vec2(-halfSize.x, -halfSize.y), glsl::ToVec2(texRect.LeftBottom()) },
@@ -218,7 +216,7 @@ void MyPosition::CacheSymbol(ref_ptr<dp::GraphicsContext> context,
   };
 
   dp::AttributeProvider provider(1 /* streamCount */, dp::Batcher::VertexPerQuad);
-  provider.InitStream(0 /* streamIndex */, GetMarkerBindingInfo(), make_ref(data));
+  provider.InitStream(0 /* streamIndex */, mp::GetMarkerBindingInfo(), make_ref(data));
   m_parts[part].first = batcher.InsertTriangleStrip(context, state, make_ref(&provider), nullptr);
   ASSERT(m_parts[part].first.IsValid(), ());
 }
